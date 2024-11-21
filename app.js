@@ -1,4 +1,5 @@
 const express = require('express');
+const merchantRoutes = require('./routes/merchantRoutes');
 const userRoutes = require('./routes/userRoutes');
 const { sequelize } = require('./models/index');
 require('dotenv').config();
@@ -8,6 +9,7 @@ const app = express();
 app.use(express.json());
 
 app.use('/api/v1', userRoutes);
+app.use('/api/v1/merchants', merchantRoutes);
 
 sequelize.sync({ alter: true })
   .then(() => {
