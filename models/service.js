@@ -1,7 +1,13 @@
 'use strict';
+const { v4: uuidv4 } = require('uuid');
 
 module.exports = (sequelize, DataTypes) => {
   const Service = sequelize.define('Service', {
+    id: {
+      type: DataTypes.UUID,
+      defaultValue: uuidv4,  // Automatically generate a UUID
+      primaryKey: true,
+    },
     name: {
       type: DataTypes.STRING,
       allowNull: false,

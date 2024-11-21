@@ -1,6 +1,6 @@
 const { Sequelize, DataTypes } = require('sequelize');
 const bcrypt = require('bcryptjs');
-const { v4: uuidv4 } = require('uuid'); // To generate UUID
+const { v4: uuidv4 } = require('uuid');
 
 module.exports = (sequelize) => {
   const Merchant = sequelize.define('Merchant', {
