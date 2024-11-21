@@ -1,35 +1,71 @@
-const { check, validationResult } = require('express-validator');
+const { User } = require('../models');
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
 
-// Register a new user with validation
-exports.register = [
-  // Validate input fields
-  check('firstName').notEmpty().withMessage('First name is required'),
-  check('lastName').notEmpty().withMessage('Last name is required'),
-  check('email').notEmpty().isEmail().withMessage('Valid email is required'),
-  check('phoneNumber').notEmpty().withMessage('Phone number is required'),
-  check('password').notEmpty().isLength({ min: 6 }).withMessage('Password must be at least 6 characters'),
+const JWT_SECRET = process.env.JWT_SECRET;
 
-  // Process request
-  async (req, res) => {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({ errors: errors.array() });
-    }
-
+exports.register = async (req, res) => {
+  try {
     const { firstName, lastName, email, phoneNumber, password } = req.body;
-    
-    try {
-      // Check if the user already exists
-      const existingUser = await userService.findUserByEmailOrPhone(email, phoneNumber);
-      if (existingUser) {
-        return res.status(400).json({ error: 'User already exists with this email or phone number' });
-      }
+        const existingUser = await User.findOne({ where: { email } });
+    if (existingUser) {
+      return res.status(400).json({ message: 'User with this email already exists' });
+    }    
 
-      // Create the user
-      const user = await userService.createUser(firstName, lastName, email, phoneNumber, password);
-      res.status(201).json({ message: 'User registered successfully', user });
-    } catch (error) {
-      res.status(500).json({ error: error.message });
-    }
+    const newUser = await User.create({ firstName, lastName, email, phoneNumber, password });
+    const user = {
+      id: newUser.id,
+      fist_name: newUser.firstName,
+      last_name: newUser.lastName,
+      email_address: newUser.email,
+      phone_number: newUser.phoneNumber,
+      joined: newUser.createdAt,
+      updated: newUser.updatedAt,
+    };
+
+    return res.status(201).json({ user  });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ message: 'Error registering user' });
   }
-];
+};
+
+// Login user
+exports.login = async (req, res) => {
+  try {
+    const { email, password } = req.body;
+
+    // Find the user by email
+    const user = await User.findOne({ where: { email } });
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    // Compare the hashed password with the provided password
+    const isPasswordValid = await bcrypt.compare(password, user.password);
+    if (!isPasswordValid) {
+      return res.status(401).json({ message: 'Invalid credentials' });
+    }
+    const token = jwt.sign({ id: user.id, email: user.email }, JWT_SECRET, { expiresIn: '1h' });
+
+    // If credentials are valid, return the user info (except password)
+    const userResponse = {
+      
+    };
+
+    return res.status(200).json({
+      id: user.id,
+      first_name: user.firstName,
+      last_name: user.lastName,
+      email_address: user.email,
+      phone_number: user.phoneNumber,
+      joined: user.createdAt,
+      updated: user.updatedAt,
+      access_token: token,
+    });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ message: 'Error logging in' });
+  }
+};
+

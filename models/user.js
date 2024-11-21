@@ -1,16 +1,25 @@
-module.exports = (sequelize, DataTypes) => {
+const { Sequelize, DataTypes } = require('sequelize');
+const bcrypt = require('bcryptjs');
+const { v4: uuidv4 } = require('uuid'); // Import uuidv4 for UUID generation
+
+module.exports = (sequelize) => {
   const User = sequelize.define('User', {
+    id: {
+      type: DataTypes.UUID,
+      defaultValue: Sequelize.UUIDV4,
+      primaryKey: true,
+    },
     firstName: {
       type: DataTypes.STRING,
-      allowNull: false,  // Cannot be null
+      allowNull: false,
     },
     lastName: {
       type: DataTypes.STRING,
-      allowNull: false,  // Cannot be null
+      allowNull: false,
     },
     email: {
       type: DataTypes.STRING,
-      allowNull: false,  // Cannot be null
+      allowNull: false,
       unique: true,      // Email must be unique
       validate: {
         isEmail: true,   // Ensure email format is valid
@@ -18,21 +27,27 @@ module.exports = (sequelize, DataTypes) => {
     },
     phoneNumber: {
       type: DataTypes.STRING,
-      allowNull: false,  // Cannot be null
+      allowNull: false,
       unique: true,      // Phone number must be unique
     },
     password: {
       type: DataTypes.STRING,
-      allowNull: false,  // Cannot be null
+      allowNull: false,
     },
   });
 
-  // Hash password before saving the user (optional for security)
-  const bcrypt = require('bcryptjs');
+  // Hash password before saving the user
   User.beforeCreate(async (user) => {
-    const hashedPassword = await bcrypt.hash(user.password, 10);
-    user.password = hashedPassword;
+    if (user.password) {
+      const hashedPassword = await bcrypt.hash(user.password, 10);
+      user.password = hashedPassword;
+    }
   });
+
+  // Check password validity (for login)
+  User.prototype.validPassword = async function (password) {
+    return bcrypt.compare(password, this.password);
+  };
 
   return User;
 };
