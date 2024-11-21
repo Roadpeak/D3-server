@@ -1,4 +1,5 @@
 const express = require('express');
+const storeRoutes = require('./routes/storeRoutes');
 const merchantRoutes = require('./routes/merchantRoutes');
 const userRoutes = require('./routes/userRoutes');
 const { sequelize } = require('./models/index');
@@ -10,6 +11,7 @@ app.use(express.json());
 
 app.use('/api/v1', userRoutes);
 app.use('/api/v1/merchants', merchantRoutes);
+app.use('/api/v1/stores', storeRoutes);
 
 sequelize.sync({ alter: true })
   .then(() => {

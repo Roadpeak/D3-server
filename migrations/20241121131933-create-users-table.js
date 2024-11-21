@@ -1,4 +1,5 @@
 'use strict';
+
 module.exports = {
   up: async (queryInterface, Sequelize) => {
     await queryInterface.createTable('Users', {
@@ -19,12 +20,10 @@ module.exports = {
       email: {
         type: Sequelize.STRING,
         allowNull: false,
-        unique: true,
       },
       phoneNumber: {
         type: Sequelize.STRING,
         allowNull: false,
-        unique: true,
       },
       password: {
         type: Sequelize.STRING,
@@ -40,6 +39,16 @@ module.exports = {
         allowNull: false,
         defaultValue: Sequelize.NOW,
       },
+    });
+
+    // Add unique constraints explicitly
+    await queryInterface.addIndex('Users', ['email'], {
+      unique: true,
+      name: 'unique_email_index',
+    });
+    await queryInterface.addIndex('Users', ['phoneNumber'], {
+      unique: true,
+      name: 'unique_phoneNumber_index',
     });
   },
 

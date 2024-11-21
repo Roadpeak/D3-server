@@ -1,0 +1,104 @@
+'use strict';
+
+module.exports = (sequelize, DataTypes) => {
+  const Store = sequelize.define(
+    'Store',
+    {
+      id: {
+        type: DataTypes.UUID,
+        defaultValue: DataTypes.UUIDV4,
+        primaryKey: true,
+      },
+      merchant_id: {
+        type: DataTypes.UUID,
+        allowNull: false,
+        references: {
+          model: 'Merchants',
+          key: 'id',
+        },
+      },
+      name: {
+        type: DataTypes.STRING,
+        allowNull: false,
+      },
+      location: {
+        type: DataTypes.STRING,
+        allowNull: false,
+      },
+      primary_email: {
+        type: DataTypes.STRING,
+        allowNull: false,
+        unique: true,
+      },
+      phone_number: {
+        type: DataTypes.STRING,
+        allowNull: true,
+      },
+      description: {
+        type: DataTypes.TEXT,
+        allowNull: true,
+      },
+      website_url: {
+        type: DataTypes.STRING,
+        allowNull: true,
+      },
+      logo_url: {
+        type: DataTypes.STRING,
+        allowNull: true,
+      },
+      opening_time: {
+        type: DataTypes.TIME,
+        allowNull: false,
+      },
+      closing_time: {
+        type: DataTypes.TIME,
+        allowNull: false,
+      },
+      working_days: {
+        type: DataTypes.ARRAY(DataTypes.STRING),
+        allowNull: false,
+        defaultValue: [],
+      },
+      status: {
+        type: DataTypes.ENUM('open', 'closed', 'under_construction'),
+        defaultValue: 'closed',
+      },
+      created_by: {
+        type: DataTypes.UUID,
+        allowNull: false,
+      },
+      updated_by: {
+        type: DataTypes.UUID,
+        allowNull: true,
+      },
+      is_active: {
+        type: DataTypes.BOOLEAN,
+        defaultValue: true,
+      },
+    },
+    {
+      timestamps: true,
+      tableName: 'Stores',
+    }
+  );
+
+  Store.associate = (models) => {
+    Store.belongsTo(models.Merchant, {
+      foreignKey: 'merchant_id',
+      onDelete: 'CASCADE',
+      onUpdate: 'CASCADE',
+    });
+    Store.belongsTo(models.User, {
+      foreignKey: 'created_by',
+      as: 'creator',
+      onDelete: 'SET NULL',
+    });
+    Store.belongsTo(models.User, {
+      foreignKey: 'updated_by',
+      as: 'updater',
+      onDelete: 'SET NULL',
+    });
+  };
+
+  return Store;
+};
