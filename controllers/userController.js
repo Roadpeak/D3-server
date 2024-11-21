@@ -1,62 +1,62 @@
-const { User } = require('../models');
-const bcrypt = require('bcryptjs');
-const jwt = require('jsonwebtoken');
+// const { User } = require('../models');
+// const bcrypt = require('bcryptjs');
+// const jwt = require('jsonwebtoken');
 
-const JWT_SECRET = process.env.JWT_SECRET;
+// const JWT_SECRET = process.env.JWT_SECRET;
 
-exports.register = async (req, res) => {
-  try {
-    const { firstName, lastName, email, phoneNumber, password } = req.body;
-        const existingUser = await User.findOne({ where: { email } });
-    if (existingUser) {
-      return res.status(400).json({ message: 'User with this email already exists' });
-    }    
+// exports.register = async (req, res) => {
+//   try {
+//     const { firstName, lastName, email, phoneNumber, password } = req.body;
+//         const existingUser = await User.findOne({ where: { email } });
+//     if (existingUser) {
+//       return res.status(400).json({ message: 'User with this email already exists' });
+//     }    
 
-    const newUser = await User.create({ firstName, lastName, email, phoneNumber, password });
-    const user = {
-      id: newUser.id,
-      fist_name: newUser.firstName,
-      last_name: newUser.lastName,
-      email_address: newUser.email,
-      phone_number: newUser.phoneNumber,
-      joined: newUser.createdAt,
-      updated: newUser.updatedAt,
-    };
+//     const newUser = await User.create({ firstName, lastName, email, phoneNumber, password });
+//     const user = {
+//       id: newUser.id,
+//       fist_name: newUser.firstName,
+//       last_name: newUser.lastName,
+//       email_address: newUser.email,
+//       phone_number: newUser.phoneNumber,
+//       joined: newUser.createdAt,
+//       updated: newUser.updatedAt,
+//     };
 
-    return res.status(201).json({ user  });
-  } catch (err) {
-    console.error(err);
-    return res.status(500).json({ message: 'Error registering user' });
-  }
-};
+//     return res.status(201).json({ user  });
+//   } catch (err) {
+//     console.error(err);
+//     return res.status(500).json({ message: 'Error registering user' });
+//   }
+// };
 
-exports.login = async (req, res) => {
-  try {
-    const { email, password } = req.body;
-    const user = await User.findOne({ where: { email } });
-    if (!user) {
-      return res.status(404).json({ message: 'User not found' });
-    }
+// exports.login = async (req, res) => {
+//   try {
+//     const { email, password } = req.body;
+//     const user = await User.findOne({ where: { email } });
+//     if (!user) {
+//       return res.status(404).json({ message: 'User not found' });
+//     }
 
-    const isPasswordValid = await bcrypt.compare(password, user.password);
-    if (!isPasswordValid) {
-      return res.status(401).json({ message: 'Invalid credentials' });
-    }
-    const token = jwt.sign({ id: user.id, email: user.email }, JWT_SECRET, { expiresIn: '365d' });
+//     const isPasswordValid = await bcrypt.compare(password, user.password);
+//     if (!isPasswordValid) {
+//       return res.status(401).json({ message: 'Invalid credentials' });
+//     }
+//     const token = jwt.sign({ id: user.id, email: user.email }, JWT_SECRET, { expiresIn: '365d' });
 
-    return res.status(200).json({
-      id: user.id,
-      first_name: user.firstName,
-      last_name: user.lastName,
-      email_address: user.email,
-      phone_number: user.phoneNumber,
-      joined: user.createdAt,
-      updated: user.updatedAt,
-      access_token: token,
-    });
-  } catch (err) {
-    console.error(err);
-    return res.status(500).json({ message: 'Error logging in' });
-  }
-};
+//     return res.status(200).json({
+//       id: user.id,
+//       first_name: user.firstName,
+//       last_name: user.lastName,
+//       email_address: user.email,
+//       phone_number: user.phoneNumber,
+//       joined: user.createdAt,
+//       updated: user.updatedAt,
+//       access_token: token,
+//     });
+//   } catch (err) {
+//     console.error(err);
+//     return res.status(500).json({ message: 'Error logging in' });
+//   }
+// };
 

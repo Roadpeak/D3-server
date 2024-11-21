@@ -1,4 +1,4 @@
-const { Service } = require('../models');
+const { Service, Sequelize } = require('../models');
 
 // Create a new service
 exports.createService = async (req, res) => {
@@ -106,5 +106,52 @@ exports.getServicesByStoreId = async (req, res) => {
   } catch (err) {
     console.error(err);
     return res.status(500).json({ message: 'Error fetching services for this store' });
+  }
+};
+
+exports.searchServices = async (req, res) => {
+  try {
+    const { name, category, minPrice, maxPrice } = req.query;
+
+    // Build the where clause based on provided query parameters
+    const whereClause = {};
+
+    if (name) {
+      whereClause.name = {
+        [Sequelize.Op.iLike]: `%${name}%`  // Case-insensitive search for name
+      };
+    }
+
+    if (category) {
+      whereClause.category = {
+        [Sequelize.Op.iLike]: `%${category}%`  // Case-insensitive search for category
+      };
+    }
+
+    if (minPrice || maxPrice) {
+      whereClause.price = {};
+      
+      if (minPrice) {
+        whereClause.price[Sequelize.Op.gte] = parseFloat(minPrice);  // Greater than or equal to minPrice
+      }
+      
+      if (maxPrice) {
+        whereClause.price[Sequelize.Op.lte] = parseFloat(maxPrice);  // Less than or equal to maxPrice
+      }
+    }
+
+    // Find services based on filters
+    const services = await Service.findAll({
+      where: whereClause
+    });
+
+    if (services.length === 0) {
+      return res.status(404).json({ message: 'No services found matching your criteria' });
+    }
+
+    return res.status(200).json({ services });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ message: 'Error searching services' });
   }
 };
