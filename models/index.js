@@ -16,5 +16,6 @@ const sequelize = new Sequelize(
 const User = require('./user')(sequelize, DataTypes);
 const Merchant = require('./merchant')(sequelize, DataTypes);
 const Store = require('./store')(sequelize, DataTypes);
+const Service = require('./service')(sequelize, DataTypes);
 
-module.exports = { sequelize, User, Merchant, Store };
+module.exports = { sequelize, User, Merchant, Store, Service };

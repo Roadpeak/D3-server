@@ -1,6 +1,5 @@
 const { Store } = require('../models');
 
-// Create a new store
 exports.createStore = async (req, res) => {
   try {
     const { name, location, primary_email, phone_number, description, website_url, logo_url, opening_time, closing_time, working_days, status, merchant_id } = req.body;
@@ -32,8 +31,6 @@ exports.createStore = async (req, res) => {
   }
 };
 
-
-// Get all stores
 exports.getStores = async (req, res) => {
   try {
     const stores = await Store.findAll();
@@ -44,7 +41,6 @@ exports.getStores = async (req, res) => {
   }
 };
 
-// Get a single store
 exports.getStoreById = async (req, res) => {
   try {
     const { id } = req.params;
@@ -61,7 +57,6 @@ exports.getStoreById = async (req, res) => {
   }
 };
 
-// Update a store
 exports.updateStore = async (req, res) => {
   try {
     const { id } = req.params;
@@ -83,7 +78,6 @@ exports.updateStore = async (req, res) => {
   }
 };
 
-// Delete a store
 exports.deleteStore = async (req, res) => {
   try {
     const { id } = req.params;
