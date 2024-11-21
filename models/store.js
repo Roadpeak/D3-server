@@ -55,10 +55,10 @@ module.exports = (sequelize, DataTypes) => {
         allowNull: false,
       },
       working_days: {
-        type: DataTypes.ARRAY(DataTypes.STRING),
+        type: DataTypes.JSON,
         allowNull: false,
         defaultValue: [],
-      },
+        },
       status: {
         type: DataTypes.ENUM('open', 'closed', 'under_construction'),
         defaultValue: 'closed',

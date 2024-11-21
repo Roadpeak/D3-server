@@ -3,19 +3,35 @@ const { Store } = require('../models');
 // Create a new store
 exports.createStore = async (req, res) => {
   try {
-    const { name, location, primary_email, phone_number, description, website_url, logo_url, opening_time, closing_time, working_days, status } = req.body;
+    const { name, location, primary_email, phone_number, description, website_url, logo_url, opening_time, closing_time, working_days, status, merchant_id } = req.body;
+
+    if (!merchant_id) {
+      return res.status(400).json({ message: 'Merchant ID is required' });
+    }
 
     const newStore = await Store.create({
-      ...req.body,
-      created_by: req.user.id, // Assuming the user is authenticated and their ID is in `req.user`
+      name,
+      location,
+      primary_email,
+      phone_number,
+      description,
+      website_url,
+      logo_url,
+      opening_time,
+      closing_time,
+      working_days,
+      status,
+      merchant_id,
+      created_by: req.user.id,
     });
 
-    return res.status(201).json({ message: 'Store created successfully', store: newStore });
+    return res.status(201).json({ newStore });
   } catch (err) {
     console.error(err);
     return res.status(500).json({ message: 'Error creating store' });
   }
 };
+
 
 // Get all stores
 exports.getStores = async (req, res) => {

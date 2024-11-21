@@ -20,7 +20,7 @@ module.exports = {
       email: {
         type: Sequelize.STRING,
         allowNull: false,
-        unique: true,
+        unique: true,  // This will create a single unique index for 'email'
         validate: {
           isEmail: true,
         },
@@ -28,7 +28,7 @@ module.exports = {
       phoneNumber: {
         type: Sequelize.STRING,
         allowNull: false,
-        unique: true,
+        unique: true,  // This will create a single unique index for 'phoneNumber'
       },
       password: {
         type: Sequelize.STRING,

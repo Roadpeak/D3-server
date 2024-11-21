@@ -61,8 +61,8 @@ module.exports = {
         type: Sequelize.TIME,
         allowNull: false,
       },
-      working_days: {
-        type: Sequelize.JSON, // Store as a JSON array
+     working_days: {
+        type: Sequelize.JSON,
         allowNull: false,
         defaultValue: [],
       },
@@ -73,19 +73,19 @@ module.exports = {
       },
       created_by: {
         type: Sequelize.UUID,
-        allowNull: true, // Allow null value here
+        allowNull: false,
         references: {
-          model: 'Merchants', // Assuming the creator is a user
+          model: 'Users',
           key: 'id',
         },
         onUpdate: 'CASCADE',
-        onDelete: 'SET NULL', // Allows NULL on delete
+        onDelete: 'SET NULL',
       },
       updated_by: {
         type: Sequelize.UUID,
         allowNull: true,
         references: {
-          model: 'Merchants',
+          model: 'Users',
           key: 'id',
         },
         onUpdate: 'CASCADE',
