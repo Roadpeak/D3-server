@@ -57,6 +57,7 @@ module.exports = (sequelize) => {
       modelName: 'Offer',
     }
   );
+  Offer.belongsTo(sequelize.models.Service, { foreignKey: 'service_id' });
 
   return Offer;
 };

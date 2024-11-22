@@ -53,6 +53,7 @@ module.exports = (sequelize, DataTypes) => {
       onDelete: 'CASCADE',
     });
   };
+  Service.belongsTo(sequelize.models.Store, { foreignKey: 'store_id' });
 
   return Service;
 };
