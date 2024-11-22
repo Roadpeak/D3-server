@@ -5,7 +5,7 @@ module.exports = (sequelize, DataTypes) => {
   const Service = sequelize.define('Service', {
     id: {
       type: DataTypes.UUID,
-      defaultValue: uuidv4,  // Automatically generate a UUID
+      defaultValue: uuidv4,
       primaryKey: true,
     },
     name: {
@@ -17,7 +17,7 @@ module.exports = (sequelize, DataTypes) => {
       allowNull: false,
     },
     duration: {
-      type: DataTypes.INTEGER, // in minutes
+      type: DataTypes.INTEGER,
       allowNull: false,
     },
     image_url: {
@@ -28,7 +28,7 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.UUID,
       allowNull: false,
       references: {
-        model: 'Stores', // assuming you have a Stores table
+        model: 'Stores',
         key: 'id',
       },
     },
@@ -43,12 +43,11 @@ module.exports = (sequelize, DataTypes) => {
   }, {
     tableName: 'Services',
     timestamps: true,
-    paranoid: true, // If you want soft deletes (optional)
-    indexes: [], // This will prevent automatic indexing on columns
+    paranoid: true,
+    indexes: [],
   });
 
   Service.associate = function (models) {
-    // A service belongs to a store
     Service.belongsTo(models.Store, {
       foreignKey: 'store_id',
       onDelete: 'CASCADE',

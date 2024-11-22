@@ -36,7 +36,6 @@ module.exports = (sequelize) => {
     },
   });
 
-  // Hash password before saving the merchant
   Merchant.beforeCreate(async (merchant) => {
     if (merchant.password) {
       const hashedPassword = await bcrypt.hash(merchant.password, 10);
@@ -44,7 +43,6 @@ module.exports = (sequelize) => {
     }
   });
 
-  // Compare password (for login)
   Merchant.prototype.validPassword = async function (password) {
     return bcrypt.compare(password, this.password);
   };
