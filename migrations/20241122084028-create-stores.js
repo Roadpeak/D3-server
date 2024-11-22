@@ -12,7 +12,7 @@ module.exports = {
         type: Sequelize.UUID,
         allowNull: false,
         references: {
-          model: 'Merchants', // Table name for merchants
+          model: 'Merchants',
           key: 'id',
         },
         onUpdate: 'CASCADE',
@@ -72,13 +72,13 @@ module.exports = {
       },
       created_by: {
         type: Sequelize.UUID,
-        allowNull: true, // Change to allow NULL
+        allowNull: false,
         references: {
           model: 'Users',
           key: 'id',
         },
         onUpdate: 'CASCADE',
-        onDelete: 'SET NULL', // This will now work because NULL is allowed
+        onDelete: 'RESTRICT', 
       },
       updated_by: {
         type: Sequelize.UUID,

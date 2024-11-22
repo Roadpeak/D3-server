@@ -12,10 +12,9 @@ const sequelize = new Sequelize(
   }
 );
 
-// Import models
-// const User = require('./user')(sequelize, DataTypes);
+const User = require('./user')(sequelize, DataTypes);
 const Merchant = require('./merchant')(sequelize, DataTypes);
 const Store = require('./store')(sequelize, DataTypes);
 const Service = require('./service')(sequelize, DataTypes);
 
-module.exports = { sequelize, Merchant, Store, Service };
+module.exports = { User, sequelize, Merchant, Store, Service };
