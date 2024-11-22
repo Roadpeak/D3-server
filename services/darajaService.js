@@ -1,8 +1,6 @@
 const axios = require('axios');
 const { generateUniqueCode } = require('../utils/paymentUtils');
-const { getAccessToken } = require('../config/darajaConfig');
 
-// Initiate Payment Request to Daraja API
 async function initiatePayment(amount, phoneNumber, accessToken) {
   const paymentData = {
     "BusinessShortCode": process.env.BUSINESS_SHORTCODE,
@@ -25,7 +23,6 @@ async function initiatePayment(amount, phoneNumber, accessToken) {
       { headers }
     );
     
-    // Handle response - record MerchantRequestID and initiate payment
     return response.data;
   } catch (error) {
     console.error('Error making payment request', error);
@@ -33,7 +30,6 @@ async function initiatePayment(amount, phoneNumber, accessToken) {
   }
 }
 
-// Record Payment Transaction
 async function recordPaymentTransaction(paymentDetails) {
   const { offer_id, user_id, phone_number, status, gateway, MerchantRequestID } = paymentDetails;
 
