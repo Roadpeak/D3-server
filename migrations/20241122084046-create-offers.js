@@ -17,7 +17,7 @@ module.exports = {
       fee: {
         type: Sequelize.DECIMAL(10, 2),
         allowNull: false,
-        // You can add a custom getter to calculate the fee if needed
+        
       },
       description: {
         type: Sequelize.STRING,

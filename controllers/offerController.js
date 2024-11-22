@@ -5,12 +5,15 @@ exports.createOffer = async (req, res) => {
   try {
     const { discount, expiration_date, service_id, description, status } = req.body;
 
+    const fee = (discount * 0.05).toFixed(2);
+
     const newOffer = await Offer.create({
       discount,
       expiration_date,
       service_id,
       description,
       status,
+      fee,
     });
 
     return res.status(201).json({ newOffer });
@@ -48,7 +51,6 @@ exports.getOfferById = async (req, res) => {
   }
 };
 
-// Update an offer
 exports.updateOffer = async (req, res) => {
   try {
     const { id } = req.params;
@@ -58,7 +60,20 @@ exports.updateOffer = async (req, res) => {
       return res.status(404).json({ message: 'Offer not found' });
     }
 
-    const updatedOffer = await offer.update(req.body);
+    const { discount, expiration_date, service_id, description, status } = req.body;
+
+    // Calculate fee as 5% of the discount
+    const fee = (discount * 0.05).toFixed(2);  // 5% of discount, formatted to 2 decimal places
+
+    const updatedOffer = await offer.update({
+      discount,
+      expiration_date,
+      service_id,
+      description,
+      status,
+      fee,  // Update the fee with the newly calculated value
+    });
+
     return res.status(200).json({ message: 'Offer updated successfully', offer: updatedOffer });
   } catch (err) {
     console.error(err);
