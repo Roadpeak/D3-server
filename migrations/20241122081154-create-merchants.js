@@ -20,15 +20,17 @@ module.exports = {
       email: {
         type: Sequelize.STRING,
         allowNull: false,
-        unique: true,  // This will create a single unique index for 'email'
+        unique: true,  // Keeps the unique constraint
         validate: {
           isEmail: true,
         },
+        index: false, // Prevent Sequelize from creating an index
       },
       phoneNumber: {
         type: Sequelize.STRING,
         allowNull: false,
-        unique: true,  // This will create a single unique index for 'phoneNumber'
+        unique: true, // Keeps the unique constraint
+        index: false, // Prevent Sequelize from creating an index
       },
       password: {
         type: Sequelize.STRING,
