@@ -3,7 +3,7 @@ module.exports = {
     await queryInterface.createTable('Offers', {
       id: {
         type: Sequelize.UUID,
-        defaultValue: Sequelize.UUIDV4, // Automatically generate UUID
+        defaultValue: Sequelize.UUIDV4,
         primaryKey: true,
       },
       discount: {

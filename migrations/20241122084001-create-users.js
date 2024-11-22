@@ -20,6 +20,8 @@ module.exports = {
       email: {
         type: Sequelize.STRING,
         allowNull: false,
+        unique: true,
+        index: false, 
       },
       phoneNumber: {
         type: Sequelize.STRING,
@@ -41,15 +43,7 @@ module.exports = {
       },
     });
 
-    // Add unique constraints explicitly
-    await queryInterface.addIndex('Users', ['email'], {
-      unique: true,
-      name: 'unique_email_index',
-    });
-    await queryInterface.addIndex('Users', ['phoneNumber'], {
-      unique: true,
-      name: 'unique_phoneNumber_index',
-    });
+    // No need for addIndex here, as unique constraint is automatically handled
   },
 
   down: async (queryInterface, Sequelize) => {

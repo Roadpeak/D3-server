@@ -29,7 +29,6 @@ module.exports = {
       primary_email: {
         type: Sequelize.STRING,
         allowNull: false,
-        unique: true,
         validate: {
           isEmail: true,
         },
@@ -61,7 +60,7 @@ module.exports = {
         type: Sequelize.TIME,
         allowNull: false,
       },
-     working_days: {
+      working_days: {
         type: Sequelize.JSON,
         allowNull: false,
         defaultValue: [],
@@ -73,13 +72,13 @@ module.exports = {
       },
       created_by: {
         type: Sequelize.UUID,
-        allowNull: false,
+        allowNull: true, // Change to allow NULL
         references: {
           model: 'Users',
           key: 'id',
         },
         onUpdate: 'CASCADE',
-        onDelete: 'SET NULL',
+        onDelete: 'SET NULL', // This will now work because NULL is allowed
       },
       updated_by: {
         type: Sequelize.UUID,
