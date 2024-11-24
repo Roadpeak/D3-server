@@ -7,7 +7,6 @@ const { sendEmail } = require('../utils/emailUtil');
 
 const JWT_SECRET = process.env.JWT_SECRET;
 
-// Register a new merchant
 exports.register = async (req, res) => {
   try {
     const { firstName, lastName, email, phoneNumber, password } = req.body;
