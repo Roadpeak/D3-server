@@ -26,7 +26,7 @@ module.exports = {
         createdAt: new Date(),
         updatedAt: new Date(),
       },
-    ], { returning: true });
+    ], { returning: true }); // Fetch the IDs after inserting
 
     // Seed Users
     const users = await queryInterface.bulkInsert('Users', [
@@ -42,11 +42,11 @@ module.exports = {
       },
     ], { returning: true });
 
-    // Seed Stores
+    // Seed Stores (ensure merchants[0].id and users[0].id are valid)
     const stores = await queryInterface.bulkInsert('Stores', [
       {
         id: uuidv4(),
-        merchant_id: merchants[0].id,
+        merchant_id: merchants[0].id, // Use the first merchant's ID
         name: 'Super Cuts',
         location: '123 Main St, City',
         primary_email: 'supercuts@example.com',
@@ -58,22 +58,22 @@ module.exports = {
         closing_time: '18:00:00',
         working_days: JSON.stringify(['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']),
         status: 'open',
-        created_by: users[0].id,
-        updated_by: users[0].id,
+        created_by: users[0].id, // Use the admin user
+        updated_by: users[0].id, // Use the admin user
         is_active: true,
         createdAt: new Date(),
         updatedAt: new Date(),
       },
     ], { returning: true });
 
-    // Seed Services
+    // Seed Services (ensure stores[0].id is valid)
     await queryInterface.bulkInsert('Services', [
       {
         id: uuidv4(),
         name: 'Haircut',
         price: 15.00,
         duration: 30, // in minutes
-        store_id: stores[0].id,
+        store_id: stores[0].id, // Use the first store's ID
         category: 'Beauty',
         description: 'A basic haircut',
         createdAt: new Date(),
@@ -84,14 +84,13 @@ module.exports = {
         name: 'Massage',
         price: 40.00,
         duration: 60, // in minutes
-        store_id: stores[0].id,
+        store_id: stores[0].id, // Use the first store's ID
         category: 'Wellness',
         description: 'Relaxing massage',
         createdAt: new Date(),
         updatedAt: new Date(),
       },
     ], {});
-
   },
 
   async down(queryInterface, Sequelize) {
