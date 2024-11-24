@@ -20,7 +20,6 @@ module.exports = (sequelize) => {
     email: {
       type: DataTypes.STRING,
       allowNull: false,
-      unique: true,
       validate: {
         isEmail: true,
       },
@@ -28,7 +27,6 @@ module.exports = (sequelize) => {
     phoneNumber: {
       type: DataTypes.STRING,
       allowNull: false,
-      unique: true,
     },
     password: {
       type: DataTypes.STRING,
@@ -37,6 +35,18 @@ module.exports = (sequelize) => {
   });
 
   Merchant.beforeCreate(async (merchant) => {
+    // Check if the email or phone number already exists before creating
+    const existingMerchant = await Merchant.findOne({ where: { email: merchant.email } });
+    if (existingMerchant) {
+      throw new Error('Merchant with this email already exists');
+    }
+
+    const existingPhone = await Merchant.findOne({ where: { phoneNumber: merchant.phoneNumber } });
+    if (existingPhone) {
+      throw new Error('Merchant with this phone number already exists');
+    }
+
+    // Hash the password before saving the merchant
     if (merchant.password) {
       const hashedPassword = await bcrypt.hash(merchant.password, 10);
       merchant.password = hashedPassword;

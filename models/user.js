@@ -20,15 +20,13 @@ module.exports = (sequelize) => {
     email: {
       type: DataTypes.STRING,
       allowNull: false,
-      unique: true,      // Email must be unique
       validate: {
-        isEmail: true,   // Ensure email format is valid
+        isEmail: true, // Ensure email format is valid
       },
     },
     phoneNumber: {
       type: DataTypes.STRING,
       allowNull: false,
-      unique: true,      // Phone number must be unique
     },
     password: {
       type: DataTypes.STRING,
@@ -42,12 +40,22 @@ module.exports = (sequelize) => {
       const hashedPassword = await bcrypt.hash(user.password, 10);
       user.password = hashedPassword;
     }
+
+    // Check if email already exists before creating
+    const existingUser = await User.findOne({ where: { email: user.email } });
+    if (existingUser) {
+      throw new Error('Email is already in use');
+    }
   });
 
   // Check password validity (for login)
   User.prototype.validPassword = async function (password) {
     return bcrypt.compare(password, this.password);
   };
+
+  // Add indexes manually if necessary
+  // User.addIndex(['email']); // Create a non-unique index on email
+  // User.addIndex(['phoneNumber']); // Create a non-unique index on phoneNumber
 
   return User;
 };

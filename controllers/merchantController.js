@@ -1,6 +1,7 @@
 const { Merchant } = require('../models');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
 const ejs = require('ejs');
 const fs = require('fs');
 const { sendEmail } = require('../utils/emailUtil');
@@ -16,6 +17,12 @@ exports.register = async (req, res) => {
       return res.status(400).json({ message: 'Merchant with this email already exists' });
     }
 
+    const existingPhone = await Merchant.findOne({ where: { phoneNumber } });
+    if (existingPhone) {
+      return res.status(400).json({ message: 'Merchant with this phone number already exists' });
+    }
+
+    // Create new merchant
     const newMerchant = await Merchant.create({ firstName, lastName, email, phoneNumber, password });
 
     const merchant = {
@@ -28,12 +35,14 @@ exports.register = async (req, res) => {
       updated: newMerchant.updatedAt,
     };
 
+    // Render the welcome email template using EJS
     const template = fs.readFileSync('./templates/welcomeMerchant.ejs', 'utf8');
     const emailContent = ejs.render(template, {
       merchantName: newMerchant.firstName,
       dashboardLink: `https://discoun3ree.com/dashboard/${newMerchant.id}`,
     });
 
+    // Send the welcome email
     await sendEmail(
       newMerchant.email,
       `Welcome to Discoun3, ${newMerchant.firstName}!`,
@@ -77,5 +86,79 @@ exports.login = async (req, res) => {
   } catch (err) {
     console.error(err);
     return res.status(500).json({ message: 'Error logging in' });
+  }
+};
+
+exports.requestPasswordReset = async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    // Check if the merchant exists
+    const merchant = await Merchant.findOne({ where: { email } });
+    if (!merchant) {
+      return res.status(404).json({ message: 'Merchant not found' });
+    }
+
+    // Generate a 6-digit OTP
+    const otp = crypto.randomInt(100000, 999999).toString();
+    merchant.passwordResetOtp = otp;
+    merchant.passwordResetExpires = Date.now() + 3600000;
+    await merchant.save();
+
+    // Render the OTP email template with merchant's name
+    const template = fs.readFileSync('./templates/passwordResetOtp.ejs', 'utf8');
+    const emailContent = ejs.render(template, {
+      otp: otp,
+      merchantName: merchant.firstName, // Pass merchant's first name as merchantName
+    });
+
+    // Send OTP to merchant's email
+    await sendEmail(
+      merchant.email,
+      'Password Reset OTP',
+      '',
+      emailContent
+    );
+
+    return res.status(200).json({ message: 'OTP sent to email' });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ message: 'Error requesting password reset' });
+  }
+};
+
+// Reset password using OTP
+exports.resetPassword = async (req, res) => {
+  try {
+    const { email, otp, newPassword } = req.body;
+
+    // Find the merchant
+    const merchant = await Merchant.findOne({ where: { email } });
+    if (!merchant) {
+      return res.status(404).json({ message: 'Merchant not found' });
+    }
+
+    // Check if OTP is valid and not expired
+    if (merchant.passwordResetOtp !== otp) {
+      return res.status(400).json({ message: 'Invalid OTP' });
+    }
+
+    if (merchant.passwordResetExpires < Date.now()) {
+      return res.status(400).json({ message: 'OTP has expired' });
+    }
+
+    // Hash the new password
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+
+    // Update the password
+    merchant.password = hashedPassword;
+    merchant.passwordResetOtp = null;  // Clear the OTP
+    merchant.passwordResetExpires = null;  // Clear the expiration time
+    await merchant.save();
+
+    return res.status(200).json({ message: 'Password has been reset successfully' });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ message: 'Error resetting password' });
   }
 };

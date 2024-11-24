@@ -11,14 +11,20 @@ exports.register = async (req, res) => {
   try {
     const { firstName, lastName, email, phoneNumber, password } = req.body;
 
-    // Check if user already exists
+    // Check if user already exists by email
     const existingUser = await User.findOne({ where: { email } });
     if (existingUser) {
       return res.status(400).json({ message: 'User with this email already exists' });
     }
 
-    // Create new user
-    const newUser = await User.create({ firstName, lastName, email, phoneNumber, password });
+    // Create new user with hashed password
+    const newUser = await User.create({
+      firstName,
+      lastName,
+      email,
+      phoneNumber,
+      password,
+    });
 
     // Prepare user data for the response
     const user = {
@@ -43,7 +49,7 @@ exports.register = async (req, res) => {
       newUser.email, // recipient email
       `Welcome to D3, ${newUser.firstName}!`, // email subject
       '', // plain text content (optional)
-      emailContent // html content
+      emailContent // HTML content
     );
 
     // Respond with user data
@@ -57,6 +63,11 @@ exports.register = async (req, res) => {
 exports.login = async (req, res) => {
   try {
     const { email, password } = req.body;
+
+    if (!email || !password) {
+      return res.status(400).json({ message: 'Email and password are required' });
+    }
+
     const user = await User.findOne({ where: { email } });
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
@@ -66,6 +77,7 @@ exports.login = async (req, res) => {
     if (!isPasswordValid) {
       return res.status(401).json({ message: 'Invalid credentials' });
     }
+
     const token = jwt.sign({ id: user.id, email: user.email }, JWT_SECRET, { expiresIn: '365d' });
 
     return res.status(200).json({
@@ -83,4 +95,3 @@ exports.login = async (req, res) => {
     return res.status(500).json({ message: 'Error logging in' });
   }
 };
-
