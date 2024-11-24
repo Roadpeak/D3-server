@@ -8,13 +8,10 @@ exports.createPayment = async (req, res) => {
   const { offer_id, user_id, phone_number, amount } = req.body;
 
   try {
-    // Get the access token from Daraja
     const accessToken = await getAccessToken();
 
-    // Initiate the payment
     const paymentResponse = await initiatePayment(amount, phone_number, accessToken);
 
-    // Record the payment in the database
     const newPayment = await recordPaymentTransaction({
       offer_id,
       user_id,
@@ -22,7 +19,7 @@ exports.createPayment = async (req, res) => {
       status: 'pending',
       gateway: 'MPESA',
       MerchantRequestID: paymentResponse.MerchantRequestID,
-      unique_code: generateUniqueCode()  // Ensure you generate the unique code
+      unique_code: generateUniqueCode(),
     });
 
     return res.status(201).json({ payment: newPayment });
@@ -119,5 +116,28 @@ exports.getPaymentsByStore = async (req, res) => {
   } catch (err) {
     console.error(err);
     return res.status(500).json({ message: 'Error fetching payments by store' });
+  }
+};
+
+exports.paymentCallback = async (req, res) => {
+  const { MerchantRequestID, ResultCode, ResultDesc } = req.body;
+
+  try {
+    // Find the payment record by MerchantRequestID
+    const payment = await Payment.findOne({ where: { MerchantRequestID } });
+
+    if (!payment) {
+      return res.status(404).json({ message: 'Payment not found' });
+    }
+
+    // Update the payment status based on the ResultCode
+    payment.status = ResultCode === 0 ? 'successful' : 'failed';
+    payment.result_description = ResultDesc;
+    await payment.save();
+
+    return res.status(200).json({ message: 'Payment status updated successfully' });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ message: 'Error updating payment status' });
   }
 };

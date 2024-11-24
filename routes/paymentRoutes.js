@@ -9,5 +9,6 @@ router.get('/payments/status/:status', paymentController.getPaymentsByStatus);
 router.get('/payments/user/:user_id', paymentController.getPaymentsByUser);
 router.get('/payments/offer/:offer_id', paymentController.getPaymentsByOffer);
 router.get('/payments/store/:store_id', paymentController.getPaymentsByStore);
+router.post('/payments/callback', paymentController.paymentCallback);
 
 module.exports = router;
