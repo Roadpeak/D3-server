@@ -11,13 +11,11 @@ exports.register = async (req, res) => {
   try {
     const { firstName, lastName, email, phoneNumber, password } = req.body;
 
-    // Check if user already exists by email
     const existingUser = await User.findOne({ where: { email } });
     if (existingUser) {
       return res.status(400).json({ message: 'User with this email already exists' });
     }
 
-    // Create new user with hashed password
     const newUser = await User.create({
       firstName,
       lastName,
@@ -26,7 +24,6 @@ exports.register = async (req, res) => {
       password,
     });
 
-    // Prepare user data for the response
     const user = {
       id: newUser.id,
       firstName: newUser.firstName,
@@ -37,22 +34,19 @@ exports.register = async (req, res) => {
       updated: newUser.updatedAt,
     };
 
-    // Render the welcome email template using EJS
     const template = fs.readFileSync('./templates/welcomeUser.ejs', 'utf8');
     const emailContent = ejs.render(template, {
       userName: newUser.firstName,
       marketplaceLink: 'https://discoun3ree.com/marketplace',
     });
 
-    // Send the welcome email
     await sendEmail(
-      newUser.email, // recipient email
-      `Welcome to D3, ${newUser.firstName}!`, // email subject
-      '', // plain text content (optional)
-      emailContent // HTML content
+      newUser.email,
+      `Welcome to D3, ${newUser.firstName}!`,
+      '',
+      emailContent
     );
 
-    // Respond with user data
     return res.status(201).json({ user });
   } catch (err) {
     console.error(err);

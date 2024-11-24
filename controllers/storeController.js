@@ -8,6 +8,12 @@ exports.createStore = async (req, res) => {
       return res.status(400).json({ message: 'Merchant ID is required' });
     }
 
+    const existingStore = await Store.findOne({ where: { primary_email } });
+    if (existingStore) {
+      return res.status(400).json({ message: 'A store with this primary email already exists' });
+    }
+
+    // Create the new store
     const newStore = await Store.create({
       name,
       location,

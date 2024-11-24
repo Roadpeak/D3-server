@@ -47,13 +47,5 @@ module.exports = (sequelize, DataTypes) => {
     indexes: [],
   });
 
-  Service.associate = function (models) {
-    Service.belongsTo(models.Store, {
-      foreignKey: 'store_id',
-      onDelete: 'CASCADE',
-    });
-  };
-  Service.belongsTo(sequelize.models.Store, { foreignKey: 'store_id' });
-
   return Service;
 };

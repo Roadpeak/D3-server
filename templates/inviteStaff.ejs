@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Staff Invitation</title>
+    <style>
+        body {
+            font-family: 'Arial', sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f4f4f9;
+            color: #333333;
+        }
+
+        .container {
+            max-width: 600px;
+            margin: 20px auto;
+            background-color: #ffffff;
+            border-radius: 10px;
+            overflow: hidden;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        .header {
+            background-color: #0056D6;
+            color: #ffffff;
+            text-align: center;
+            padding: 20px;
+            font-size: 24px;
+        }
+
+        .content {
+            padding: 20px;
+        }
+
+        .content h1 {
+            font-size: 22px;
+            color: #0056D6;
+            margin-bottom: 10px;
+        }
+
+        .content p {
+            font-size: 16px;
+            line-height: 1.6;
+            margin-bottom: 20px;
+        }
+
+        .button {
+            display: inline-block;
+            background-color: #0056D6;
+            color: #ffffff;
+            text-decoration: none;
+            padding: 12px 20px;
+            border-radius: 5px;
+            font-size: 16px;
+        }
+
+        .footer {
+            background-color: #f4f4f9;
+            text-align: center;
+            padding: 10px;
+            font-size: 12px;
+            color: #888888;
+        }
+
+        .footer a {
+            color: #0056D6;
+            text-decoration: none;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <div class="header">
+            <strong>
+                <%= storeName %>
+            </strong>
+        </div>
+        <div class="content">
+            <h1>Welcome to <%= storeName %>!</h1>
+            <p>Hello,</p>
+            <p>You’ve been invited to join our team at <strong>
+                    <%= storeName %>
+                </strong>. To get started, please use the temporary password below:</p>
+            <p><strong style="font-size: 18px; color: #0056D6;">
+                    <%= temporaryPassword %>
+                </strong></p>
+            <p>Click the button below to log in and set up your account:</p>
+            <p style="text-align: center;">
+                <a href="<%= loginLink %>" class="button">Set Up Your Account</a>
+            </p>
+            <p>If you have any questions, feel free to reach out to us at <a
+                    href="mailto:support@example.com">support@example.com</a>.</p>
+            <p>Best regards,<br>The <%= storeName %> Team</p>
+        </div>
+        <div class="footer">
+            <p>&copy; 2024 <%= storeName %>. All rights reserved.</p>
+            <p><a href="https://example.com/unsubscribe">Unsubscribe</a> | <a
+                    href="https://example.com/support">Support</a></p>
+        </div>
+    </div>
+</body>
+
+</html>
