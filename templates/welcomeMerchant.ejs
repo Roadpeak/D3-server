@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Welcome to Discoun3, [Merchant Name]!</title>
+    <style>
+        body {
+            font-family: 'Arial', sans-serif;
+            background-color: #f7f7f7;
+            margin: 0;
+            padding: 0;
+        }
+
+        .email-container {
+            width: 100%;
+            max-width: 700px;
+            margin: 0 auto;
+            background-color: #ffffff;
+            padding: 40px;
+            border-radius: 10px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+        }
+
+        .header {
+            background-color: #003366;
+            color: #ffffff;
+            padding: 30px;
+            text-align: center;
+            border-radius: 10px 10px 0 0;
+        }
+
+        .header h2 {
+            font-size: 26px;
+            margin: 0;
+        }
+
+        .content {
+            padding: 25px;
+            text-align: center;
+            color: #333;
+        }
+
+        .content h3 {
+            font-size: 22px;
+            margin-bottom: 10px;
+        }
+
+        .content p {
+            font-size: 16px;
+            line-height: 1.5;
+            margin: 15px 0;
+        }
+
+        .button {
+            background-color: #007bff;
+            color: white;
+            padding: 18px 30px;
+            text-decoration: none;
+            border-radius: 50px;
+            font-size: 18px;
+            margin-top: 20px;
+            display: inline-block;
+        }
+
+        .button:hover {
+            background-color: #0056b3;
+        }
+
+        .footer {
+            background-color: #f2f2f2;
+            color: #666;
+            padding: 30px;
+            font-size: 13px;
+            text-align: center;
+            border-radius: 0 0 10px 10px;
+        }
+
+        .footer a {
+            color: #007bff;
+            text-decoration: none;
+        }
+
+        .footer a:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="email-container">
+        <div class="header">
+            <h2>Welcome to Discoun3, <%= merchantName %>!</h2>
+        </div>
+        <div class="content">
+            <h3>We're thrilled to have you join our growing network of merchants!</h3>
+            <p>As a trusted partner on Discoun3, you'll be able to manage your store, set pricing, and list your
+                services to millions of potential customers. It’s time to take your business to the next level!</p>
+            <p><strong>What’s next?</strong> Get started today by logging into your dashboard, where you can add your
+                first service, explore marketing tools, and monitor your sales performance.</p>
+            <a href="<%= dashboardLink %>" class="button">Go to Dashboard</a>
+            <p>If you need any assistance, our support team is just a click away.</p>
+        </div>
+        <div class="footer">
+            <p>Discoun3 | All Rights Reserved</p>
+            <p><a href="https://discoun3ree.com/unsubscribe">Unsubscribe</a> | <a
+                    href="https://discoun3ree.com/support">Contact Support</a></p>
+        </div>
+    </div>
+</body>
+
+</html>

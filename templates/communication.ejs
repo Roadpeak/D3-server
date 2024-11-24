@@ -1,0 +1,86 @@
+<!-- communication.ejs -->
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Important Update - Discoun3</title>
+    <style>
+        body {
+            font-family: 'Arial', sans-serif;
+            background-color: #f4f4f4;
+            margin: 0;
+            padding: 0;
+        }
+
+        .email-container {
+            width: 100%;
+            max-width: 600px;
+            margin: 0 auto;
+            background-color: #ffffff;
+            padding: 40px;
+            border-radius: 8px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+        }
+
+        .header {
+            background-color: #003366;
+            color: #ffffff;
+            padding: 20px;
+            text-align: center;
+            border-radius: 8px 8px 0 0;
+        }
+
+        .content {
+            padding: 20px;
+            text-align: center;
+        }
+
+        .button {
+            background-color: #007bff;
+            color: white;
+            padding: 15px 25px;
+            text-decoration: none;
+            border-radius: 50px;
+            font-size: 16px;
+            margin-top: 20px;
+        }
+
+        .footer {
+            background-color: #f8f8f8;
+            color: #333;
+            padding: 20px;
+            font-size: 12px;
+            text-align: center;
+        }
+
+        .footer a {
+            color: #007bff;
+            text-decoration: none;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="email-container">
+        <div class="header">
+            <h2>Important Update from Discoun3</h2>
+        </div>
+        <div class="content">
+            <h3>Dear <%= name %>,</h3>
+            <p>We have an important update regarding your account. Please review the details below:</p>
+            <p>
+                <%= message %>
+            </p>
+            <a href="<%= link %>" class="button">Learn More</a>
+        </div>
+        <div class="footer">
+            <p>Discoun3, All rights reserved.</p>
+            <p><a href="https://discoun3ree.com/unsubscribe">Unsubscribe</a> | <a
+                    href="https://discoun3ree.com/support">Contact Support</a></p>
+        </div>
+    </div>
+</body>
+
+</html>

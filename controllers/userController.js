@@ -1,29 +1,53 @@
 const { User } = require('../models');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const ejs = require('ejs');
+const fs = require('fs');
+const { sendEmail } = require('../utils/emailUtil');
 
 const JWT_SECRET = process.env.JWT_SECRET;
 
 exports.register = async (req, res) => {
   try {
     const { firstName, lastName, email, phoneNumber, password } = req.body;
-        const existingUser = await User.findOne({ where: { email } });
+
+    // Check if user already exists
+    const existingUser = await User.findOne({ where: { email } });
     if (existingUser) {
       return res.status(400).json({ message: 'User with this email already exists' });
-    }    
+    }
 
+    // Create new user
     const newUser = await User.create({ firstName, lastName, email, phoneNumber, password });
+
+    // Prepare user data for the response
     const user = {
       id: newUser.id,
-      fist_name: newUser.firstName,
-      last_name: newUser.lastName,
-      email_address: newUser.email,
-      phone_number: newUser.phoneNumber,
+      firstName: newUser.firstName,
+      lastName: newUser.lastName,
+      email: newUser.email,
+      phoneNumber: newUser.phoneNumber,
       joined: newUser.createdAt,
       updated: newUser.updatedAt,
     };
 
-    return res.status(201).json({ user  });
+    // Render the welcome email template using EJS
+    const template = fs.readFileSync('./templates/welcomeUser.ejs', 'utf8');
+    const emailContent = ejs.render(template, {
+      userName: newUser.firstName,
+      marketplaceLink: 'https://discoun3ree.com/marketplace',
+    });
+
+    // Send the welcome email
+    await sendEmail(
+      newUser.email, // recipient email
+      `Welcome to D3, ${newUser.firstName}!`, // email subject
+      '', // plain text content (optional)
+      emailContent // html content
+    );
+
+    // Respond with user data
+    return res.status(201).json({ user });
   } catch (err) {
     console.error(err);
     return res.status(500).json({ message: 'Error registering user' });

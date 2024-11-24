@@ -6,8 +6,8 @@ const serviceRoutes = require('./routes/serviceRoutes');
 const { sequelize } = require('./models/index');
 const uploadRoutes = require('./routes/upload');
 const paymentRoutes = require('./routes/paymentRoutes');
-const bookingRoutes = require('./routes/bookingRoutes');
-const staffRoutes = require('./routes/staffRoutes');
+// const bookingRoutes = require('./routes/bookingRoutes');
+// const staffRoutes = require('./routes/staffRoutes');
 
 require('dotenv').config();
 
@@ -21,8 +21,8 @@ app.use('/api/v1/stores', storeRoutes);
 app.use('/api/v1/services', serviceRoutes);
 app.use('/api/v1/files', uploadRoutes);
 app.use('/api/v1/payments', paymentRoutes);
-app.use('/api/v1/bookings', bookingRoutes);
-app.use('/api/v1/staff', staffRoutes);
+// app.use('/api/v1/bookings', bookingRoutes);
+// app.use('/api/v1/staff', staffRoutes);
 
 sequelize.sync({ alter: true })
   .then(() => {
