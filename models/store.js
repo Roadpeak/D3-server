@@ -98,6 +98,10 @@ module.exports = (sequelize, DataTypes) => {
       as: 'updater',
       onDelete: 'SET NULL',
     });
+    Store.hasMany(models.StoreGallery, {
+      foreignKey: 'store_id',
+      onDelete: 'CASCADE',
+    });
   };
   return Store;
 };
