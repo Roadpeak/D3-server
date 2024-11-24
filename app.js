@@ -6,8 +6,10 @@ const serviceRoutes = require('./routes/serviceRoutes');
 const { sequelize } = require('./models/index');
 const uploadRoutes = require('./routes/upload');
 const paymentRoutes = require('./routes/paymentRoutes');
-// const bookingRoutes = require('./routes/bookingRoutes');
-// const staffRoutes = require('./routes/staffRoutes');
+const swaggerUi = require('swagger-ui-express');
+const fs = require('fs');
+const path = require('path');
+const swaggerFile = path.join(__dirname, 'swagger_output.json'); // Path to the generated Swagger JSON file
 
 require('dotenv').config();
 
@@ -15,15 +17,18 @@ const app = express();
 
 app.use(express.json());
 
+// Your routes
 app.use('/api/v1', userRoutes);
-app.use('/api/v1/merchants', merchantRoutes);
-app.use('/api/v1/stores', storeRoutes);
-app.use('/api/v1/services', serviceRoutes);
-app.use('/api/v1/files', uploadRoutes);
-app.use('/api/v1/payments', paymentRoutes);
-// app.use('/api/v1/bookings', bookingRoutes);
-// app.use('/api/v1/staff', staffRoutes);
+app.use('/api/v1/', merchantRoutes);
+app.use('/api/v1/', storeRoutes);
+app.use('/api/v1/', serviceRoutes);
+app.use('/api/v1/', uploadRoutes);
+app.use('/api/v1/', paymentRoutes);
 
+// Serve Swagger UI
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(JSON.parse(fs.readFileSync(swaggerFile, 'utf8'))));
+
+// Sync database and start server
 sequelize.sync({ alter: true })
   .then(() => {
     console.log('Database connected and synced');

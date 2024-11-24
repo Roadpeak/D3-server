@@ -4,15 +4,15 @@ const { register, login, requestPasswordReset, resetPassword } = require('../con
 const router = express.Router();
 
 // Register new merchant
-router.post('/register', register);
+router.post('merchants/register', register);
 
 // Login merchant
-router.post('/login', login);
+router.post('merchants/login', login);
 
 // Request password reset (Send OTP)
-router.post('/request-password-reset', requestPasswordReset);
+router.post('merchants/request-password-reset', requestPasswordReset);
 
 // Reset password with OTP
-router.post('/reset-password', resetPassword);
+router.post('merchants/reset-password', resetPassword);
 
 module.exports = router;

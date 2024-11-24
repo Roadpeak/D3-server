@@ -22,7 +22,6 @@ exports.register = async (req, res) => {
       return res.status(400).json({ message: 'Merchant with this phone number already exists' });
     }
 
-    // Create new merchant
     const newMerchant = await Merchant.create({ firstName, lastName, email, phoneNumber, password });
 
     const merchant = {
@@ -93,26 +92,22 @@ exports.requestPasswordReset = async (req, res) => {
   try {
     const { email } = req.body;
 
-    // Check if the merchant exists
     const merchant = await Merchant.findOne({ where: { email } });
     if (!merchant) {
       return res.status(404).json({ message: 'Merchant not found' });
     }
 
-    // Generate a 6-digit OTP
     const otp = crypto.randomInt(100000, 999999).toString();
     merchant.passwordResetOtp = otp;
     merchant.passwordResetExpires = Date.now() + 3600000;
     await merchant.save();
 
-    // Render the OTP email template with merchant's name
     const template = fs.readFileSync('./templates/passwordResetOtp.ejs', 'utf8');
     const emailContent = ejs.render(template, {
       otp: otp,
-      merchantName: merchant.firstName, // Pass merchant's first name as merchantName
+      merchantName: merchant.firstName, 
     });
 
-    // Send OTP to merchant's email
     await sendEmail(
       merchant.email,
       'Password Reset OTP',
@@ -127,18 +122,15 @@ exports.requestPasswordReset = async (req, res) => {
   }
 };
 
-// Reset password using OTP
 exports.resetPassword = async (req, res) => {
   try {
     const { email, otp, newPassword } = req.body;
 
-    // Find the merchant
     const merchant = await Merchant.findOne({ where: { email } });
     if (!merchant) {
       return res.status(404).json({ message: 'Merchant not found' });
     }
 
-    // Check if OTP is valid and not expired
     if (merchant.passwordResetOtp !== otp) {
       return res.status(400).json({ message: 'Invalid OTP' });
     }
@@ -147,13 +139,11 @@ exports.resetPassword = async (req, res) => {
       return res.status(400).json({ message: 'OTP has expired' });
     }
 
-    // Hash the new password
     const hashedPassword = await bcrypt.hash(newPassword, 10);
 
-    // Update the password
     merchant.password = hashedPassword;
-    merchant.passwordResetOtp = null;  // Clear the OTP
-    merchant.passwordResetExpires = null;  // Clear the expiration time
+    merchant.passwordResetOtp = null;
+    merchant.passwordResetExpires = null;
     await merchant.save();
 
     return res.status(200).json({ message: 'Password has been reset successfully' });
