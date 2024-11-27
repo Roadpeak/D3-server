@@ -1,42 +1,46 @@
 'use strict';
-const { UUID, UUIDV4, JSON, UUIDV4 } = require('sequelize');
 
 module.exports = {
-  up: async (queryInterface, Sequelize) => {
+  async up(queryInterface, Sequelize) {
     await queryInterface.createTable('FormResponses', {
       id: {
-        type: UUID,
-        defaultValue: UUIDV4,
+        type: Sequelize.UUID,
+        defaultValue: Sequelize.UUIDV4,
         primaryKey: true,
+        allowNull: false,
       },
       service_form_id: {
-        type: UUID,
+        type: Sequelize.UUID,
+        allowNull: false,
         references: {
           model: 'ServiceForms',
           key: 'id',
         },
-        allowNull: false,
+        onDelete: 'CASCADE',
+        onUpdate: 'CASCADE',
       },
       user_id: {
-        type: UUID,
+        type: Sequelize.UUID,
         allowNull: false,
       },
       response_data: {
-        type: JSON,
+        type: Sequelize.JSON,
         allowNull: false,
       },
       createdAt: {
         type: Sequelize.DATE,
         allowNull: false,
+        defaultValue: Sequelize.NOW,
       },
       updatedAt: {
         type: Sequelize.DATE,
         allowNull: false,
+        defaultValue: Sequelize.NOW,
       },
     });
   },
 
-  down: async (queryInterface, Sequelize) => {
+  async down(queryInterface, Sequelize) {
     await queryInterface.dropTable('FormResponses');
   },
 };

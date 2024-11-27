@@ -1,7 +1,7 @@
 'use strict';
 
 module.exports = {
-  up: async (queryInterface, Sequelize) => {
+  async up(queryInterface, Sequelize) {
     await queryInterface.addColumn('Services', 'type', {
       type: Sequelize.ENUM('fixed', 'dynamic'),
       allowNull: false,
@@ -9,7 +9,7 @@ module.exports = {
     });
   },
 
-  down: async (queryInterface, Sequelize) => {
+  async down(queryInterface, Sequelize) {
     await queryInterface.removeColumn('Services', 'type');
     await queryInterface.sequelize.query('DROP TYPE IF EXISTS "enum_Services_type";');
   },

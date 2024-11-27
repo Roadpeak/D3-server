@@ -1,46 +1,50 @@
 'use strict';
-const { UUID, UUIDV4, FLOAT, TEXT } = require('sequelize');
 
 module.exports = {
-  up: async (queryInterface, Sequelize) => {
+  async up(queryInterface, Sequelize) {
     await queryInterface.createTable('Quotes', {
       id: {
-        type: UUID,
-        defaultValue: UUIDV4,
+        type: Sequelize.UUID,
+        defaultValue: Sequelize.UUIDV4,
         primaryKey: true,
+        allowNull: false,
       },
       form_response_id: {
-        type: UUID,
+        type: Sequelize.UUID,
+        allowNull: false,
         references: {
           model: 'FormResponses',
           key: 'id',
         },
-        allowNull: false,
+        onDelete: 'CASCADE',
+        onUpdate: 'CASCADE',
       },
       quote_amount: {
-        type: FLOAT,
+        type: Sequelize.FLOAT,
         allowNull: false,
       },
       quote_details: {
-        type: TEXT,
+        type: Sequelize.TEXT,
         allowNull: false,
       },
       status: {
-        type: STRING,
+        type: Sequelize.STRING,
         defaultValue: 'Pending',
       },
       createdAt: {
         type: Sequelize.DATE,
         allowNull: false,
+        defaultValue: Sequelize.NOW,
       },
       updatedAt: {
         type: Sequelize.DATE,
         allowNull: false,
+        defaultValue: Sequelize.NOW,
       },
     });
   },
 
-  down: async (queryInterface, Sequelize) => {
+  async down(queryInterface, Sequelize) {
     await queryInterface.dropTable('Quotes');
   },
 };
