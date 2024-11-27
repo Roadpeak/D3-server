@@ -1,18 +1,22 @@
 const { Service, Sequelize } = require('../models');
 
-// Create a new service
 exports.createService = async (req, res) => {
   try {
-    const { name, price, duration, image_url, store_id, category, description } = req.body;
+    const { name, price, duration, image_url, store_id, category, description, type } = req.body;
+
+    if (!['fixed', 'dynamic'].includes(type)) {
+      return res.status(400).json({ message: 'Invalid service type. Must be "fixed" or "dynamic".' });
+    }
 
     const newService = await Service.create({
       name,
-      price,
-      duration,
+      price: type === 'fixed' ? price : null, // Ensure price is null for dynamic services
+      duration: type === 'fixed' ? duration : null, // Ensure duration is null for dynamic services
       image_url,
       store_id,
       category,
       description,
+      type,
     });
 
     return res.status(201).json({ newService });
@@ -22,7 +26,6 @@ exports.createService = async (req, res) => {
   }
 };
 
-// Get all services
 exports.getServices = async (req, res) => {
   try {
     const services = await Service.findAll();
@@ -33,7 +36,6 @@ exports.getServices = async (req, res) => {
   }
 };
 
-// Get a single service
 exports.getServiceById = async (req, res) => {
   try {
     const { id } = req.params;
@@ -50,10 +52,16 @@ exports.getServiceById = async (req, res) => {
   }
 };
 
-// Update a service
+
 exports.updateService = async (req, res) => {
   try {
     const { id } = req.params;
+    const { type } = req.body;
+
+    if (type && !['fixed', 'dynamic'].includes(type)) {
+      return res.status(400).json({ message: 'Invalid service type. Must be "fixed" or "dynamic".' });
+    }
+
     const service = await Service.findByPk(id);
 
     if (!service) {
@@ -62,6 +70,8 @@ exports.updateService = async (req, res) => {
 
     const updatedService = await service.update({
       ...req.body,
+      price: type === 'dynamic' ? null : req.body.price || service.price,
+      duration: type === 'dynamic' ? null : req.body.duration || service.duration,
     });
 
     return res.status(200).json({ message: 'Service updated successfully', service: updatedService });

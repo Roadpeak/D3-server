@@ -14,11 +14,11 @@ module.exports = (sequelize, DataTypes) => {
     },
     price: {
       type: DataTypes.FLOAT,
-      allowNull: false,
+      allowNull: true, // For dynamic services, price can be null
     },
     duration: {
       type: DataTypes.INTEGER,
-      allowNull: false,
+      allowNull: true, // Optional for dynamic services
     },
     image_url: {
       type: DataTypes.STRING,
@@ -39,6 +39,11 @@ module.exports = (sequelize, DataTypes) => {
     description: {
       type: DataTypes.TEXT,
       allowNull: true,
+    },
+    type: {
+      type: DataTypes.ENUM('fixed', 'dynamic'),
+      allowNull: false,
+      defaultValue: 'fixed',
     },
   }, {
     tableName: 'Services',
