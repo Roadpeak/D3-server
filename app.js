@@ -7,6 +7,9 @@ const { sequelize } = require('./models/index');
 const uploadRoutes = require('./routes/upload');
 const paymentRoutes = require('./routes/paymentRoutes');
 const staffRoutes = require('./routes/staffRoutes');
+const serviceFormsRoutes = require('./routes/serviceForms');
+const formResponsesRoutes = require('./routes/formResponses');
+const quotesRoutes = require('./routes/quotes');
 const swaggerUi = require('swagger-ui-express');
 const fs = require('fs');
 const path = require('path');
@@ -25,6 +28,9 @@ app.use('/api/v1', serviceRoutes);
 app.use('/api/v1', uploadRoutes);
 app.use('/api/v1', paymentRoutes);
 app.use('/api/v1', staffRoutes);
+app.use('/api/v1/service-forms', serviceFormsRoutes);
+app.use('/api/v1/form-responses', formResponsesRoutes);
+app.use('/api/v1/quotes', quotesRoutes);
 
 app.use('/api/v1/api-docs', swaggerUi.serve, swaggerUi.setup(JSON.parse(fs.readFileSync(swaggerFile, 'utf8'))));
 
