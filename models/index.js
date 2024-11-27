@@ -12,6 +12,7 @@ const sequelize = new Sequelize(
   }
 );
 
+// Import existing models
 const User = require('./user')(sequelize, DataTypes);
 const Merchant = require('./merchant')(sequelize, DataTypes);
 const Store = require('./store')(sequelize, DataTypes);
@@ -19,6 +20,12 @@ const Service = require('./service')(sequelize, DataTypes);
 const Staff = require('./staff')(sequelize, DataTypes);
 const StaffService = require('./StaffService')(sequelize, DataTypes);
 
+// Import new models
+const ServiceForm = require('./serviceform')(sequelize, DataTypes);
+const FormResponse = require('./formresponse')(sequelize, DataTypes);
+const Quote = require('./quote')(sequelize, DataTypes);
+
+// Define relationships
 Staff.belongsToMany(Service, {
   through: StaffService,
   foreignKey: 'staffId',
@@ -36,4 +43,48 @@ Service.belongsTo(Store, {
   onDelete: 'CASCADE',
 });
 
-module.exports = { User, Merchant, Store, Service, Staff, StaffService, sequelize };
+// New relationships
+ServiceForm.belongsTo(Service, {
+  foreignKey: 'service_id',
+  onDelete: 'CASCADE',
+});
+
+Service.hasMany(ServiceForm, {
+  foreignKey: 'service_id',
+});
+
+FormResponse.belongsTo(ServiceForm, {
+  foreignKey: 'service_form_id',
+  onDelete: 'CASCADE',
+});
+
+ServiceForm.hasMany(FormResponse, {
+  foreignKey: 'service_form_id',
+});
+
+FormResponse.belongsTo(User, {
+  foreignKey: 'user_id',
+  onDelete: 'CASCADE',
+});
+
+Quote.belongsTo(FormResponse, {
+  foreignKey: 'form_response_id',
+  onDelete: 'CASCADE',
+});
+
+FormResponse.hasOne(Quote, {
+  foreignKey: 'form_response_id',
+});
+
+module.exports = {
+  User,
+  Merchant,
+  Store,
+  Service,
+  Staff,
+  StaffService,
+  ServiceForm,
+  FormResponse,
+  Quote,
+  sequelize,
+};
