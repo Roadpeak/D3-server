@@ -10,8 +10,8 @@ exports.createService = async (req, res) => {
 
     const newService = await Service.create({
       name,
-      price: type === 'fixed' ? price : null, // Ensure price is null for dynamic services
-      duration: type === 'fixed' ? duration : null, // Ensure duration is null for dynamic services
+      price: type === 'fixed' ? price : null,
+      duration: type === 'fixed' ? duration : null,
       image_url,
       store_id,
       category,

@@ -3,7 +3,7 @@ const { uploadImage, uploadDocument } = require('../config/multer');
 const router = express.Router();
 
 // Upload Image Route
-router.post('files/upload-image', uploadImage.single('file'), (req, res) => {
+router.post('/files/upload-image', uploadImage.single('file'), (req, res) => {
   try {
     res.status(200).json({
       message: 'Image uploaded successfully',
@@ -15,7 +15,7 @@ router.post('files/upload-image', uploadImage.single('file'), (req, res) => {
 });
 
 // Upload Document Route
-router.post('files/upload-document', uploadDocument.single('file'), (req, res) => {
+router.post('/files/upload-document', uploadDocument.single('file'), (req, res) => {
   try {
     res.status(200).json({
       message: 'Document uploaded successfully',

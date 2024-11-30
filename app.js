@@ -1,4 +1,5 @@
 const express = require('express');
+const cors = require('cors'); // Import the cors package
 const storeRoutes = require('./routes/storeRoutes');
 const merchantRoutes = require('./routes/merchantRoutes');
 const userRoutes = require('./routes/userRoutes');
@@ -19,8 +20,13 @@ require('dotenv').config();
 
 const app = express();
 
+// Enable CORS for all origins
+app.use(cors());
+
+// Parse JSON request bodies
 app.use(express.json());
 
+// Define your routes
 app.use('/api/v1', userRoutes);
 app.use('/api/v1', merchantRoutes);
 app.use('/api/v1', storeRoutes);
@@ -32,8 +38,10 @@ app.use('/api/v1/service-forms', serviceFormsRoutes);
 app.use('/api/v1/form-responses', formResponsesRoutes);
 app.use('/api/v1/quotes', quotesRoutes);
 
+// Serve Swagger API docs
 app.use('/api/v1/api-docs', swaggerUi.serve, swaggerUi.setup(JSON.parse(fs.readFileSync(swaggerFile, 'utf8'))));
 
+// Sync Sequelize models
 sequelize.sync({ alter: true })
   .then(() => {
     console.log('Database connected and synced');
@@ -42,6 +50,7 @@ sequelize.sync({ alter: true })
     console.error('Error syncing database: ', err);
   });
 
+// Start the server
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);

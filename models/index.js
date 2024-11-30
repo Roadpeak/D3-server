@@ -12,7 +12,6 @@ const sequelize = new Sequelize(
   }
 );
 
-// Import existing models
 const User = require('./user')(sequelize, DataTypes);
 const Merchant = require('./merchant')(sequelize, DataTypes);
 const Store = require('./store')(sequelize, DataTypes);
@@ -20,12 +19,10 @@ const Service = require('./service')(sequelize, DataTypes);
 const Staff = require('./staff')(sequelize, DataTypes);
 const StaffService = require('./StaffService')(sequelize, DataTypes);
 
-// Import new models
 const ServiceForm = require('./serviceform')(sequelize, DataTypes);
 const FormResponse = require('./formresponse')(sequelize, DataTypes);
 const Quote = require('./quote')(sequelize, DataTypes);
 
-// Define relationships
 Staff.belongsToMany(Service, {
   through: StaffService,
   foreignKey: 'staffId',
@@ -43,7 +40,6 @@ Service.belongsTo(Store, {
   onDelete: 'CASCADE',
 });
 
-// New relationships
 ServiceForm.belongsTo(Service, {
   foreignKey: 'service_id',
   onDelete: 'CASCADE',
