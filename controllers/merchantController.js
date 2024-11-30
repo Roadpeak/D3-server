@@ -22,7 +22,9 @@ exports.register = async (req, res) => {
       return res.status(400).json({ message: 'Merchant with this phone number already exists' });
     }
 
+    console.log('Before creating merchant');
     const newMerchant = await Merchant.create({ firstName, lastName, email, phoneNumber, password });
+    console.log('Merchant created:', newMerchant);
 
     const merchant = {
       id: newMerchant.id,

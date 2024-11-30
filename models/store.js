@@ -68,10 +68,18 @@ module.exports = (sequelize, DataTypes) => {
       created_by: {
         type: DataTypes.UUID,
         allowNull: false,
+        references: {
+          model: 'Merchants', // Correct table name
+          key: 'id',
+        },
       },
       updated_by: {
         type: DataTypes.UUID,
         allowNull: true,
+        references: {
+          model: 'Merchants', // Correct table name
+          key: 'id',
+        },
       },
       is_active: {
         type: DataTypes.BOOLEAN,
@@ -90,12 +98,12 @@ module.exports = (sequelize, DataTypes) => {
       onDelete: 'CASCADE',
       onUpdate: 'CASCADE',
     });
-    Store.belongsTo(models.User, {
+    Store.belongsTo(models.Merchant, {
       foreignKey: 'created_by',
       as: 'creator',
       onDelete: 'SET NULL',
     });
-    Store.belongsTo(models.User, {
+    Store.belongsTo(models.Merchant, {
       foreignKey: 'updated_by',
       as: 'updater',
       onDelete: 'SET NULL',
