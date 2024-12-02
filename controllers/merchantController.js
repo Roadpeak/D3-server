@@ -12,19 +12,20 @@ exports.register = async (req, res) => {
   try {
     const { firstName, lastName, email, phoneNumber, password } = req.body;
 
+    // Check for existing email
     const existingMerchant = await Merchant.findOne({ where: { email } });
     if (existingMerchant) {
       return res.status(400).json({ message: 'Merchant with this email already exists' });
     }
 
+    // Check for existing phone number
     const existingPhone = await Merchant.findOne({ where: { phoneNumber } });
     if (existingPhone) {
       return res.status(400).json({ message: 'Merchant with this phone number already exists' });
     }
 
-    console.log('Before creating merchant');
+    // Create new merchant
     const newMerchant = await Merchant.create({ firstName, lastName, email, phoneNumber, password });
-    console.log('Merchant created:', newMerchant);
 
     const merchant = {
       id: newMerchant.id,
@@ -35,6 +36,9 @@ exports.register = async (req, res) => {
       joined: newMerchant.createdAt,
       updated: newMerchant.updatedAt,
     };
+
+    // Generate JWT token
+    const token = jwt.sign({ id: newMerchant.id, email: newMerchant.email }, JWT_SECRET, { expiresIn: '2378d' });
 
     // Render the welcome email template using EJS
     const template = fs.readFileSync('./templates/welcomeMerchant.ejs', 'utf8');
@@ -51,12 +55,16 @@ exports.register = async (req, res) => {
       emailContent
     );
 
-    return res.status(201).json({ merchant });
+    return res.status(201).json({ 
+      merchant,
+      access_token: token,
+    });
   } catch (err) {
     console.error(err);
     return res.status(500).json({ message: 'Error registering merchant' });
   }
 };
+
 
 exports.login = async (req, res) => {
   try {
