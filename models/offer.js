@@ -2,7 +2,7 @@ const { Model, DataTypes } = require('sequelize');
 const { v4: uuidv4 } = require('uuid');
 
 module.exports = (sequelize) => {
-  class Offer extends Model {}
+  class Offer extends Model { }
 
   Offer.init(
     {
@@ -57,6 +57,7 @@ module.exports = (sequelize) => {
       modelName: 'Offer',
     }
   );
+
   Offer.belongsTo(sequelize.models.Service, { foreignKey: 'service_id' });
 
   return Offer;

@@ -3,11 +3,13 @@ const BookingController = require('../controllers/bookingController');
 
 const router = express.Router();
 
-router.post('/', BookingController.create);
-router.get('/', BookingController.getAll);
-router.patch('/:id', BookingController.update);
-router.delete('/:id', BookingController.delete);
-router.post('/fullfil', BookingController.markAsFulfilled);
-router.post('/validate', BookingController.validateAndFulfill);
+router.post('/bookings/', BookingController.create);
+router.get('/bookings/', BookingController.getAll);
+router.get('/bookings/offer/:offerId', BookingController.getByOffer);
+router.get('/bookings/store/:storeId', BookingController.getByStore);
+router.patch('/bookings/:id', BookingController.update);
+router.delete('/bookings/:id', BookingController.delete);
+router.post('/bookings/fullfil', BookingController.markAsFulfilled);
+router.post('/bookings/validate', BookingController.validateAndFulfill);
 
 module.exports = router;

@@ -12,9 +12,11 @@ const serviceFormsRoutes = require('./routes/serviceForms');
 const formResponsesRoutes = require('./routes/formResponses');
 const offerRoutes = require('./routes/offerRoutes');
 const quotesRoutes = require('./routes/quotes');
+const bookingRoutes = require('./routes/bookingRoutes');
 const swaggerUi = require('swagger-ui-express');
 const fs = require('fs');
 const path = require('path');
+const apiKeyMiddleware = require('./milddlewares/apiKeyMiddleware');
 const swaggerFile = path.join(__dirname, 'swagger_output.json');
 
 require('dotenv').config();
@@ -27,15 +29,16 @@ app.use(cors());
 // Parse JSON request bodies
 app.use(express.json());
 
-// Define your routes
-app.use('/api/v1', userRoutes);
-app.use('/api/v1', merchantRoutes);
+app.use('/api/v1/users', apiKeyMiddleware, userRoutes); // Apply API key middleware to user routes
+app.use('/api/v1', apiKeyMiddleware, merchantRoutes); // Apply API key middleware to merchant routes
+
 app.use('/api/v1', storeRoutes);
 app.use('/api/v1', serviceRoutes);
 app.use('/api/v1', uploadRoutes);
 app.use('/api/v1', paymentRoutes);
 app.use('/api/v1', staffRoutes);
 app.use('/api/v1', offerRoutes);
+app.use('/api/v1', bookingRoutes);
 app.use('/api/v1/service-forms', serviceFormsRoutes);
 app.use('/api/v1/form-responses', formResponsesRoutes);
 app.use('/api/v1/quotes', quotesRoutes);

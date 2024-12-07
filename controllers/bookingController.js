@@ -1,8 +1,9 @@
-const Booking = require('../models/booking');
- const QRCode = require('qrcode');
+const { Booking, Offer, Service, Store } = require('../models'); // Ensure models are properly imported
+const QRCode = require('qrcode');
 
-const BookingController = {  
+const BookingController = {
 
+    // Create booking logic
     async create(req, res) {
         const { offerId, userId, paymentId, paymentUniqueCode, status, startTime, endTime } = req.body;
 
@@ -30,6 +31,7 @@ const BookingController = {
         }
     },
 
+    // Get all bookings
     async getAll(req, res) {
         try {
             const bookings = await Booking.findAll();
@@ -40,6 +42,7 @@ const BookingController = {
         }
     },
 
+    // Update booking
     async update(req, res) {
         const { id } = req.params;
         const { status, startTime, endTime } = req.body;
@@ -63,6 +66,7 @@ const BookingController = {
         }
     },
 
+    // Delete booking
     async delete(req, res) {
         const { id } = req.params;
 
@@ -81,6 +85,7 @@ const BookingController = {
         }
     },
 
+    // Validate and fulfill booking
     async validateAndFulfill(req, res) {
         const { qrData } = req.body;
 
@@ -103,6 +108,82 @@ const BookingController = {
         }
     },
 
+    // Get bookings by offer
+    async getByOffer(req, res) {
+        const { offerId } = req.params;
+
+        try {
+            const bookings = await Booking.findAll({
+                where: { offerId },
+                include: [
+                    {
+                        model: Offer,
+                        attributes: ['name', 'description'],
+                        include: [
+                            {
+                                model: Service,
+                                attributes: ['name'],
+                                include: [
+                                    {
+                                        model: Store,
+                                        attributes: ['name', 'location'],
+                                    },
+                                ],
+                            },
+                        ],
+                    },
+                ],
+            });
+
+            if (!bookings.length) {
+                return res.status(404).json({ error: 'No bookings found for this offer' });
+            }
+
+            res.status(200).json(bookings);
+        } catch (error) {
+            console.error(error);
+            res.status(500).json({ error: 'Failed to fetch bookings by offer' });
+        }
+    },
+
+    async getByStore(req, res) {
+        const { storeId } = req.params; // Get storeId from URL params
+
+        try {
+            const bookings = await Booking.findAll({
+                include: [
+                    {
+                        model: Offer,  // Including Offer associated with Booking
+                        attributes: ['discount', 'expiration_date', 'description', 'status'],
+                        include: [
+                            {
+                                model: Service,  // Including Service associated with Offer
+                                attributes: ['name', 'price', 'duration', 'category', 'description'],
+                                include: [
+                                    {
+                                        model: Store,  // Including Store associated with Service
+                                        where: { id: storeId },  // Filter to the storeId
+                                        attributes: ['name', 'location'],
+                                    },
+                                ],
+                            },
+                        ],
+                    },
+                ],
+            });
+
+            if (!bookings.length) {
+                return res.status(404).json({ error: 'No bookings found for this store' });
+            }
+
+            res.status(200).json(bookings);
+        } catch (error) {
+            console.error(error);
+            res.status(500).json({ error: 'Failed to fetch bookings by store' });
+        }
+    },
+
+    // Mark booking as fulfilled
     async markAsFulfilled(req, res) {
         const { paymentUniqueCode } = req.body;
 
