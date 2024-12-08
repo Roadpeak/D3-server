@@ -3,16 +3,14 @@ const StaffController = require('../controllers/staffController');
 
 const router = express.Router();
 
-router.post('/staff/', StaffController.create); // Create staff
-router.get('/staff/', StaffController.getAll); // Get all staff
-router.put('/staff/:id', StaffController.update); // Update staff
-router.delete('/staff/:id', StaffController.delete); // Delete staff
+router.post('/staff', StaffController.create);
+router.get('/staff', StaffController.getAll);
+router.get('/staff/:id', StaffController.getStaffById);
+router.put('/staff/:id', StaffController.update);
+router.delete('/staff/:id', StaffController.delete);
 router.post('/staff/assign-service', StaffController.assignService);
-
-// Unassign service from staff
 router.post('/staff/unassign-service', StaffController.unassignService);
-
-// Get services assigned to a staff member
 router.get('/staff/:staffId/services', StaffController.getServicesByStaffId);
+router.get('/staff/store/:storeId', StaffController.getStaffByStore);
 
 module.exports = router;

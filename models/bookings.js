@@ -53,13 +53,10 @@ module.exports = (sequelize) => {
     }
   );
 
-  // Define associations with other models
   Booking.associate = (models) => {
-    // The association with Offer model
     Booking.belongsTo(models.Offer, { foreignKey: 'offerId' });
-
-    // The association with Store model
     Booking.belongsTo(models.Store, { foreignKey: 'storeId' });
+    Booking.belongsTo(models.User, { foreignKey: 'userId' });
   };
 
   return Booking;

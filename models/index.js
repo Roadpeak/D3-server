@@ -1,3 +1,5 @@
+'use strict';
+
 const { Sequelize, DataTypes } = require('sequelize');
 require('dotenv').config();
 
@@ -20,12 +22,10 @@ const Service = require('./service')(sequelize, DataTypes);
 const Staff = require('./staff')(sequelize, DataTypes);
 const Offer = require('./offer')(sequelize, DataTypes);
 const StaffService = require('./StaffService')(sequelize, DataTypes);
-
 const ServiceForm = require('./serviceform')(sequelize, DataTypes);
 const FormResponse = require('./formresponse')(sequelize, DataTypes);
 const Quote = require('./quote')(sequelize, DataTypes);
 
-// Many-to-Many relationship between Staff and Service
 Staff.belongsToMany(Service, {
   through: StaffService,
   foreignKey: 'staffId',
@@ -38,13 +38,15 @@ Service.belongsToMany(Staff, {
   otherKey: 'staffId',
 });
 
-// Association between Service and Store
 Service.belongsTo(Store, {
   foreignKey: 'store_id',
   onDelete: 'CASCADE',
 });
 
-// Association between Service and ServiceForm
+Store.hasMany(Service, {
+  foreignKey: 'store_id',
+});
+
 ServiceForm.belongsTo(Service, {
   foreignKey: 'service_id',
   onDelete: 'CASCADE',
@@ -54,7 +56,6 @@ Service.hasMany(ServiceForm, {
   foreignKey: 'service_id',
 });
 
-// Association between FormResponse and ServiceForm
 FormResponse.belongsTo(ServiceForm, {
   foreignKey: 'service_form_id',
   onDelete: 'CASCADE',
@@ -64,13 +65,15 @@ ServiceForm.hasMany(FormResponse, {
   foreignKey: 'service_form_id',
 });
 
-// Association between FormResponse and User
 FormResponse.belongsTo(User, {
   foreignKey: 'user_id',
   onDelete: 'CASCADE',
 });
 
-// Association between Quote and FormResponse
+User.hasMany(FormResponse, {
+  foreignKey: 'user_id',
+});
+
 Quote.belongsTo(FormResponse, {
   foreignKey: 'form_response_id',
   onDelete: 'CASCADE',
@@ -80,30 +83,49 @@ FormResponse.hasOne(Quote, {
   foreignKey: 'form_response_id',
 });
 
-// NEW ASSOCIATIONS
-
-// Association between Booking and Offer
 Booking.belongsTo(Offer, {
   foreignKey: 'offerId',
-  onDelete: 'CASCADE', // Optional: you can adjust this behavior based on your use case
+  onDelete: 'CASCADE',
 });
 
-// Association between Offer and Service
+Offer.hasMany(Booking, {
+  foreignKey: 'offerId',
+});
+
 Offer.belongsTo(Service, {
   foreignKey: 'service_id',
   onDelete: 'CASCADE',
 });
 
-// Association between Booking and Store (You might already have this, if not add it)
+Service.hasMany(Offer, {
+  foreignKey: 'service_id',
+});
+
 Booking.belongsTo(Store, {
   foreignKey: 'storeId',
   onDelete: 'CASCADE',
 });
 
-// Optionally, you might want to associate Offer with Store as well if necessary
-Store.hasMany(Offer, {
+Store.hasMany(Booking, {
+  foreignKey: 'storeId',
+});
+
+Booking.belongsTo(User, {
+  foreignKey: 'userId',
+  onDelete: 'CASCADE',
+});
+
+User.hasMany(Booking, {
+  foreignKey: 'userId',
+});
+
+Offer.belongsTo(Store, {
   foreignKey: 'storeId',
   onDelete: 'CASCADE',
+});
+
+Store.hasMany(Offer, {
+  foreignKey: 'storeId',
 });
 
 module.exports = {

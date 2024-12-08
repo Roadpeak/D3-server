@@ -41,16 +41,16 @@ const StaffController = {
       const templatePath = './templates/inviteStaff.ejs';
       const template = fs.readFileSync(templatePath, 'utf8');
       const emailContent = ejs.render(template, {
-        storeName: store.name, 
+        storeName: store.name,
         temporaryPassword,
         loginLink: 'https://example.com/login',
       });
 
       await sendEmail(
-        staff.email, 
+        staff.email,
         `You’ve been invited to join ${store.name}`,
         '',
-        emailContent 
+        emailContent
       );
 
       res.status(201).json({
@@ -75,6 +75,52 @@ const StaffController = {
   async getAll(req, res) {
     try {
       const staff = await Staff.findAll();
+      res.status(200).json(staff);
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: 'Failed to fetch staff' });
+    }
+  },
+
+  async getStaffById(req, res) {
+    const { id } = req.params;
+
+    try {
+      const staff = await Staff.findByPk(id);
+      if (!staff) {
+        return res.status(404).json({ error: 'Staff not found' });
+      }
+
+      // Get services assigned to the staff
+      const services = await staff.getServices(); // Assuming you have a relation with services
+
+      res.status(200).json({
+        staff,
+        services,
+      });
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: 'Failed to fetch staff' });
+    }
+  },
+
+  async getStaffByStore(req, res) {
+    const { storeId } = req.params;
+
+    try {
+      const store = await Store.findByPk(storeId);
+      console.log(storeId)
+      if (!store) {
+        return res.status(404).json({ error: 'Store not found' });
+      }
+      const staff = await Staff.findAll({
+        where: { storeId },
+      });
+
+      if (!staff.length) {
+        return res.status(404).json({ error: 'No staff found for this store' });
+      }
+
       res.status(200).json(staff);
     } catch (error) {
       console.error(error);
@@ -142,13 +188,12 @@ const StaffController = {
         return res.status(404).json({ error: 'Staff not found' });
       }
 
-      // Find service and check storeId
       const service = await Service.findByPk(serviceId);
       if (!service) {
         return res.status(404).json({ error: 'Service not found' });
       }
 
-      if (staff.storeId !== service.storeId) {
+      if (staff.storeId !== service.store_id) {
         return res.status(400).json({ error: 'Store ID mismatch' });
       }
 

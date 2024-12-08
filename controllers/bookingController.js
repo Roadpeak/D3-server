@@ -1,13 +1,14 @@
-const { Booking, Offer, Service, Store } = require('../models'); // Ensure models are properly imported
+const { Booking, Offer, Service, Store, User } = require('../models'); // Ensure models are properly imported
 const QRCode = require('qrcode');
+const { sendEmail } = require('../utils/emailUtil');
 
 const BookingController = {
 
-    // Create booking logic
     async create(req, res) {
         const { offerId, userId, paymentId, paymentUniqueCode, status, startTime, endTime } = req.body;
 
         try {
+            // Create a new booking
             const booking = await Booking.create({
                 offerId,
                 userId,
@@ -18,11 +19,44 @@ const BookingController = {
                 endTime,
             });
 
+            // Generate QR code for the booking
             const qrData = JSON.stringify({ paymentUniqueCode: booking.paymentUniqueCode });
             const qrCode = await QRCode.toDataURL(qrData);
 
             booking.qrCode = qrCode;
             await booking.save();
+
+            // Fetch associated staff via service and offer hierarchy
+            const offer = await Offer.findByPk(offerId, {
+                include: {
+                    model: Service,
+                    attributes: ['id', 'name'],
+                    include: {
+                        model: Store,
+                        attributes: ['id', 'name'],
+                    },
+                },
+            });
+
+            const service = offer?.Service;
+            const assignedStaff = await service?.getStaff(); // Assuming Service has a `getStaff` association
+
+            if (assignedStaff) {
+                const emailContent = `<p>Dear ${assignedStaff.name},</p>
+                <p>A new booking has been made for the service <strong>${service.name}</strong>.</p>
+                <p>Booking details:</p>
+                <ul>
+                    <li>Start Time: ${startTime}</li>
+                    <li>End Time: ${endTime}</li>
+                </ul>
+                <p>Thank you!</p>`;
+                await sendEmail(
+                    assignedStaff.email,
+                    'New Booking Notification',
+                    '',
+                    emailContent
+                );
+            }
 
             res.status(201).json({ message: 'Booking created successfully', booking });
         } catch (error) {
@@ -39,6 +73,48 @@ const BookingController = {
         } catch (error) {
             console.error(error);
             res.status(500).json({ error: 'Failed to fetch bookings' });
+        }
+    },
+
+    // Get a single booking by ID with all associated details
+    async getById(req, res) {
+        const { id } = req.params; // Get booking ID from URL params
+
+        try {
+            const booking = await Booking.findOne({
+                where: { id },
+                include: [
+                    {
+                        model: Offer, // Include Offer associated with Booking
+                        attributes: ['discount', 'expiration_date', 'description', 'status'],
+                        include: [
+                            {
+                                model: Service, // Include Service associated with Offer
+                                attributes: ['name', 'price', 'duration', 'category', 'description'],
+                                include: [
+                                    {
+                                        model: Store, // Include Store associated with Service
+                                        attributes: ['name', 'location'],
+                                    },
+                                ],
+                            },
+                        ],
+                    },
+                    {
+                        model: User, // Include User associated with Booking
+                        attributes: ['id', 'firstName', 'lastName', 'email', 'phoneNumber'], // Include necessary User fields
+                    },
+                ],
+            });
+
+            if (!booking) {
+                return res.status(404).json({ error: 'Booking not found' });
+            }
+
+            res.status(200).json(booking);
+        } catch (error) {
+            console.error(error);
+            res.status(500).json({ error: 'Failed to fetch booking details' });
         }
     },
 
@@ -153,21 +229,25 @@ const BookingController = {
             const bookings = await Booking.findAll({
                 include: [
                     {
-                        model: Offer,  // Including Offer associated with Booking
+                        model: Offer,  // Include Offer associated with Booking
                         attributes: ['discount', 'expiration_date', 'description', 'status'],
                         include: [
                             {
-                                model: Service,  // Including Service associated with Offer
+                                model: Service,  // Include Service associated with Offer
                                 attributes: ['name', 'price', 'duration', 'category', 'description'],
                                 include: [
                                     {
-                                        model: Store,  // Including Store associated with Service
+                                        model: Store,  // Include Store associated with Service
                                         where: { id: storeId },  // Filter to the storeId
                                         attributes: ['name', 'location'],
                                     },
                                 ],
                             },
                         ],
+                    },
+                    {
+                        model: User,  // Include User associated with Booking
+                        attributes: ['id', 'firstName', 'lastName', 'email', 'phoneNumber'], // Include necessary User fields
                     },
                 ],
             });

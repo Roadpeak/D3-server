@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      line-height: 1.6;
+    }
+    .container {
+      max-width: 600px;
+      margin: 0 auto;
+      padding: 20px;
+      border: 1px solid #ccc;
+      border-radius: 10px;
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    }
+    .header {
+      font-size: 18px;
+      margin-bottom: 20px;
+    }
+    .details {
+      margin-bottom: 10px;
+    }
+    .footer {
+      margin-top: 20px;
+      font-size: 14px;
+      color: #555;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h2 class="header">New Booking Notification</h2>
+    <p>Hello <strong><%= staffName %></strong>,</p>
+    <p>A new booking has been created for your service:</p>
+    <div class="details">
+      <p><strong>Service Name:</strong> <%= serviceName %></p>
+      <p><strong>Booking Start Time:</strong> <%= bookingStartTime %></p>
+      <p><strong>Booking End Time:</strong> <%= bookingEndTime %></p>
+      <p><strong>Customer ID:</strong> <%= customerId %></p>
+    </div>
+    <p>Thank you for providing excellent service!</p>
+    <p class="footer">This is an automated notification. Please do not reply to this email.</p>
+  </div>
+</body>
+</html>

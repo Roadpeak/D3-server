@@ -3,8 +3,9 @@ const BookingController = require('../controllers/bookingController');
 
 const router = express.Router();
 
-router.post('/bookings/', BookingController.create);
-router.get('/bookings/', BookingController.getAll);
+router.post('/bookings', BookingController.create);
+router.get('/bookings', BookingController.getAll);
+router.get('/bookings/:id', BookingController.getById);
 router.get('/bookings/offer/:offerId', BookingController.getByOffer);
 router.get('/bookings/store/:storeId', BookingController.getByStore);
 router.patch('/bookings/:id', BookingController.update);
