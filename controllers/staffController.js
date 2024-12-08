@@ -1,4 +1,4 @@
-const { Staff, Service, StaffService, Store } = require('../models');
+const { Staff, Service, StaffService, Store, Booking, Offer, User } = require('../models');
 const bcrypt = require('bcryptjs');
 const fs = require('fs');
 const ejs = require('ejs');
@@ -224,7 +224,6 @@ const StaffController = {
         return res.status(404).json({ error: 'Service not assigned to this staff' });
       }
 
-      // Delete the assignment
       await assignment.destroy();
 
       res.status(200).json({ message: 'Service unassigned from staff successfully' });
@@ -234,7 +233,52 @@ const StaffController = {
     }
   },
 
-  // Get services by staff id
+  async getBookingsByStaffId(req, res) {
+    const { staffId } = req.params;
+
+    try {
+      const staff = await Staff.findByPk(staffId);
+      if (!staff) {
+        return res.status(404).json({ error: 'Staff not found' });
+      }
+
+      const services = await staff.getServices();
+      if (!services.length) {
+        return res.status(404).json({ error: 'No services assigned to this staff' });
+      }
+
+      const bookings = await Booking.findAll({
+        include: [
+          {
+            model: Offer,
+            where: {
+              service_id: services.map(service => service.id), 
+            },
+            include: [
+              {
+                model: Service,
+                required: true,
+              },
+            ],
+          },
+          {
+            model: User, // Include the user associated with the booking
+            attributes: ['firstname', 'lastName', 'email', 'phoneNumber'], // Select the required fields
+          },
+        ],
+      });
+
+      if (!bookings.length) {
+        return res.status(404).json({ error: 'No bookings found for this staff' });
+      }
+
+      res.status(200).json(bookings);
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: 'Failed to fetch bookings for staff' });
+    }
+  },
+
   async getServicesByStaffId(req, res) {
     const { staffId } = req.params;
 
@@ -244,7 +288,6 @@ const StaffController = {
         return res.status(404).json({ error: 'Staff not found' });
       }
 
-      // Get services assigned to the staff
       const services = await staff.getServices();
       res.status(200).json(services);
     } catch (error) {

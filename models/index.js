@@ -21,9 +21,11 @@ const Store = require('./store')(sequelize, DataTypes);
 const Service = require('./service')(sequelize, DataTypes);
 const Staff = require('./staff')(sequelize, DataTypes);
 const Offer = require('./offer')(sequelize, DataTypes);
+const Payment = require('./payment')(sequelize, DataTypes);
 const StaffService = require('./StaffService')(sequelize, DataTypes);
 const ServiceForm = require('./serviceform')(sequelize, DataTypes);
 const FormResponse = require('./formresponse')(sequelize, DataTypes);
+const Social = require('./social')(sequelize, DataTypes);
 const Quote = require('./quote')(sequelize, DataTypes);
 
 Staff.belongsToMany(Service, {
@@ -140,5 +142,7 @@ module.exports = {
   FormResponse,
   Quote,
   Booking,
+  Payment,
+  Social,
   sequelize,
 };

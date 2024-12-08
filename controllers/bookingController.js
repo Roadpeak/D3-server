@@ -1,36 +1,58 @@
-const { Booking, Offer, Service, Store, User } = require('../models'); // Ensure models are properly imported
+const { Booking, Offer, Service, Store, User, Payment, Staff } = require('../models');
 const QRCode = require('qrcode');
 const { sendEmail } = require('../utils/emailUtil');
+const ejs = require('ejs');
+const path = require('path');
+const fs = require('fs');
 
 const BookingController = {
 
     async create(req, res) {
-        const { offerId, userId, paymentId, paymentUniqueCode, status, startTime, endTime } = req.body;
+        const { offerId, userId, paymentUniqueCode, startTime } = req.body;
+
+        function formatDateTime(date) {
+            const options = {
+                weekday: 'long',
+                year: 'numeric',
+                month: 'short',
+                day: 'numeric',
+                hour: 'numeric',
+                minute: 'numeric',
+                hour12: true
+            };
+
+            const formattedDate = new Date(date).toLocaleString('en-GB', options);
+            const day = new Date(date).getDate();
+            let suffix = 'th';
+            if (day % 10 === 1 && day !== 11) {
+                suffix = 'st';
+            } else if (day % 10 === 2 && day !== 12) {
+                suffix = 'nd';
+            } else if (day % 10 === 3 && day !== 13) {
+                suffix = 'rd';
+            }
+
+            // Replace the day number with the day + suffix (e.g., "5th")
+            const dayWithSuffix = formattedDate.replace(day, day + suffix);
+
+            return dayWithSuffix;
+        }
 
         try {
-            // Create a new booking
-            const booking = await Booking.create({
-                offerId,
-                userId,
-                paymentId,
-                paymentUniqueCode,
-                status: status || 'pending',
-                startTime,
-                endTime,
+            const payment = await Payment.findOne({
+                where: { unique_code: paymentUniqueCode },
             });
 
-            // Generate QR code for the booking
-            const qrData = JSON.stringify({ paymentUniqueCode: booking.paymentUniqueCode });
-            const qrCode = await QRCode.toDataURL(qrData);
+            if (!payment) {
+                return res.status(404).json({ error: 'Payment not found' });
+            }
 
-            booking.qrCode = qrCode;
-            await booking.save();
+            const paymentId = payment.id;
 
-            // Fetch associated staff via service and offer hierarchy
             const offer = await Offer.findByPk(offerId, {
                 include: {
                     model: Service,
-                    attributes: ['id', 'name'],
+                    attributes: ['id', 'name', 'duration'],
                     include: {
                         model: Store,
                         attributes: ['id', 'name'],
@@ -38,34 +60,81 @@ const BookingController = {
                 },
             });
 
-            const service = offer?.Service;
-            const assignedStaff = await service?.getStaff(); // Assuming Service has a `getStaff` association
-
-            if (assignedStaff) {
-                const emailContent = `<p>Dear ${assignedStaff.name},</p>
-                <p>A new booking has been made for the service <strong>${service.name}</strong>.</p>
-                <p>Booking details:</p>
-                <ul>
-                    <li>Start Time: ${startTime}</li>
-                    <li>End Time: ${endTime}</li>
-                </ul>
-                <p>Thank you!</p>`;
-                await sendEmail(
-                    assignedStaff.email,
-                    'New Booking Notification',
-                    '',
-                    emailContent
-                );
+            if (!offer) {
+                return res.status(404).json({ error: 'Offer not found' });
             }
 
-            res.status(201).json({ message: 'Booking created successfully', booking });
+            const service = offer.Service;
+            if (!service) {
+                return res.status(404).json({ error: 'Service not found for this offer' });
+            }
+
+            if (!service.duration) {
+                return res.status(400).json({ error: 'Service duration is not defined' });
+            }
+
+            const endTime = new Date(new Date(startTime).getTime() + service.duration * 60000);
+
+            const booking = await Booking.create({
+                offerId,
+                userId,
+                paymentId,
+                paymentUniqueCode,
+                status: 'pending',
+                startTime,
+                endTime,
+            });
+
+            const qrData = JSON.stringify({ paymentUniqueCode: booking.paymentUniqueCode });
+            const qrCode = await QRCode.toDataURL(qrData);
+
+            booking.qrCode = qrCode;
+            await booking.save();
+
+            const assignedStaff = await Staff.findAll({
+                include: {
+                    model: Service,
+                    where: { id: service.id },
+                    through: { attributes: [] },
+                }
+            });
+
+            const formattedStartTime = formatDateTime(startTime);
+            const formattedEndTime = formatDateTime(endTime);
+
+            const bookingLink = `https://yourdomain.com/booking/${booking.id}`;
+
+            if (assignedStaff && assignedStaff.length > 0) {
+                for (const staff of assignedStaff) {
+                    const templatePath = path.join(__dirname, '..', 'templates', 'bookingNotification.ejs'); // Going one level up from the controllers folder
+                    const template = fs.readFileSync(templatePath, 'utf8');
+
+                    const emailContent = ejs.render(template, {
+                        staffName: staff.name,
+                        serviceName: service.name,
+                        bookingStartTime: formattedStartTime,
+                        bookingEndTime: formattedEndTime,
+                        customerId: userId,
+                        bookingLink: bookingLink,
+                    });
+
+                    // Send the email to the staff
+                    await sendEmail(
+                        staff.email,
+                        'New Booking Notification',
+                        '', // No attachment
+                        emailContent
+                    );
+                }
+            }
+
+            res.status(201).json({ booking });
         } catch (error) {
             console.error(error);
             res.status(500).json({ error: 'Failed to create booking' });
         }
     },
 
-    // Get all bookings
     async getAll(req, res) {
         try {
             const bookings = await Booking.findAll();
@@ -76,24 +145,23 @@ const BookingController = {
         }
     },
 
-    // Get a single booking by ID with all associated details
     async getById(req, res) {
-        const { id } = req.params; // Get booking ID from URL params
+        const { id } = req.params;
 
         try {
             const booking = await Booking.findOne({
                 where: { id },
                 include: [
                     {
-                        model: Offer, // Include Offer associated with Booking
+                        model: Offer,
                         attributes: ['discount', 'expiration_date', 'description', 'status'],
                         include: [
                             {
-                                model: Service, // Include Service associated with Offer
+                                model: Service,
                                 attributes: ['name', 'price', 'duration', 'category', 'description'],
                                 include: [
                                     {
-                                        model: Store, // Include Store associated with Service
+                                        model: Store,
                                         attributes: ['name', 'location'],
                                     },
                                 ],
@@ -101,8 +169,8 @@ const BookingController = {
                         ],
                     },
                     {
-                        model: User, // Include User associated with Booking
-                        attributes: ['id', 'firstName', 'lastName', 'email', 'phoneNumber'], // Include necessary User fields
+                        model: User,
+                        attributes: ['id', 'firstName', 'lastName', 'email', 'phoneNumber'],
                     },
                 ],
             });
@@ -118,7 +186,6 @@ const BookingController = {
         }
     },
 
-    // Update booking
     async update(req, res) {
         const { id } = req.params;
         const { status, startTime, endTime } = req.body;
@@ -142,7 +209,6 @@ const BookingController = {
         }
     },
 
-    // Delete booking
     async delete(req, res) {
         const { id } = req.params;
 
@@ -161,7 +227,6 @@ const BookingController = {
         }
     },
 
-    // Validate and fulfill booking
     async validateAndFulfill(req, res) {
         const { qrData } = req.body;
 
@@ -184,7 +249,6 @@ const BookingController = {
         }
     },
 
-    // Get bookings by offer
     async getByOffer(req, res) {
         const { offerId } = req.params;
 
@@ -223,22 +287,22 @@ const BookingController = {
     },
 
     async getByStore(req, res) {
-        const { storeId } = req.params; // Get storeId from URL params
+        const { storeId } = req.params;
 
         try {
             const bookings = await Booking.findAll({
                 include: [
                     {
-                        model: Offer,  // Include Offer associated with Booking
+                        model: Offer,
                         attributes: ['discount', 'expiration_date', 'description', 'status'],
                         include: [
                             {
-                                model: Service,  // Include Service associated with Offer
+                                model: Service,
                                 attributes: ['name', 'price', 'duration', 'category', 'description'],
                                 include: [
                                     {
-                                        model: Store,  // Include Store associated with Service
-                                        where: { id: storeId },  // Filter to the storeId
+                                        model: Store,
+                                        where: { id: storeId },
                                         attributes: ['name', 'location'],
                                     },
                                 ],
@@ -246,8 +310,8 @@ const BookingController = {
                         ],
                     },
                     {
-                        model: User,  // Include User associated with Booking
-                        attributes: ['id', 'firstName', 'lastName', 'email', 'phoneNumber'], // Include necessary User fields
+                        model: User,
+                        attributes: ['id', 'firstName', 'lastName', 'email', 'phoneNumber'],
                     },
                 ],
             });
@@ -263,7 +327,6 @@ const BookingController = {
         }
     },
 
-    // Mark booking as fulfilled
     async markAsFulfilled(req, res) {
         const { paymentUniqueCode } = req.body;
 

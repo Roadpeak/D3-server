@@ -60,7 +60,7 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.JSON,
         allowNull: false,
         defaultValue: [],
-        },
+      },
       status: {
         type: DataTypes.ENUM('open', 'closed', 'under_construction'),
         defaultValue: 'closed',
@@ -107,6 +107,10 @@ module.exports = (sequelize, DataTypes) => {
       foreignKey: 'updated_by',
       as: 'updater',
       onDelete: 'SET NULL',
+    });
+    Store.hasMany(models.Social, {
+      foreignKey: 'store_id',
+      onDelete: 'CASCADE',
     });
     Store.hasMany(models.StoreGallery, {
       foreignKey: 'store_id',

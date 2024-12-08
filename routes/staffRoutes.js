@@ -12,5 +12,6 @@ router.post('/staff/assign-service', StaffController.assignService);
 router.post('/staff/unassign-service', StaffController.unassignService);
 router.get('/staff/:staffId/services', StaffController.getServicesByStaffId);
 router.get('/staff/store/:storeId', StaffController.getStaffByStore);
+router.get('/staff/:staffId/bookings', StaffController.getBookingsByStaffId);
 
 module.exports = router;
