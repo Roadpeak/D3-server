@@ -18,20 +18,13 @@ module.exports = (sequelize, DataTypes) => {
         platform: {
             type: DataTypes.STRING,
             allowNull: false,
-            validate: {
-                isIn: [['facebook', 'instagram', 'twitter', 'linkedin', 'youtube']], // Add more platforms as needed
-            },
         },
         link: {
             type: DataTypes.STRING,
             allowNull: false,
-            validate: {
-                isUrl: true,  // Ensures the link is a valid URL
-            },
         },
     }, {
-        // Sequelize automatically manages createdAt and updatedAt unless you specify custom behavior
-        timestamps: true,  // This is enabled by default
+        timestamps: true,
         createdAt: 'createdAt',
         updatedAt: 'updatedAt',
     });

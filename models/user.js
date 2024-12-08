@@ -2,7 +2,7 @@ const { Sequelize, DataTypes } = require('sequelize');
 const bcrypt = require('bcryptjs');
 const { v4: uuidv4 } = require('uuid'); // Import uuidv4 for UUID generation
 
-module.exports = (sequelize) => {
+module.exports = (sequelize, models) => {
   const User = sequelize.define('User', {
     id: {
       type: DataTypes.UUID,
@@ -52,10 +52,6 @@ module.exports = (sequelize) => {
   User.prototype.validPassword = async function (password) {
     return bcrypt.compare(password, this.password);
   };
-
-  // Add indexes manually if necessary
-  // User.addIndex(['email']); // Create a non-unique index on email
-  // User.addIndex(['phoneNumber']); // Create a non-unique index on phoneNumber
 
   return User;
 };

@@ -22,7 +22,11 @@ module.exports = {
         type: Sequelize.STRING,
         allowNull: false,
         validate: {
-          isIn: [['facebook', 'instagram', 'twitter', 'linkedin', 'youtube']], // You can expand this list
+          isIn: [
+            'facebook', 'instagram', 'twitter', 'linkedin', 'youtube',
+            'tiktok', 'pinterest', 'snapchat', 'whatsapp', 'discord',
+            'tumblr', 'reddit', 'vimeo', 'github', 'flickr'
+          ],
         },
       },
       link: {
@@ -30,22 +34,6 @@ module.exports = {
         allowNull: false,
         validate: {
           isUrl: true,
-        },
-      },
-      created_by: {
-        type: Sequelize.UUID,
-        allowNull: false,
-        references: {
-          model: 'Merchants',
-          key: 'id',
-        },
-      },
-      updated_by: {
-        type: Sequelize.UUID,
-        allowNull: true,
-        references: {
-          model: 'Merchants',
-          key: 'id',
         },
       },
       createdAt: {

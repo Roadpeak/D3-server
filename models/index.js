@@ -26,6 +26,7 @@ const StaffService = require('./StaffService')(sequelize, DataTypes);
 const ServiceForm = require('./serviceform')(sequelize, DataTypes);
 const FormResponse = require('./formresponse')(sequelize, DataTypes);
 const Social = require('./social')(sequelize, DataTypes);
+const Review = require('./review')(sequelize, DataTypes);
 const Quote = require('./quote')(sequelize, DataTypes);
 
 Staff.belongsToMany(Service, {
@@ -130,6 +131,26 @@ Store.hasMany(Offer, {
   foreignKey: 'storeId',
 });
 
+Review.belongsTo(Store, {
+  foreignKey: 'store_id',
+  onDelete: 'CASCADE',
+});
+
+Review.belongsTo(User, {
+  foreignKey: 'user_id',
+  onDelete: 'SET NULL',
+});
+
+Store.hasMany(Review, {
+  foreignKey: 'store_id',
+  onDelete: 'CASCADE',
+});
+
+User.hasMany(Review, {
+  foreignKey: 'user_id',
+  onDelete: 'SET NULL',
+});
+
 module.exports = {
   User,
   Merchant,
@@ -144,5 +165,6 @@ module.exports = {
   Booking,
   Payment,
   Social,
+  Review,
   sequelize,
 };
