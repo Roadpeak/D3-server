@@ -1,4 +1,4 @@
-const { Merchant } = require('../models');
+const { Merchant, Store } = require('../models');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
@@ -160,5 +160,62 @@ exports.resetPassword = async (req, res) => {
   } catch (err) {
     console.error(err);
     return res.status(500).json({ message: 'Error resetting password' });
+  }
+};
+
+exports.getMerchantProfile = async (req, res) => {
+  try {
+    const { merchantId } = req.params;
+
+    // Fetch merchant's basic information
+    const merchant = await Merchant.findOne({
+      where: { id: merchantId },
+    });
+
+    if (!merchant) {
+      return res.status(404).json({ message: 'Merchant not found' });
+    }
+
+    const store = await Store.findOne({
+      where: { merchant_id: merchantId },
+      attributes: ['id', 'name', 'location', 'primary_email'],
+    });
+
+    if (!store) {
+      return res.status(404).json({ message: 'Store not found' });
+    }
+
+    const creator = store.created_by
+      ? await Merchant.findOne({
+        where: { id: store.created_by },
+        attributes: ['id', 'firstName', 'lastName'],
+      })
+      : null;
+
+    const updater = store.updated_by
+      ? await Merchant.findOne({
+        where: { id: store.updated_by },
+        attributes: ['id', 'firstName', 'lastName'],
+      })
+      : null;
+
+    // Prepare the response data
+    const merchantProfile = {
+      id: merchant.id,
+      first_name: merchant.firstName,
+      last_name: merchant.lastName,
+      email_address: merchant.email,
+      phone_number: merchant.phoneNumber,
+      joined: merchant.createdAt,
+      updated: merchant.updatedAt,
+      store: store, // Include store info
+      creator: creator, // Add creator info (if exists)
+      updater: updater, // Add updater info (if exists)
+    };
+
+    return res.status(200).json({ merchantProfile });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ message: 'Error retrieving merchant profile' });
   }
 };

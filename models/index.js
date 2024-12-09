@@ -151,6 +151,9 @@ User.hasMany(Review, {
   onDelete: 'SET NULL',
 });
 
+Merchant.hasMany(Store, { foreignKey: 'merchant_id', onDelete: 'CASCADE' });
+Store.belongsTo(Merchant, { foreignKey: 'merchant_id', onDelete: 'CASCADE' });
+
 module.exports = {
   User,
   Merchant,

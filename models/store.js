@@ -93,33 +93,44 @@ module.exports = (sequelize, DataTypes) => {
   );
 
   Store.associate = (models) => {
+    // Association with Merchant using merchant_id
     Store.belongsTo(models.Merchant, {
       foreignKey: 'merchant_id',
+      as: 'storeMerchant', // Alias to avoid confusion with created_by and updated_by
       onDelete: 'CASCADE',
       onUpdate: 'CASCADE',
     });
+
+    // Association for created_by (creator)
     Store.belongsTo(models.Merchant, {
       foreignKey: 'created_by',
-      as: 'creator',
+      as: 'creator', // Alias for created_by
       onDelete: 'SET NULL',
     });
+
+    // Association for updated_by (updater)
     Store.belongsTo(models.Merchant, {
       foreignKey: 'updated_by',
-      as: 'updater',
+      as: 'updater', // Alias for updated_by
       onDelete: 'SET NULL',
     });
+
+    // Other associations
     Store.hasMany(models.Social, {
       foreignKey: 'store_id',
       onDelete: 'CASCADE',
     });
+
     Store.hasMany(models.StoreGallery, {
       foreignKey: 'store_id',
       onDelete: 'CASCADE',
     });
-    User.hasMany(models.Review, {
-      foreignKey: 'user_id',
+
+    Store.hasMany(models.Review, {
+      foreignKey: 'store_id',
       onDelete: 'SET NULL',
     });
   };
+
   return Store;
 };

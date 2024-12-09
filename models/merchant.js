@@ -51,6 +51,14 @@ module.exports = (sequelize) => {
     }
   });
 
+
+  Merchant.associate = (models) => {
+    Merchant.hasMany(models.Store, {
+      foreignKey: 'merchant_id',
+      onDelete: 'CASCADE',
+    });
+  };
+
   Merchant.prototype.validPassword = async function (password) {
     return bcrypt.compare(password, this.password);
   };
