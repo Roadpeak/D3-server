@@ -2,8 +2,24 @@ const { ServiceForm } = require('../models');
 
 exports.createServiceForm = async (req, res) => {
   try {
-    const form = await ServiceForm.create(req.body);
-    return res.status(201).json({ form });
+    const { service_id, dynamicFields } = req.body;
+
+    if (!service_id || !dynamicFields || dynamicFields.length === 0) {
+      return res.status(400).json({ message: 'Invalid input' });
+    }
+
+    const createdFields = await ServiceForm.bulkCreate(
+      dynamicFields.map(field => ({
+        service_id,
+        field_name: field.field_name,
+        field_type: field.field_type,
+        required: field.required ? 1 : 0,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      }))
+    );
+
+    return res.status(201).json({ form: createdFields });
   } catch (error) {
     console.error(error);
     return res.status(500).json({ message: 'Error creating service form' });
@@ -12,7 +28,16 @@ exports.createServiceForm = async (req, res) => {
 
 exports.getServiceForms = async (req, res) => {
   try {
-    const forms = await ServiceForm.findAll();
+    const { service_id } = req.query; // Expecting service_id in query params
+
+    if (!service_id) {
+      return res.status(400).json({ message: 'Service ID is required' });
+    }
+
+    const forms = await ServiceForm.findAll({
+      where: { service_id },
+    });
+
     return res.status(200).json({ forms });
   } catch (error) {
     console.error(error);

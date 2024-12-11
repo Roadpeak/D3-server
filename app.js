@@ -11,7 +11,7 @@ const staffRoutes = require('./routes/staffRoutes');
 const serviceFormsRoutes = require('./routes/serviceForms');
 const formResponsesRoutes = require('./routes/formResponses');
 const offerRoutes = require('./routes/offerRoutes');
-const quotesRoutes = require('./routes/quotes');
+const quotesRoutes = require('./routes/quotesRoutes');
 const bookingRoutes = require('./routes/bookingRoutes');
 const socialRoutes = require('./routes/socialsRoutes');
 const reviewRoutes = require('./routes/reviewRoutes');
@@ -25,10 +25,8 @@ require('dotenv').config();
 
 const app = express();
 
-// Enable CORS for all origins
 app.use(cors());
 
-// Parse JSON request bodies
 app.use(express.json());
 
 app.use('/api/v1/users', apiKeyMiddleware, userRoutes); // Apply API key middleware to user routes
@@ -43,9 +41,10 @@ app.use('/api/v1', offerRoutes);
 app.use('/api/v1', bookingRoutes);
 app.use('/api/v1', socialRoutes);
 app.use('/api/v1', reviewRoutes);
-app.use('/api/v1/service-forms', serviceFormsRoutes);
-app.use('/api/v1/form-responses', formResponsesRoutes);
-app.use('/api/v1/quotes', quotesRoutes);
+app.use('/api/v1', serviceFormsRoutes);
+app.use('/api/v1/forms', formRoutes);
+app.use('/api/v1/form-fields', formFieldRoutes);
+app.use('/api/v1/form-responses', formResponseRoutes);
 
 // Serve Swagger API docs
 app.use('/api/v1/api-docs', swaggerUi.serve, swaggerUi.setup(JSON.parse(fs.readFileSync(swaggerFile, 'utf8'))));

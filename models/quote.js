@@ -10,20 +10,16 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.UUID,
       allowNull: false,
       references: {
-        model: 'FormResponses',
+        model: 'FormResponses',  // Ensure that this corresponds to the name of the table
         key: 'id',
       },
     },
-    quote_amount: {
-      type: DataTypes.FLOAT,
+    quote_details: {
+      type: DataTypes.JSONB,
       allowNull: false,
     },
-    quote_details: {
-      type: DataTypes.TEXT,
-      allowNull: true,
-    },
     status: {
-      type: DataTypes.STRING,
+      type: DataTypes.ENUM('pending', 'approved', 'rejected'),
       defaultValue: 'pending',
     },
   }, {
@@ -32,7 +28,11 @@ module.exports = (sequelize, DataTypes) => {
   });
 
   Quote.associate = (models) => {
-    Quote.belongsTo(models.FormResponse, { foreignKey: 'form_response_id', as: 'response' });
+    // Define associations if necessary
+    Quote.belongsTo(models.FormResponse, {
+      foreignKey: 'form_response_id',
+      as: 'formResponse',
+    });
   };
 
   return Quote;

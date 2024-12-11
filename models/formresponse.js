@@ -6,20 +6,16 @@ module.exports = (sequelize, DataTypes) => {
       defaultValue: DataTypes.UUIDV4,
       primaryKey: true,
     },
-    service_form_id: {
+    form_id: {
       type: DataTypes.UUID,
       allowNull: false,
       references: {
-        model: 'ServiceForms',
+        model: 'Forms',
         key: 'id',
       },
     },
-    user_id: {
-      type: DataTypes.UUID,
-      allowNull: false,
-    },
     response_data: {
-      type: DataTypes.JSON,
+      type: DataTypes.JSONB, // Store responses as a JSON object
       allowNull: false,
     },
   }, {
@@ -28,7 +24,10 @@ module.exports = (sequelize, DataTypes) => {
   });
 
   FormResponse.associate = (models) => {
-    FormResponse.belongsTo(models.ServiceForm, { foreignKey: 'service_form_id', as: 'form' });
+    FormResponse.belongsTo(models.Form, {
+      foreignKey: 'form_id',
+      as: 'form',
+    });
   };
 
   return FormResponse;
