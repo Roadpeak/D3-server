@@ -10,12 +10,12 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.UUID,
       allowNull: false,
       references: {
-        model: 'FormResponses',  // Ensure that this corresponds to the name of the table
+        model: 'FormResponses',
         key: 'id',
       },
     },
     quote_details: {
-      type: DataTypes.JSONB,
+      type: DataTypes.JSON,
       allowNull: false,
     },
     status: {

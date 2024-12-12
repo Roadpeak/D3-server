@@ -15,7 +15,7 @@ module.exports = (sequelize, DataTypes) => {
       },
     },
     response_data: {
-      type: DataTypes.JSONB, // Store responses as a JSON object
+      type: DataTypes.JSON, // Change JSONB to JSON
       allowNull: false,
     },
   }, {

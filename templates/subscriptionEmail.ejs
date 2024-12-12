@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Subscription Confirmation</title>
+    <style>
+        body {
+            font-family: 'Arial', sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f4f4f9;
+            color: #333333;
+        }
+
+        .container {
+            max-width: 600px;
+            margin: 20px auto;
+            background-color: #ffffff;
+            border-radius: 10px;
+            overflow: hidden;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        .header {
+            background-color: #0056D6;
+            color: #ffffff;
+            text-align: center;
+            padding: 20px;
+            font-size: 24px;
+        }
+
+        .content {
+            padding: 20px;
+        }
+
+        .content h1 {
+            font-size: 22px;
+            color: #0056D6;
+            margin-bottom: 10px;
+        }
+
+        .content p {
+            font-size: 16px;
+            line-height: 1.6;
+            margin-bottom: 20px;
+        }
+
+        .button {
+            display: inline-block;
+            background-color: #0056D6;
+            color: #ffffff;
+            text-decoration: none;
+            padding: 12px 20px;
+            border-radius: 5px;
+            font-size: 16px;
+        }
+
+        .footer {
+            background-color: #f4f4f9;
+            text-align: center;
+            padding: 10px;
+            font-size: 12px;
+            color: #888888;
+        }
+
+        .footer a {
+            color: #0056D6;
+            text-decoration: none;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <div class="header">
+            <strong>
+                <%= storeName %>
+            </strong>
+        </div>
+        <div class="content">
+            <h1>Subscription Confirmed!</h1>
+            <p>Hello <%= storeOwnerName %>,</p>
+            <p>We’re excited to have you on board with <strong><%= storeName %></strong>.</p>
+            <p>Here are the details of your subscription:</p>
+            <ul style="margin-left: 20px;">
+                <li><strong>Start Date:</strong> <%= subscriptionStartDate %></li>
+                <li><strong>Free Trial End Date:</strong> <%= trialEndDate %></li>
+                <li><strong>Next Billing Date:</strong> <%= nextBillingDate %></li>
+                <li><strong>Monthly Fee:</strong> KES 300</li>
+            </ul>
+            <p>Payment can be made via the following channels:</p>
+            <ul style="margin-left: 20px;">
+                <li><strong>Mpesa Paybill:</strong> <%= mpesaPaybill %></li>
+                <li><strong>Account Reference:</strong> <%= accountReference %></li>
+            </ul>
+            <p>For any inquiries or assistance, feel free to contact us at <a href="mailto:support@example.com">support@example.com</a>.</p>
+            <p>Thank you for choosing <strong><%= storeName %></strong>. We look forward to supporting your business growth!</p>
+            <p style="text-align: center;">
+                <a href="<%= dashboardLink %>" class="button">Access Your Dashboard</a>
+            </p>
+            <p>Best regards,<br>The <%= storeName %> Team</p>
+        </div>
+        <div class="footer">
+            <p>&copy; 2024 <%= storeName %>. All rights reserved.</p>
+            <p><a href="https://example.com/unsubscribe">Unsubscribe</a> | <a href="https://example.com/support">Support</a></p>
+        </div>
+    </div>
+</body>
+
+</html>

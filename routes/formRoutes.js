@@ -1,11 +1,12 @@
 const express = require('express');
+const { createForm, getForms, getFormById, updateForm, deleteForm, getFormsByServiceId } = require('../controllers/formController');
 const router = express.Router();
-const formController = require('../controllers/formController');
 
-router.post('/create', formController.createForm);
-router.get('/', formController.getForms);
-router.get('/:id', formController.getFormById);
-router.put('/:id', formController.updateForm);
-router.delete('/:id', formController.deleteForm);
+router.post('/create', createForm);
+router.get('/', getForms);
+router.get('/service/:serviceId', getFormsByServiceId);
+router.get('/:id', getFormById);
+router.put('/:id', updateForm);
+router.delete('/:id', deleteForm);
 
 module.exports = router;

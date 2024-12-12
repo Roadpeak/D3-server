@@ -14,6 +14,10 @@ module.exports = (sequelize, DataTypes) => {
             type: DataTypes.STRING,
             allowNull: true,
         },
+        service_id: {
+            type: DataTypes.UUID,
+            allowNull: false,
+        },
     }, {
         tableName: 'Forms',
         timestamps: true,
@@ -27,6 +31,10 @@ module.exports = (sequelize, DataTypes) => {
         Form.hasMany(models.FormResponse, {
             foreignKey: 'form_id',
             as: 'responses',
+        });
+        Form.belongsTo(models.Service, {
+            foreignKey: 'service_id',
+            as: 'service',
         });
     };
 
