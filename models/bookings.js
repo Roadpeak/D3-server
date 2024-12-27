@@ -16,11 +16,11 @@ module.exports = (sequelize) => {
         allowNull: false,
       },
       userId: {
-        type: DataTypes.UUID,  // Changed to UUID to match DB type
+        type: DataTypes.UUID,
         allowNull: false,
       },
       paymentId: {
-        type: DataTypes.UUID,  // Changed to UUID to match DB type
+        type: DataTypes.UUID,
         allowNull: true,
       },
       paymentUniqueCode: {

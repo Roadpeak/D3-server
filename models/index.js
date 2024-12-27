@@ -31,6 +31,7 @@ const FormField = require('./formfield')(sequelize, DataTypes);
 const FormResponse = require('./formresponse')(sequelize, DataTypes);
 const Quote = require('./quote')(sequelize, DataTypes);
 const Invoice = require('./invoice')(sequelize, DataTypes);
+const Follow = require('./follow')(sequelize, DataTypes);
 const StoreSubscription = require('./storesubscription')(sequelize, DataTypes);
 
 // Staff-Service Many-to-Many
@@ -231,5 +232,6 @@ module.exports = {
   Form,
   Invoice,
   StoreSubscription,
+  Follow,
   sequelize,
 };

@@ -69,7 +69,7 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.UUID,
         allowNull: false,
         references: {
-          model: 'Merchants', // Correct table name
+          model: 'Merchants', 
           key: 'id',
         },
       },
@@ -77,7 +77,7 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.UUID,
         allowNull: true,
         references: {
-          model: 'Merchants', // Correct table name
+          model: 'Merchants',
           key: 'id',
         },
       },
@@ -93,29 +93,25 @@ module.exports = (sequelize, DataTypes) => {
   );
 
   Store.associate = (models) => {
-    // Association with Merchant using merchant_id
     Store.belongsTo(models.Merchant, {
       foreignKey: 'merchant_id',
-      as: 'storeMerchant', // Alias to avoid confusion with created_by and updated_by
+      as: 'storeMerchant',
       onDelete: 'CASCADE',
       onUpdate: 'CASCADE',
     });
 
-    // Association for created_by (creator)
     Store.belongsTo(models.Merchant, {
       foreignKey: 'created_by',
-      as: 'creator', // Alias for created_by
+      as: 'creator',
       onDelete: 'SET NULL',
     });
 
-    // Association for updated_by (updater)
     Store.belongsTo(models.Merchant, {
       foreignKey: 'updated_by',
-      as: 'updater', // Alias for updated_by
+      as: 'updater',
       onDelete: 'SET NULL',
     });
 
-    // Other associations
     Store.hasMany(models.Social, {
       foreignKey: 'store_id',
       onDelete: 'CASCADE',
