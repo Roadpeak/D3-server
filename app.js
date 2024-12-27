@@ -1,5 +1,5 @@
 const express = require('express');
-const cors = require('cors'); // Import the cors package
+const cors = require('cors');
 const storeRoutes = require('./routes/storeRoutes');
 const merchantRoutes = require('./routes/merchantRoutes');
 const userRoutes = require('./routes/userRoutes');
@@ -33,8 +33,8 @@ app.use(cors());
 
 app.use(express.json());
 
-app.use('/api/v1/users', apiKeyMiddleware, userRoutes); // Apply API key middleware to user routes
-app.use('/api/v1', merchantRoutes); // Apply API key middleware to merchant routes
+app.use('/api/v1/users', apiKeyMiddleware, userRoutes); 
+app.use('/api/v1', merchantRoutes); 
 
 app.use('/api/v1', storeRoutes);
 app.use('/api/v1', serviceRoutes);
@@ -53,10 +53,8 @@ app.use('/api/v1/forms', formRoutes);
 app.use('/api/v1/form-fields', formFieldRoutes);
 app.use('/api/v1/form-responses', formResponseRoutes);
 
-// Serve Swagger API docs
 app.use('/api/v1/api-docs', swaggerUi.serve, swaggerUi.setup(JSON.parse(fs.readFileSync(swaggerFile, 'utf8'))));
 
-// Sync Sequelize models
 sequelize.sync({ alter: true })
   .then(() => {
     console.log('Database connected and synced');
@@ -65,7 +63,6 @@ sequelize.sync({ alter: true })
     console.error('Error syncing database: ', err);
   });
 
-// Start the server
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
