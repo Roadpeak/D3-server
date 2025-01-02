@@ -24,7 +24,13 @@ exports.createOffer = async (req, res) => {
 
 exports.getOffers = async (req, res) => {
   try {
-    const offers = await Offer.findAll();
+    const offers = await Offer.findAll({
+      include: {
+        model: Service,
+        attributes: ['id', 'name', 'image_url', 'price', 'duration', 'category', 'type'], 
+      },
+    });
+
     return res.status(200).json({ offers });
   } catch (err) {
     console.error(err);
@@ -43,7 +49,7 @@ exports.getOffersByStore = async (req, res) => {
           model: Offer,
           attributes: ['id', 'discount', 'expiration_date', 'description', 'status', 'fee'],
         },
-        attributes: ['id', 'name', 'image_url', 'price', 'duration', 'category', 'type'], 
+        attributes: ['id', 'name', 'image_url', 'price', 'duration', 'category', 'type'],
       },
     });
 
@@ -72,7 +78,6 @@ exports.getOffersByStore = async (req, res) => {
     return res.status(500).json({ message: 'Error fetching offers by store' });
   }
 };
-
 
 exports.getOfferById = async (req, res) => {
   try {
@@ -107,7 +112,7 @@ exports.updateOffer = async (req, res) => {
 
     const { discount, expiration_date, service_id, description, status } = req.body;
 
-    const fee = (discount * 0.05).toFixed(2); 
+    const fee = (discount * 0.05).toFixed(2);
 
     const updatedOffer = await offer.update({
       discount,
