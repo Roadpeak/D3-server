@@ -1,4 +1,6 @@
-const { Store } = require('../models');
+const { Follow, Store } = require('../models');
+const jwt = require('jsonwebtoken');
+const JWT_SECRET = process.env.JWT_SECRET;
 
 exports.createStore = async (req, res) => {
   try {
@@ -13,7 +15,6 @@ exports.createStore = async (req, res) => {
       return res.status(400).json({ message: 'A store with this primary email already exists' });
     }
 
-    // Create the new store
     const newStore = await Store.create({
       name,
       location,
@@ -40,7 +41,43 @@ exports.createStore = async (req, res) => {
 exports.getStores = async (req, res) => {
   try {
     const stores = await Store.findAll();
-    return res.status(200).json({ stores });
+
+    let userId = null;
+    const token = req.headers['authorization']?.split(' ')[1];
+    if (token) {
+      try {
+        const decoded = jwt.verify(token, JWT_SECRET);
+        userId = decoded?.userId;
+      } catch (err) {
+        console.error('Error verifying token:', err);
+        userId = null;
+      }
+    }
+
+    if (userId) {
+      const followedStores = await Follow.findAll({
+        where: { user_id: userId },
+        attributes: ['store_id'],
+      });
+
+      const followedStoreIds = new Set(followedStores.map(follow => follow.store_id));
+
+      const storesWithFollowStatus = stores.map(store => {
+        return {
+          ...store.toJSON(),
+          following: followedStoreIds.has(store.id)
+        };
+      });
+
+      return res.status(200).json({ stores: storesWithFollowStatus });
+    }
+
+    const storesWithNoFollow = stores.map(store => ({
+      ...store.toJSON(),
+      following: false
+    }));
+
+    return res.status(200).json({ stores: storesWithNoFollow });
   } catch (err) {
     console.error(err);
     return res.status(500).json({ message: 'Error fetching stores' });
@@ -56,7 +93,37 @@ exports.getStoreById = async (req, res) => {
       return res.status(404).json({ message: 'Store not found' });
     }
 
-    return res.status(200).json({ store });
+    let userId = null;
+    const token = req.headers['authorization']?.split(' ')[1];
+
+    if (token) {
+      try {
+        const decoded = jwt.verify(token, JWT_SECRET);
+        userId = decoded?.userId;
+      } catch (err) {
+        console.error('Error verifying token:', err);
+        return res.status(401).json({ message: 'Unauthorized: Invalid token' });
+      }
+    }
+
+    let following = false;
+
+    if (userId) {
+      const followedStore = await Follow.findOne({
+        where: { user_id: userId, store_id: id },
+      });
+
+      if (followedStore) {
+        following = true;
+      }
+    }
+
+    return res.status(200).json({
+      store: {
+        ...store.toJSON(),
+        following,
+      },
+    });
   } catch (err) {
     console.error(err);
     return res.status(500).json({ message: 'Error fetching store' });

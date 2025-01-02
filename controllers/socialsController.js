@@ -1,6 +1,5 @@
 const { Social } = require("../models");
 
-// Create a new social media entry
 exports.createSocial = async (req, res) => {
     try {
         const { store_id, platform, link } = req.body;
@@ -32,12 +31,11 @@ exports.getSocialsByStore = async (req, res) => {
     }
 };
 
-// Update a social media entry
 exports.updateSocial = async (req, res) => {
     try {
         const socialId = req.params.id;
         const { platform, link } = req.body;
-        const updatedBy = req.user.id; // Set the updated_by field to the current merchant's ID
+        const updatedBy = req.user.id;
 
         const social = await Social.findByPk(socialId);
         if (!social) {
@@ -56,7 +54,6 @@ exports.updateSocial = async (req, res) => {
     }
 };
 
-// Delete a social media entry
 exports.deleteSocial = async (req, res) => {
     try {
         const socialId = req.params.id;

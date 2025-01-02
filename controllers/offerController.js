@@ -1,4 +1,4 @@
-const { Offer } = require('../models');
+const { Offer, Store, Service } = require('../models');
 
 // Create a new offer
 exports.createOffer = async (req, res) => {
@@ -31,6 +31,32 @@ exports.getOffers = async (req, res) => {
   } catch (err) {
     console.error(err);
     return res.status(500).json({ message: 'Error fetching offers' });
+  }
+};
+
+exports.getOffersByStore = async (req, res) => {
+  try {
+    const { storeId } = req.params;
+
+    // Fetch the store to ensure it exists
+    const store = await Store.findByPk(storeId, {
+      include: {
+        model: Service,
+        include: [Offer],
+      },
+    });
+
+    if (!store) {
+      return res.status(404).json({ message: 'Store not found' });
+    }
+
+    // Extract all offers from the related services
+    const offers = store.Services.flatMap(service => service.Offers);
+
+    return res.status(200).json({ offers });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ message: 'Error fetching offers by store' });
   }
 };
 

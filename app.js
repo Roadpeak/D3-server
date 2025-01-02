@@ -33,8 +33,8 @@ app.use(cors());
 
 app.use(express.json());
 
-app.use('/api/v1/users', apiKeyMiddleware, userRoutes); 
-app.use('/api/v1', merchantRoutes); 
+app.use('/api/v1/users', userRoutes);
+app.use('/api/v1', merchantRoutes);
 
 app.use('/api/v1', storeRoutes);
 app.use('/api/v1', serviceRoutes);
@@ -47,7 +47,7 @@ app.use('/api/v1', socialRoutes);
 app.use('/api/v1', reviewRoutes);
 app.use('/api/v1', serviceFormsRoutes);
 app.use('/api/v1', transactionRoutes);
-app.use('/api/v1/follow', followRoutes);
+app.use('/api/v1', followRoutes);
 app.use('/api/v1/likes', likeRoutes);
 app.use('/api/v1/forms', formRoutes);
 app.use('/api/v1/form-fields', formFieldRoutes);

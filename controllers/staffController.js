@@ -91,8 +91,7 @@ const StaffController = {
         return res.status(404).json({ error: 'Staff not found' });
       }
 
-      // Get services assigned to the staff
-      const services = await staff.getServices(); // Assuming you have a relation with services
+      const services = await staff.getServices();
 
       res.status(200).json({
         staff,
@@ -262,8 +261,8 @@ const StaffController = {
             ],
           },
           {
-            model: User, // Include the user associated with the booking
-            attributes: ['firstname', 'lastName', 'email', 'phoneNumber'], // Select the required fields
+            model: User,
+            attributes: ['firstname', 'lastName', 'email', 'phoneNumber'],
           },
         ],
       });

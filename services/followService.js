@@ -1,6 +1,10 @@
 const { Follow, Store, User } = require('../models');
 
 const followStore = async (userId, storeId) => {
+    // Make sure userId and storeId are correctly passed
+    console.log('UserId:', userId);
+    console.log('StoreId:', storeId);
+
     const existingFollow = await Follow.findOne({ where: { user_id: userId, store_id: storeId } });
     if (existingFollow) {
         throw new Error('Already following this store');

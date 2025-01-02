@@ -3,6 +3,7 @@ const router = express.Router();
 const offerController = require('../controllers/offerController');
 
 router.post('/offers', offerController.createOffer);
+router.get('/offers/:storeId', offerController.getOffersByStore);
 router.get('/offers', offerController.getOffers);
 router.get('/offers/:id', offerController.getOfferById);
 router.put('/offers/:id', offerController.updateOffer);

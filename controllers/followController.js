@@ -2,10 +2,19 @@ const followService = require('../services/followService');
 
 const followStore = async (req, res) => {
     try {
-        const { userId, storeId } = req.body;
+        const storeId = req.params.storeId;
+        const userId = req.user.userId;  // This comes from the decoded JWT token
+
+        if (!userId) {
+            return res.status(400).json({ error: "User ID not found in token" });
+        }
+
+        // Call your service to follow the store
         const result = await followService.followStore(userId, storeId);
-        res.status(201).json(result);
+
+        res.status(201).json(result);  // Send response
     } catch (error) {
+        console.error(error); // Log the error
         res.status(400).json({ error: error.message });
     }
 };
