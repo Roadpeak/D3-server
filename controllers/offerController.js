@@ -1,6 +1,5 @@
 const { Offer, Store, Service } = require('../models');
 
-// Create a new offer
 exports.createOffer = async (req, res) => {
   try {
     const { discount, expiration_date, service_id, description, status } = req.body;
@@ -23,7 +22,6 @@ exports.createOffer = async (req, res) => {
   }
 };
 
-// Get all offers
 exports.getOffers = async (req, res) => {
   try {
     const offers = await Offer.findAll();
@@ -38,11 +36,14 @@ exports.getOffersByStore = async (req, res) => {
   try {
     const { storeId } = req.params;
 
-    // Fetch the store to ensure it exists
     const store = await Store.findByPk(storeId, {
       include: {
         model: Service,
-        include: [Offer],
+        include: {
+          model: Offer,
+          attributes: ['id', 'discount', 'expiration_date', 'description', 'status', 'fee'],
+        },
+        attributes: ['id', 'name', 'image_url', 'price', 'duration', 'category', 'type'], 
       },
     });
 
@@ -50,8 +51,20 @@ exports.getOffersByStore = async (req, res) => {
       return res.status(404).json({ message: 'Store not found' });
     }
 
-    // Extract all offers from the related services
-    const offers = store.Services.flatMap(service => service.Offers);
+    const offers = store.Services.flatMap(service =>
+      service.Offers.map(offer => ({
+        ...offer.toJSON(),
+        service: {
+          id: service.id,
+          name: service.name,
+          image_url: service.image_url,
+          price: service.price,
+          duration: service.duration,
+          category: service.category,
+          type: service.type,
+        },
+      }))
+    );
 
     return res.status(200).json({ offers });
   } catch (err) {
@@ -60,11 +73,17 @@ exports.getOffersByStore = async (req, res) => {
   }
 };
 
-// Get an offer by ID
+
 exports.getOfferById = async (req, res) => {
   try {
     const { id } = req.params;
-    const offer = await Offer.findByPk(id);
+
+    const offer = await Offer.findByPk(id, {
+      include: {
+        model: Service,
+        attributes: ['id', 'name', 'price', 'duration', 'image_url', 'category', 'description', 'type'],
+      },
+    });
 
     if (!offer) {
       return res.status(404).json({ message: 'Offer not found' });
@@ -72,7 +91,7 @@ exports.getOfferById = async (req, res) => {
 
     return res.status(200).json({ offer });
   } catch (err) {
-    console.error(err);
+    console.error('Error fetching offer:', err);
     return res.status(500).json({ message: 'Error fetching offer' });
   }
 };
@@ -88,8 +107,7 @@ exports.updateOffer = async (req, res) => {
 
     const { discount, expiration_date, service_id, description, status } = req.body;
 
-    // Calculate fee as 5% of the discount
-    const fee = (discount * 0.05).toFixed(2);  // 5% of discount, formatted to 2 decimal places
+    const fee = (discount * 0.05).toFixed(2); 
 
     const updatedOffer = await offer.update({
       discount,
@@ -97,7 +115,7 @@ exports.updateOffer = async (req, res) => {
       service_id,
       description,
       status,
-      fee,  // Update the fee with the newly calculated value
+      fee,
     });
 
     return res.status(200).json({ message: 'Offer updated successfully', offer: updatedOffer });
@@ -107,7 +125,6 @@ exports.updateOffer = async (req, res) => {
   }
 };
 
-// Delete an offer
 exports.deleteOffer = async (req, res) => {
   try {
     const { id } = req.params;
