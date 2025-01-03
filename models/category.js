@@ -1,4 +1,3 @@
-// models/category.js
 module.exports = (sequelize, DataTypes) => {
     const Category = sequelize.define('Category', {
         name: {
@@ -9,6 +8,10 @@ module.exports = (sequelize, DataTypes) => {
         description: {
             type: DataTypes.STRING,
             allowNull: true,
+        },
+        image_url: {
+            type: DataTypes.STRING,
+            allowNull: true, // Image URL is optional
         },
     });
 

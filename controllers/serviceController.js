@@ -1,4 +1,5 @@
-const { Service, Sequelize } = require('../models');
+const { Service, Offer, Sequelize, Store } = require('../models');
+const { Op } = require('sequelize');
 
 exports.createService = async (req, res) => {
   try {
@@ -52,6 +53,104 @@ exports.getServiceById = async (req, res) => {
   }
 };
 
+exports.searchServices = async (req, res) => {
+  try {
+    const { term, minPrice, maxPrice } = req.query;
+
+    const whereClause = {};
+    const storeWhereClause = {};
+
+    // Searching for services based on the term
+    if (term) {
+      whereClause[Op.or] = [
+        { name: { [Op.like]: `%${term}%` } },
+        { category: { [Op.like]: `%${term}%` } },
+        { description: { [Op.like]: `%${term}%` } }
+      ];
+      if (term.toLowerCase().includes('sale') || term.toLowerCase().includes('offer')) {
+        whereClause[Op.or] = [
+          ...(whereClause[Op.or] || []),
+          { name: { [Op.like]: '%sale%' } },
+          { description: { [Op.like]: '%offer%' } }
+        ];
+      }
+    }
+
+    // Searching stores based on the term
+    if (term) {
+      storeWhereClause[Op.or] = [
+        { name: { [Op.like]: `%${term}%` } },
+        { location: { [Op.like]: `%${term}%` } },
+        { description: { [Op.like]: `%${term}%` } }
+      ];
+    }
+
+    // Price range filtering for services
+    if (minPrice || maxPrice) {
+      whereClause.price = {};
+      if (minPrice) whereClause.price[Op.gte] = parseFloat(minPrice);
+      if (maxPrice) whereClause.price[Op.lte] = parseFloat(maxPrice);
+    }
+
+    // Fetch services based on the constructed whereClause and include associated Offers
+    const services = await Service.findAll({
+      where: whereClause,
+      include: [{
+        model: Offer,
+        required: false // Include services even without offers
+      }]
+    });
+
+    // Fetch stores based on the storeWhereClause
+    const stores = await Store.findAll({
+      where: storeWhereClause
+    });
+
+    // Get userId from the token
+    let userId = null;
+    const token = req.headers['authorization']?.split(' ')[1];
+    if (token) {
+      try {
+        const decoded = jwt.verify(token, JWT_SECRET);
+        userId = decoded?.userId;
+      } catch (err) {
+        console.error('Error verifying token:', err);
+        userId = null;
+      }
+    }
+
+    // If the user is logged in, fetch followed stores
+    let followedStoreIds = new Set();
+    if (userId) {
+      const followedStores = await Follow.findAll({
+        where: { user_id: userId },
+        attributes: ['store_id'],
+      });
+
+      followedStoreIds = new Set(followedStores.map(follow => follow.store_id));
+    }
+
+    // Now map stores with the follow status
+    const storesWithFollowStatus = stores.map(store => {
+      const isFollowing = followedStoreIds.has(store.id);
+      return {
+        ...store.toJSON(),
+        following: isFollowing
+      };
+    });
+
+    // If no stores or services match, send a 200 response with a message
+    if (services.length === 0 && storesWithFollowStatus.length === 0) {
+      return res.status(200).json({ message: 'No services or stores found matching your criteria' });
+    }
+
+    // Return both services and stores with follow status
+    return res.status(200).json({ services, stores: storesWithFollowStatus });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ message: 'Error searching services and stores' });
+  }
+};
 
 exports.updateService = async (req, res) => {
   try {
@@ -119,49 +218,3 @@ exports.getServicesByStoreId = async (req, res) => {
   }
 };
 
-exports.searchServices = async (req, res) => {
-  try {
-    const { name, category, minPrice, maxPrice } = req.query;
-
-    // Build the where clause based on provided query parameters
-    const whereClause = {};
-
-    if (name) {
-      whereClause.name = {
-        [Sequelize.Op.iLike]: `%${name}%`  // Case-insensitive search for name
-      };
-    }
-
-    if (category) {
-      whereClause.category = {
-        [Sequelize.Op.iLike]: `%${category}%`  // Case-insensitive search for category
-      };
-    }
-
-    if (minPrice || maxPrice) {
-      whereClause.price = {};
-      
-      if (minPrice) {
-        whereClause.price[Sequelize.Op.gte] = parseFloat(minPrice);  // Greater than or equal to minPrice
-      }
-      
-      if (maxPrice) {
-        whereClause.price[Sequelize.Op.lte] = parseFloat(maxPrice);  // Less than or equal to maxPrice
-      }
-    }
-
-    // Find services based on filters
-    const services = await Service.findAll({
-      where: whereClause
-    });
-
-    if (services.length === 0) {
-      return res.status(404).json({ message: 'No services found matching your criteria' });
-    }
-
-    return res.status(200).json({ services });
-  } catch (err) {
-    console.error(err);
-    return res.status(500).json({ message: 'Error searching services' });
-  }
-};

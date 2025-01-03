@@ -3,9 +3,25 @@ const QRCode = require('qrcode');
 const { sendEmail } = require('../utils/emailUtil');
 const ejs = require('ejs');
 const path = require('path');
+const { Op } = require('sequelize');
+const moment = require('moment');
+
 const fs = require('fs');
 
 const BookingController = {
+
+    generateTimeSlots: (openingTime, closingTime) => {
+        const timeSlots = [];
+        let currentTime = moment(openingTime, 'HH:mm');
+        const endTime = moment(closingTime, 'HH:mm');
+
+        while (currentTime.isBefore(endTime)) {
+            timeSlots.push(currentTime.format('HH:mm'));
+            currentTime.add(30, 'minutes');
+        }
+
+        return timeSlots;
+    },
 
     async create(req, res) {
         const { offerId, userId, paymentUniqueCode, startTime } = req.body;
@@ -142,6 +158,72 @@ const BookingController = {
         } catch (error) {
             console.error(error);
             res.status(500).json({ error: 'Failed to fetch bookings' });
+        }
+    },
+
+    async getAvailableSlots (req, res) {
+        const { date, serviceId, offerId } = req.query;
+
+        if (!date || (!serviceId && !offerId)) {
+            return res.status(400).json({ message: 'Date and serviceId or offerId are required.' });
+        }
+
+        try {
+            // Get the service or offer
+            let service;
+            if (serviceId) {
+                service = await Service.findByPk(serviceId);
+            } else if (offerId) {
+                const offer = await Offer.findByPk(offerId);
+                service = await offer.getService();  // Get the service associated with the offer
+            }
+
+            if (!service) {
+                return res.status(404).json({ message: 'Service or offer not found.' });
+            }
+
+            // Get the store associated with the service
+            const store = await service.getStore();  // Assuming service has a store relationship
+
+            if (!store) {
+                return res.status(404).json({ message: 'Store for the service not found.' });
+            }
+
+            // Get the store's working days and working hours
+            const workingDays = store.working_days;
+            const openingTime = store.opening_time;
+            const closingTime = store.closing_time;
+
+            // Check if the store is open on the provided date
+            const dayOfWeek = moment(date).day(); // Get the day of the week (0 - Sunday, 1 - Monday, etc.)
+
+            if (!workingDays.includes(dayOfWeek)) {
+                return res.status(400).json({ message: 'The store is closed on this day.' });
+            }
+
+            // Get all bookings for the service/offer on the provided date
+            const bookings = await Booking.findAll({
+                where: {
+                    date: {
+                        [Op.eq]: date,  // Match the provided date
+                    },
+                    service_id: serviceId,  // or offer_id
+                },
+            });
+
+            // Generate all possible time slots between opening and closing time
+            const availableSlots = generateTimeSlots(openingTime, closingTime);
+
+            // Get the booked time slots
+            const bookedSlots = bookings.map(booking => booking.timeSlot);
+
+            // Filter out the booked slots
+            const freeSlots = availableSlots.filter(slot => !bookedSlots.includes(slot));
+
+            return res.status(200).json({ availableSlots: freeSlots });
+        } catch (error) {
+            console.error('Error getting available slots:', error);
+            return res.status(500).json({ message: 'Error fetching available slots' });
         }
     },
 
@@ -349,3 +431,4 @@ const BookingController = {
 };
 
 module.exports = BookingController;
+

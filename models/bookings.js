@@ -7,12 +7,12 @@ module.exports = (sequelize) => {
   Booking.init(
     {
       id: {
-        type: DataTypes.UUID,  // Changed to UUID to match the DB type
+        type: DataTypes.UUID,  
         defaultValue: uuidv4,
         primaryKey: true,
       },
       offerId: {
-        type: DataTypes.UUID,  // Changed to UUID to match 'Offer.id' type
+        type: DataTypes.UUID, 
         allowNull: false,
       },
       userId: {

@@ -23,7 +23,6 @@ const categoryRoutes = require('./routes/categoryRoutes');
 const swaggerUi = require('swagger-ui-express');
 const fs = require('fs');
 const path = require('path');
-const apiKeyMiddleware = require('./milddlewares/apiKeyMiddleware');
 const swaggerFile = path.join(__dirname, 'swagger_output.json');
 
 require('dotenv').config();
