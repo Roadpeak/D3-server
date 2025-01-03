@@ -33,7 +33,6 @@ module.exports = (sequelize, DataTypes) => {
     unique_code: {
       type: DataTypes.STRING(8),
       allowNull: false,
-      // unique: true
     }
   });
 
