@@ -38,6 +38,28 @@ exports.getOffers = async (req, res) => {
   }
 };
 
+exports.getRandomOffers = async (req, res) => {
+  try {
+    const offers = await Offer.findAll({
+      order: Sequelize.literal('RANDOM()'), 
+      limit: 12,
+      include: {
+        model: Service,
+        attributes: ['id', 'name', 'image_url', 'price', 'duration', 'category', 'type'],
+      },
+    });
+
+    if (!offers || offers.length === 0) {
+      return res.status(404).json({ message: 'No offers found' });
+    }
+
+    return res.status(200).json({ offers });
+  } catch (err) {
+    console.error('Error fetching random offers:', err);
+    return res.status(500).json({ message: 'Error fetching random offers' });
+  }
+};
+
 exports.getOffersByStore = async (req, res) => {
   try {
     const { storeId } = req.params;
