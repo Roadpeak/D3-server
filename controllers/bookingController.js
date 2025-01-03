@@ -161,66 +161,85 @@ const BookingController = {
         }
     },
 
-    async getAvailableSlots (req, res) {
-        const { date, serviceId, offerId } = req.query;
+    async getAvailableSlots(req, res) {
+        const { date, offerId } = req.query;  // Removed serviceId, now using offerId
+        console.log('Query:', req.query);
 
-        if (!date || (!serviceId && !offerId)) {
-            return res.status(400).json({ message: 'Date and serviceId or offerId are required.' });
+        if (!date || !offerId) {  // Ensure offerId is provided
+            return res.status(400).json({ message: 'Date and offerId are required.' });
         }
 
         try {
-            // Get the service or offer
-            let service;
-            if (serviceId) {
-                service = await Service.findByPk(serviceId);
-            } else if (offerId) {
-                const offer = await Offer.findByPk(offerId);
-                service = await offer.getService();  // Get the service associated with the offer
+            // Fetch the offer using offerId
+            const offer = await Offer.findByPk(offerId);
+            if (!offer) {
+                return res.status(404).json({ message: 'Offer not found.' });
             }
 
+            // Get the related service for the offer
+            const service = await offer.getService();
             if (!service) {
-                return res.status(404).json({ message: 'Service or offer not found.' });
+                return res.status(404).json({ message: 'Service for the offer not found.' });
             }
 
-            // Get the store associated with the service
-            const store = await service.getStore();  // Assuming service has a store relationship
-
+            // Get the store related to the service
+            const store = await service.getStore();
             if (!store) {
                 return res.status(404).json({ message: 'Store for the service not found.' });
             }
 
-            // Get the store's working days and working hours
-            const workingDays = store.working_days;
-            const openingTime = store.opening_time;
-            const closingTime = store.closing_time;
+            // Handle working_days as a string or array
+            let workingDays = store.working_days;
+            if (typeof workingDays === 'string') {
+                workingDays = workingDays.split(',').map(day => day.trim());
+            }
 
-            // Check if the store is open on the provided date
-            const dayOfWeek = moment(date).day(); // Get the day of the week (0 - Sunday, 1 - Monday, etc.)
+            const openingTime = moment(store.opening_time, 'HH:mm:ss').format('HH:mm');
+            const closingTime = moment(store.closing_time, 'HH:mm:ss').format('HH:mm');
+
+            const dayOfWeek = moment(date).format('dddd');
 
             if (!workingDays.includes(dayOfWeek)) {
                 return res.status(400).json({ message: 'The store is closed on this day.' });
             }
 
-            // Get all bookings for the service/offer on the provided date
+            // Find bookings for this offer on the given date
             const bookings = await Booking.findAll({
                 where: {
-                    date: {
-                        [Op.eq]: date,  // Match the provided date
+                    startTime: {
+                        [Op.gte]: moment(date).startOf('day').toDate(),
+                        [Op.lte]: moment(date).endOf('day').toDate(),
                     },
-                    service_id: serviceId,  // or offer_id
+                    offerId: offerId,  // Check by offerId
                 },
             });
 
-            // Generate all possible time slots between opening and closing time
-            const availableSlots = generateTimeSlots(openingTime, closingTime);
+            console.log(`Found ${bookings.length} bookings for offer ${offerId} on date ${date}`);
 
-            // Get the booked time slots
-            const bookedSlots = bookings.map(booking => booking.timeSlot);
+            // Generate available time slots based on opening and closing time
+            const availableSlots = BookingController.generateTimeSlots(openingTime, closingTime);  // Correct call to generateTimeSlots
 
-            // Filter out the booked slots
-            const freeSlots = availableSlots.filter(slot => !bookedSlots.includes(slot));
+            // Map booked slots for filtering
+            const bookedSlots = bookings.map(booking => {
+                const bookingStart = moment(booking.startTime).format('HH:mm');
+                const bookingEnd = moment(booking.endTime).format('HH:mm');
+                return { start: bookingStart, end: bookingEnd };
+            });
+
+            // If no bookings are found, return all available slots
+            if (bookings.length === 0) {
+                return res.status(200).json({ availableSlots: availableSlots });
+            }
+
+            // Filter out booked slots
+            const freeSlots = availableSlots.filter(slot => {
+                return !bookedSlots.some(bookingSlot => {
+                    return slot.start >= bookingSlot.start && slot.end <= bookingSlot.end;
+                });
+            });
 
             return res.status(200).json({ availableSlots: freeSlots });
+
         } catch (error) {
             console.error('Error getting available slots:', error);
             return res.status(500).json({ message: 'Error fetching available slots' });

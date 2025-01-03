@@ -3,7 +3,7 @@ module.exports = (sequelize, DataTypes) => {
         name: {
             type: DataTypes.STRING,
             allowNull: false,
-            unique: true,
+            // unique: true,
         },
         description: {
             type: DataTypes.STRING,
@@ -11,7 +11,7 @@ module.exports = (sequelize, DataTypes) => {
         },
         image_url: {
             type: DataTypes.STRING,
-            allowNull: true, // Image URL is optional
+            allowNull: true,
         },
     });
 
