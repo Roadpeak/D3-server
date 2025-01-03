@@ -1,6 +1,7 @@
-const { Follow, Store } = require('../models');
+const { Follow, Store, sequelize } = require('../models');
 const jwt = require('jsonwebtoken');
 const JWT_SECRET = process.env.JWT_SECRET;
+const { Sequelize } = require('sequelize');
 
 exports.createStore = async (req, res) => {
   try {
@@ -127,6 +128,57 @@ exports.getStoreById = async (req, res) => {
   } catch (err) {
     console.error(err);
     return res.status(500).json({ message: 'Error fetching store' });
+  }
+};
+
+exports.getRandomStores = async (req, res) => {
+  try {
+    const stores = await Store.findAll({
+      order: sequelize.random(),
+      limit: 21,
+    });
+
+    let userId = null;
+    const token = req.headers['authorization']?.split(' ')[1];
+
+    if (token) {
+      try {
+        const decoded = jwt.verify(token, JWT_SECRET);
+        userId = decoded?.userId;
+      } catch (err) {
+        console.error('Error verifying token:', err);
+        userId = null;
+      }
+    }
+
+    if (userId) {
+      // Fetch the stores followed by the user
+      const followedStores = await Follow.findAll({
+        where: { user_id: userId },
+        attributes: ['store_id'],
+      });
+
+      const followedStoreIds = new Set(followedStores.map(follow => follow.store_id));
+
+      // Attach `following` status to each store
+      const storesWithFollowStatus = stores.map(store => ({
+        ...store.toJSON(),
+        following: followedStoreIds.has(store.id),
+      }));
+
+      return res.status(200).json({ stores: storesWithFollowStatus });
+    }
+
+    // If user is not authenticated, set `following` to false for all stores
+    const storesWithNoFollow = stores.map(store => ({
+      ...store.toJSON(),
+      following: false,
+    }));
+
+    return res.status(200).json({ stores: storesWithNoFollow });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ message: 'Error fetching random stores' });
   }
 };
 

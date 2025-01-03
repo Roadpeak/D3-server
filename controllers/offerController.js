@@ -1,4 +1,4 @@
-const { Offer, Store, Service } = require('../models');
+const { Offer, Store, Service, sequelize } = require('../models');
 
 exports.createOffer = async (req, res) => {
   try {
@@ -41,11 +41,11 @@ exports.getOffers = async (req, res) => {
 exports.getRandomOffers = async (req, res) => {
   try {
     const offers = await Offer.findAll({
-      order: Sequelize.literal('RANDOM()'), 
+      order: sequelize.fn('RAND'), // Using sequelize.fn for random ordering
       limit: 12,
       include: {
         model: Service,
-        attributes: ['id', 'name', 'image_url', 'price', 'duration', 'category', 'type'],
+        attributes: ['id', 'name', 'image_url', 'price', 'duration', 'category', 'type'], // Include related service details
       },
     });
 
@@ -53,10 +53,10 @@ exports.getRandomOffers = async (req, res) => {
       return res.status(404).json({ message: 'No offers found' });
     }
 
-    return res.status(200).json({ offers });
-  } catch (err) {
-    console.error('Error fetching random offers:', err);
-    return res.status(500).json({ message: 'Error fetching random offers' });
+    res.status(200).json(offers);
+  } catch (error) {
+    console.error('Error fetching random offers:', error);
+    res.status(500).json({ message: 'Error fetching random offers' });
   }
 };
 

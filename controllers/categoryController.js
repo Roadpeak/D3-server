@@ -34,7 +34,6 @@ const getRandomCategories = async (req, res) => {
     }
 };
 
-
 const getCategoryById = async (req, res) => {
     try {
         const { id } = req.params;
