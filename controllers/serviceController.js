@@ -1,5 +1,7 @@
-const { Service, Offer, Sequelize, Store } = require('../models');
+const { Service, Offer, Store, Follow } = require('../models');
 const { Op } = require('sequelize');
+const jwt = require('jsonwebtoken');
+const JWT_SECRET = process.env.JWT_SECRET;
 
 exports.createService = async (req, res) => {
   try {

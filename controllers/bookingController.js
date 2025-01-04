@@ -163,7 +163,6 @@ const BookingController = {
 
     async getAvailableSlots(req, res) {
         const { date, offerId } = req.query;  // Removed serviceId, now using offerId
-        console.log('Query:', req.query);
 
         if (!date || !offerId) {  // Ensure offerId is provided
             return res.status(400).json({ message: 'Date and offerId are required.' });
@@ -214,19 +213,15 @@ const BookingController = {
                 },
             });
 
-            console.log(`Found ${bookings.length} bookings for offer ${offerId} on date ${date}`);
 
-            // Generate available time slots based on opening and closing time
             const availableSlots = BookingController.generateTimeSlots(openingTime, closingTime);  // Correct call to generateTimeSlots
 
-            // Map booked slots for filtering
             const bookedSlots = bookings.map(booking => {
                 const bookingStart = moment(booking.startTime).format('HH:mm');
                 const bookingEnd = moment(booking.endTime).format('HH:mm');
                 return { start: bookingStart, end: bookingEnd };
             });
 
-            // If no bookings are found, return all available slots
             if (bookings.length === 0) {
                 return res.status(200).json({ availableSlots: availableSlots });
             }

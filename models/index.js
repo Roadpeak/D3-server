@@ -33,6 +33,8 @@ const Quote = require('./quote')(sequelize, DataTypes);
 const Invoice = require('./invoice')(sequelize, DataTypes);
 const Follow = require('./follow')(sequelize, DataTypes);
 const Category = require('./category')(sequelize, DataTypes);
+const Chat = require('./chat')(sequelize, DataTypes);
+const Message = require('./message')(sequelize, DataTypes);
 const StoreSubscription = require('./storesubscription')(sequelize, DataTypes);
 
 // Staff-Service Many-to-Many
@@ -235,5 +237,7 @@ module.exports = {
   StoreSubscription,
   Follow,
   Category,
+  Chat,
+  Message,
   sequelize,
 };
