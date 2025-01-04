@@ -1,5 +1,7 @@
 const express = require('express');
 const cors = require('cors');
+const { WebSocketServer } = require('ws');
+const http = require('http');
 const storeRoutes = require('./routes/storeRoutes');
 const merchantRoutes = require('./routes/merchantRoutes');
 const userRoutes = require('./routes/userRoutes');
@@ -30,13 +32,13 @@ require('dotenv').config();
 
 const app = express();
 
+// Middleware
 app.use(cors());
-
 app.use(express.json());
 
+// API Routes
 app.use('/api/v1/users', userRoutes);
 app.use('/api/v1', merchantRoutes);
-
 app.use('/api/v1', storeRoutes);
 app.use('/api/v1', serviceRoutes);
 app.use('/api/v1', uploadRoutes);
@@ -50,15 +52,21 @@ app.use('/api/v1', categoryRoutes);
 app.use('/api/v1', serviceFormsRoutes);
 app.use('/api/v1', transactionRoutes);
 app.use('/api/v1', followRoutes);
-app.use('api/v1/chats', chatRoutes);
+app.use('/api/v1/chats', chatRoutes);
 app.use('/api/v1/likes', likeRoutes);
 app.use('/api/v1/forms', formRoutes);
 app.use('/api/v1/form-fields', formFieldRoutes);
 app.use('/api/v1/form-responses', formResponseRoutes);
 
-app.use('/api/v1/api-docs', swaggerUi.serve, swaggerUi.setup(JSON.parse(fs.readFileSync(swaggerFile, 'utf8'))));
+app.use(
+  '/api/v1/api-docs',
+  swaggerUi.serve,
+  swaggerUi.setup(JSON.parse(fs.readFileSync(swaggerFile, 'utf8')))
+);
 
-sequelize.sync({ alter: true })
+// Database Sync
+sequelize
+  .sync({ alter: true })
   .then(() => {
     console.log('Database connected and synced');
   })
@@ -66,7 +74,59 @@ sequelize.sync({ alter: true })
     console.error('Error syncing database: ', err);
   });
 
+// Create HTTP Server
+const server = http.createServer(app);
+
+// WebSocket Setup
+const wss = new WebSocketServer({ server });
+
+wss.on('connection', (ws) => {
+  console.log('New WebSocket connection established');
+
+  // Handle the status update (merchant comes online)
+  ws.on('message', (message) => {
+    const parsedMessage = JSON.parse(message);
+
+    // If it's a status update, handle the merchant's online status
+    if (parsedMessage.type === 'status') {
+      const { storeId, status } = parsedMessage;
+
+      // Save the status or handle it in any other way if needed
+      console.log(`Merchant ${storeId} is now ${status}`);
+
+      // Broadcast to all connected clients
+      wss.clients.forEach((client) => {
+        if (client.readyState === ws.OPEN) { // Use ws.OPEN here
+          client.send(JSON.stringify({
+            type: 'merchant_status',
+            storeId,
+            status,
+          }));
+        }
+      });
+    }
+    // Handle messages here (like chat messages)
+    else {
+      // Broadcast other types of messages (e.g., chat messages)
+      wss.clients.forEach((client) => {
+        if (client.readyState === ws.OPEN) { // Use ws.OPEN here
+          client.send(JSON.stringify(parsedMessage));
+        }
+      });
+    }
+  });
+
+  ws.on('close', () => {
+    console.log('WebSocket connection closed');
+    // Handle merchant going offline (need storeId tracking logic)
+  });
+
+  ws.on('error', (error) => {
+    console.error('WebSocket error:', error);
+  });
+});
+
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
+server.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });

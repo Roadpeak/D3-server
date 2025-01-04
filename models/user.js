@@ -1,8 +1,7 @@
 const { Sequelize, DataTypes } = require('sequelize');
 const bcrypt = require('bcryptjs');
-const { v4: uuidv4 } = require('uuid'); // Import uuidv4 for UUID generation
 
-module.exports = (sequelize, models) => {
+module.exports = (sequelize) => {
   const User = sequelize.define('User', {
     id: {
       type: DataTypes.UUID,
@@ -52,6 +51,5 @@ module.exports = (sequelize, models) => {
   User.prototype.validPassword = async function (password) {
     return bcrypt.compare(password, this.password);
   };
-
   return User;
 };

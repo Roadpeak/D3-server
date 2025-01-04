@@ -216,6 +216,12 @@ Store.hasOne(StoreSubscription, {
   as: 'subscription',
 });
 
+User.hasMany(Chat, { foreignKey: 'userId', as: 'chats' });
+Chat.belongsTo(User, { foreignKey: 'userId', as: 'userForChat' }); 
+
+Chat.belongsTo(Store, { foreignKey: 'storeId', as: 'store' });
+Store.hasMany(Chat, { foreignKey: 'storeId' });
+
 module.exports = {
   User,
   Merchant,
