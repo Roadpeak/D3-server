@@ -1,7 +1,6 @@
 const { Follow, Store, sequelize } = require('../models');
 const jwt = require('jsonwebtoken');
 const JWT_SECRET = process.env.JWT_SECRET;
-const { Sequelize } = require('sequelize');
 
 exports.createStore = async (req, res) => {
   try {

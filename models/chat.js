@@ -15,7 +15,6 @@ module.exports = (sequelize, DataTypes) => {
     },
   });
 
-  // Define the relationship between Chat and User (Many-to-One)
   Chat.belongsTo(sequelize.models.User, { foreignKey: 'userId', as: 'user' });
 
   return Chat;

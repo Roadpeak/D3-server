@@ -16,8 +16,6 @@ router.post('/merchants/login', login);
 router.post('/merchants/request-password-reset', requestPasswordReset);
 router.post('/merchants/reset-password', resetPassword);
 router.get('/merchants/profile/:merchantId', getMerchantProfile);
-
-// New routes
 router.post('/merchants/create', createMerchant);
 router.get('/merchants/search', searchMerchants);
 
