@@ -20,3 +20,6 @@ yarn-error.log
 # IDE files (optional, depends on your setup)
 .vscode/
 .idea/
+
+# Ignore public folder
+public/
