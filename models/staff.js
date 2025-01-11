@@ -37,5 +37,27 @@ module.exports = (sequelize, DataTypes) => {
     modelName: 'Staff',
   });
 
+  // Add the associate method to define associations
+  Staff.associate = (models) => {
+    // Many-to-Many relationship with Service through StaffService
+    Staff.belongsToMany(models.Service, {
+      through: models.StaffService,
+      foreignKey: 'staffId',
+      otherKey: 'serviceId',
+      as: 'services',
+    });
+
+    Staff.hasMany(Service, {
+      foreignKey: 'staffId', // Or whatever the key is in the Services table
+      as: 'Services', // Ensure this alias matches the one in the query
+    });
+
+    // Staff belongs to a Store (one-to-many)
+    Staff.belongsTo(models.Store, {
+      foreignKey: 'storeId',
+      as: 'store',
+    });
+  };
+
   return Staff;
 };

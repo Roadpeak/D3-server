@@ -294,6 +294,31 @@ const StaffController = {
       res.status(500).json({ error: 'Failed to fetch services for staff' });
     }
   },
+
+  async getStaffByService(req, res) {
+    const { serviceId } = req.params;
+
+    try {
+      const service = await Service.findByPk(serviceId, {
+        include: {
+          model: Staff,
+          through: { attributes: [] }, // Ignore the join table
+        },
+      });
+
+      if (!service) {
+        return res.status(404).json({ error: 'Service not found' });
+      }
+
+      res.status(200).json({
+        service,
+        staff: service.Staff,
+      });
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: 'Failed to fetch staff for service' });
+    }
+  },
 };
 
 module.exports = StaffController;

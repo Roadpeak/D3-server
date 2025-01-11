@@ -19,10 +19,10 @@ const Merchant = require('./merchant')(sequelize, DataTypes);
 const Booking = require('./bookings')(sequelize, DataTypes);
 const Store = require('./store')(sequelize, DataTypes);
 const Service = require('./service')(sequelize, DataTypes);
+const StaffService = require('./StaffService')(sequelize, DataTypes);
 const Staff = require('./staff')(sequelize, DataTypes);
 const Offer = require('./offer')(sequelize, DataTypes);
 const Payment = require('./payment')(sequelize, DataTypes);
-const StaffService = require('./StaffService')(sequelize, DataTypes);
 const ServiceForm = require('./serviceform')(sequelize, DataTypes);
 const Social = require('./social')(sequelize, DataTypes);
 const Review = require('./review')(sequelize, DataTypes);
@@ -37,7 +37,172 @@ const Chat = require('./chat')(sequelize, DataTypes);
 const Message = require('./message')(sequelize, DataTypes);
 const StoreSubscription = require('./storesubscription')(sequelize, DataTypes);
 
-// Staff-Service Many-to-Many
+// Service-Store One-to-Many relationship
+Service.belongsTo(Store, {
+  foreignKey: 'store_id',
+  onDelete: 'CASCADE',
+});
+
+Store.hasMany(Service, {
+  foreignKey: 'store_id',
+});
+
+// ServiceForm-Service One-to-Many relationship
+ServiceForm.belongsTo(Service, {
+  foreignKey: 'service_id',
+  onDelete: 'CASCADE',
+});
+
+Service.hasMany(ServiceForm, {
+  foreignKey: 'service_id',
+});
+
+// FormResponse-ServiceForm One-to-Many relationship
+FormResponse.belongsTo(ServiceForm, {
+  foreignKey: 'service_form_id',
+  onDelete: 'CASCADE',
+});
+
+ServiceForm.hasMany(FormResponse, {
+  foreignKey: 'service_form_id',
+});
+
+// FormResponse-User One-to-Many relationship
+FormResponse.belongsTo(User, {
+  foreignKey: 'user_id',
+  onDelete: 'CASCADE',
+});
+
+User.hasMany(FormResponse, {
+  foreignKey: 'user_id',
+});
+
+// Quote-FormResponse One-to-One relationship
+Quote.belongsTo(FormResponse, {
+  foreignKey: 'form_response_id',
+  onDelete: 'CASCADE',
+});
+
+FormResponse.hasOne(Quote, {
+  foreignKey: 'form_response_id',
+});
+
+// Booking-Offer One-to-Many relationship
+Booking.belongsTo(Offer, {
+  foreignKey: 'offerId',
+  onDelete: 'CASCADE',
+});
+
+Offer.hasMany(Booking, {
+  foreignKey: 'offerId',
+});
+
+// Offer-Service One-to-Many relationship
+Offer.belongsTo(Service, {
+  foreignKey: 'service_id',
+  onDelete: 'CASCADE',
+});
+
+Service.hasMany(Offer, {
+  foreignKey: 'service_id',
+});
+
+// Booking-Store One-to-Many relationship
+Booking.belongsTo(Store, {
+  foreignKey: 'storeId',
+  onDelete: 'CASCADE',
+});
+
+Store.hasMany(Booking, {
+  foreignKey: 'storeId',
+});
+
+// Booking-User One-to-Many relationship
+Booking.belongsTo(User, {
+  foreignKey: 'userId',
+  onDelete: 'CASCADE',
+});
+
+User.hasMany(Booking, {
+  foreignKey: 'userId',
+});
+
+// Offer-Store One-to-Many relationship
+Offer.belongsTo(Store, {
+  foreignKey: 'storeId',
+  onDelete: 'CASCADE',
+});
+
+Store.hasMany(Offer, {
+  foreignKey: 'storeId',
+});
+
+// Review-Store One-to-Many relationship
+Review.belongsTo(Store, {
+  foreignKey: 'store_id',
+  onDelete: 'CASCADE',
+});
+
+Store.hasMany(Review, {
+  foreignKey: 'store_id',
+  onDelete: 'CASCADE',
+});
+
+// Review-User One-to-Many relationship
+Review.belongsTo(User, {
+  foreignKey: 'user_id',
+  onDelete: 'SET NULL',
+});
+
+User.hasMany(Review, {
+  foreignKey: 'user_id',
+  onDelete: 'SET NULL',
+});
+
+// Merchant-Store One-to-Many relationship
+Merchant.hasMany(Store, { foreignKey: 'merchant_id', onDelete: 'CASCADE' });
+Store.belongsTo(Merchant, { foreignKey: 'merchant_id', onDelete: 'CASCADE' });
+
+// Form-FormField One-to-Many relationship
+Form.hasMany(FormField, {
+  foreignKey: 'form_id',
+  as: 'fields',
+  onDelete: 'CASCADE',
+});
+
+FormField.belongsTo(Form, {
+  foreignKey: 'form_id',
+  as: 'form',
+});
+
+// Form-Service One-to-One relationship
+Form.belongsTo(Service, {
+  foreignKey: 'service_id',
+  as: 'service',
+});
+
+// Invoice-Store One-to-Many relationship
+Invoice.belongsTo(Store, {
+  foreignKey: 'store_id',
+  onDelete: 'CASCADE',
+});
+
+Store.hasMany(Invoice, {
+  foreignKey: 'store_id',
+});
+
+// StoreSubscription-Store One-to-One relationship
+StoreSubscription.belongsTo(Store, {
+  foreignKey: 'store_id',
+  onDelete: 'CASCADE',
+  as: 'store',
+});
+
+Store.hasOne(StoreSubscription, {
+  foreignKey: 'store_id',
+  as: 'subscription',
+});
+
 Staff.belongsToMany(Service, {
   through: StaffService,
   foreignKey: 'staffId',
@@ -50,175 +215,12 @@ Service.belongsToMany(Staff, {
   otherKey: 'staffId',
 });
 
-// Service-Store One-to-Many
-Service.belongsTo(Store, {
-  foreignKey: 'store_id',
-  onDelete: 'CASCADE',
-});
 
-Store.hasMany(Service, {
-  foreignKey: 'store_id',
-});
-
-// ServiceForm-Service One-to-Many
-ServiceForm.belongsTo(Service, {
-  foreignKey: 'service_id',
-  onDelete: 'CASCADE',
-});
-
-Service.hasMany(ServiceForm, {
-  foreignKey: 'service_id',
-});
-
-// FormResponse-ServiceForm One-to-Many
-FormResponse.belongsTo(ServiceForm, {
-  foreignKey: 'service_form_id',
-  onDelete: 'CASCADE',
-});
-
-ServiceForm.hasMany(FormResponse, {
-  foreignKey: 'service_form_id',
-});
-
-// FormResponse-User One-to-Many
-FormResponse.belongsTo(User, {
-  foreignKey: 'user_id',
-  onDelete: 'CASCADE',
-});
-
-User.hasMany(FormResponse, {
-  foreignKey: 'user_id',
-});
-
-// Quote-FormResponse One-to-One
-Quote.belongsTo(FormResponse, {
-  foreignKey: 'form_response_id',
-  onDelete: 'CASCADE',
-});
-
-FormResponse.hasOne(Quote, {
-  foreignKey: 'form_response_id',
-});
-
-// Booking-Offer One-to-Many
-Booking.belongsTo(Offer, {
-  foreignKey: 'offerId',
-  onDelete: 'CASCADE',
-});
-
-Offer.hasMany(Booking, {
-  foreignKey: 'offerId',
-});
-
-// Offer-Service One-to-Many
-Offer.belongsTo(Service, {
-  foreignKey: 'service_id',
-  onDelete: 'CASCADE',
-});
-
-Service.hasMany(Offer, {
-  foreignKey: 'service_id',
-});
-
-// Booking-Store One-to-Many
-Booking.belongsTo(Store, {
-  foreignKey: 'storeId',
-  onDelete: 'CASCADE',
-});
-
-Store.hasMany(Booking, {
-  foreignKey: 'storeId',
-});
-
-// Booking-User One-to-Many
-Booking.belongsTo(User, {
-  foreignKey: 'userId',
-  onDelete: 'CASCADE',
-});
-
-User.hasMany(Booking, {
-  foreignKey: 'userId',
-});
-
-// Offer-Store One-to-Many
-Offer.belongsTo(Store, {
-  foreignKey: 'storeId',
-  onDelete: 'CASCADE',
-});
-
-Store.hasMany(Offer, {
-  foreignKey: 'storeId',
-});
-
-// Review-Store One-to-Many
-Review.belongsTo(Store, {
-  foreignKey: 'store_id',
-  onDelete: 'CASCADE',
-});
-
-Store.hasMany(Review, {
-  foreignKey: 'store_id',
-  onDelete: 'CASCADE',
-});
-
-// Review-User One-to-Many
-Review.belongsTo(User, {
-  foreignKey: 'user_id',
-  onDelete: 'SET NULL',
-});
-
-User.hasMany(Review, {
-  foreignKey: 'user_id',
-  onDelete: 'SET NULL',
-});
-
-// Merchant-Store One-to-Many
-Merchant.hasMany(Store, { foreignKey: 'merchant_id', onDelete: 'CASCADE' });
-Store.belongsTo(Merchant, { foreignKey: 'merchant_id', onDelete: 'CASCADE' });
-
-// Form-FormField One-to-Many
-Form.hasMany(FormField, {
-  foreignKey: 'form_id',
-  as: 'fields',
-  onDelete: 'CASCADE',
-});
-
-FormField.belongsTo(Form, {
-  foreignKey: 'form_id',
-  as: 'form',
-});
-
-// Form-Service One-to-One
-Form.belongsTo(Service, {
-  foreignKey: 'service_id',
-  as: 'service',
-});
-
-// **Invoice-Store One-to-Many**
-Invoice.belongsTo(Store, {
-  foreignKey: 'store_id',
-  onDelete: 'CASCADE',
-});
-
-Store.hasMany(Invoice, {
-  foreignKey: 'store_id',
-});
-
-// **StoreSubscription-Store One-to-One**
-StoreSubscription.belongsTo(Store, {
-  foreignKey: 'store_id',
-  onDelete: 'CASCADE',
-  as: 'store',
-});
-
-Store.hasOne(StoreSubscription, {
-  foreignKey: 'store_id',
-  as: 'subscription',
-});
-
+// User-Chat One-to-Many relationship
 User.hasMany(Chat, { foreignKey: 'userId', as: 'chats' });
-Chat.belongsTo(User, { foreignKey: 'userId', as: 'userForChat' }); 
+Chat.belongsTo(User, { foreignKey: 'userId', as: 'userForChat' });
 
+// Chat-Store One-to-Many relationship
 Chat.belongsTo(Store, { foreignKey: 'storeId', as: 'store' });
 Store.hasMany(Chat, { foreignKey: 'storeId' });
 

@@ -52,6 +52,7 @@ const BookingController = {
         }
 
         try {
+            // Validate the payment code
             let paymentId = null;
             if (paymentUniqueCode) {
                 const payment = await Payment.findOne({
@@ -65,6 +66,7 @@ const BookingController = {
                 paymentId = payment.id;
             }
 
+            // Retrieve the offer details
             const offer = await Offer.findByPk(offerId, {
                 include: {
                     model: Service,
@@ -89,13 +91,38 @@ const BookingController = {
                 return res.status(400).json({ error: 'Service duration is not defined' });
             }
 
+            // Retrieve user details
             const user = await User.findByPk(userId);
             if (!user) {
                 return res.status(404).json({ error: 'User not found' });
             }
 
+            // Calculate the end time based on the start time and service duration
             const endTime = new Date(new Date(startTime).getTime() + service.duration * 60000);
 
+            // Check if there is any existing booking that conflicts with the new booking
+            const existingBooking = await Booking.findOne({
+                where: {
+                    offerId,
+                    status: { [Op.not]: 'cancelled' }, // Ignore cancelled bookings
+                    [Op.or]: [
+                        { startTime: { [Op.between]: [startTime, endTime] } }, // Overlapping with the start time
+                        { endTime: { [Op.between]: [startTime, endTime] } }, // Overlapping with the end time
+                        {
+                            [Op.and]: [
+                                { startTime: { [Op.lte]: startTime } },
+                                { endTime: { [Op.gte]: endTime } }
+                            ]
+                        } // New booking falls within an existing booking's timeframe
+                    ]
+                }
+            });
+
+            if (existingBooking) {
+                return res.status(400).json({ error: 'This time slot is already booked. Please choose a different time.' });
+            }
+
+            // Proceed with creating the booking
             const booking = await Booking.create({
                 offerId,
                 userId,
@@ -106,31 +133,31 @@ const BookingController = {
                 endTime,
             });
 
+            // Generate the QR code for the booking
             const qrData = JSON.stringify({ paymentUniqueCode: booking.paymentUniqueCode || 'N/A' });
-
-            // Save the QR Code as a file
             const qrCodePath = path.join(__dirname, '..', 'public', 'qrcodes', `${booking.id}.png`);
             await QRCode.toFile(qrCodePath, qrData);
 
             const qrCodeUrl = `${req.protocol}://${req.get('host')}/qrcodes/${booking.id}.png`;
-
             booking.qrCode = qrCodeUrl;
             await booking.save();
 
             const formattedStartTime = formatDateTime(startTime);
             const formattedEndTime = formatDateTime(endTime);
 
+            // Send email to the customer
             const customerTemplatePath = path.join(__dirname, '..', 'templates', 'customerBookingConfirmation.ejs');
             const customerTemplate = fs.readFileSync(customerTemplatePath, 'utf8');
 
             const customerEmailContent = ejs.render(customerTemplate, {
-                userName: user.name,
+                userName: user.firstName,
                 serviceName: service.name,
                 bookingStartTime: formattedStartTime,
                 bookingEndTime: formattedEndTime,
                 status: booking.status,
                 qrCode: booking.qrCode,
                 bookingLink: booking.link,
+                code: booking.paymentUniqueCode,
             });
 
             await sendEmail(
@@ -234,6 +261,74 @@ const BookingController = {
         } catch (error) {
             console.error('Error getting available slots:', error);
             return res.status(500).json({ message: 'Error fetching available slots' });
+        }
+    },
+
+    async getBookingTimes(req, res) {
+        const { serviceId } = req.body; 
+
+        const formatDatetime = (isoString) => {
+            const options = {
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric',
+                hour: 'numeric',
+                minute: 'numeric',
+                hour12: true
+            };
+            return new Date(isoString).toLocaleString('en-US', options);
+        };
+
+        const isBookingFromToday = (startTime) => {
+            const today = new Date();
+            const bookingDate = new Date(startTime);
+
+            today.setHours(0, 0, 0, 0);
+
+            return bookingDate >= today;
+        };
+
+        try {
+            if (!serviceId) {
+                return res.status(400).json({ error: 'Service ID is required.' });
+            }
+
+            const service = await Service.findByPk(serviceId, {
+                include: [
+                    {
+                        model: Offer, 
+                        as: 'Offers', 
+                        include: {
+                            model: Booking,
+                            as: 'Bookings', 
+                        },
+                    },
+                ],
+            });
+
+            if (!service) {
+                return res.status(404).json({ error: 'Service not found.' });
+            }
+
+            const bookings = [];
+
+            service.Offers.forEach(offer => {
+                if (offer.Bookings && offer.Bookings.length > 0) {
+                    offer.Bookings.forEach(booking => {
+                        if (isBookingFromToday(booking.startTime)) {
+                            bookings.push({
+                                startTime: formatDatetime(booking.startTime),
+                                endTime: formatDatetime(booking.endTime),
+                            });
+                        }
+                    });
+                }
+            });
+
+            res.status(200).json({ bookings });
+        } catch (error) {
+            console.error('Error fetching booking times:', error);
+            res.status(500).json({ error: 'An error occurred while fetching booking times.' });
         }
     },
 

@@ -5,86 +5,104 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <style>
     body {
-      font-family: 'Helvetica Neue', Arial, sans-serif;
+      font-family: 'Inter', 'Helvetica Neue', Arial, sans-serif;
       margin: 0;
       padding: 0;
-      background-color: #f6f9fc;
-      color: #333;
-      line-height: 1.6;
+      background-color: #f8fafc;
+      color: #4a5568;
+      line-height: 1.8;
     }
     .container {
       width: 100%;
       max-width: 600px;
-      margin: 0 auto;
+      margin: 40px auto;
       padding: 30px;
       background-color: #ffffff;
-      border-radius: 12px;
-      box-shadow: 0 12px 24px rgba(0, 0, 0, 0.06);
+      border-radius: 16px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+      overflow: hidden;
     }
     .header {
       text-align: center;
       margin-bottom: 30px;
-      color: #34495e;
+      color: #2d3748;
     }
     .header h2 {
-      font-size: 24px;
-      font-weight: 600;
+      font-size: 28px;
+      font-weight: 700;
       margin: 0;
+      background: linear-gradient(90deg, #1abc9c, #3498db);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .header p {
+      font-size: 16px;
+      color: #718096;
+      margin: 8px 0 0;
     }
     .greeting {
       font-size: 18px;
-      color: #2c3e50;
-      margin-bottom: 12px;
+      color: #2d3748;
+      margin-bottom: 20px;
     }
     .details {
       margin-top: 20px;
       font-size: 16px;
-      color: #34495e;
+      color: #2d3748;
+      background-color: #f9fafb;
+      padding: 20px;
+      border-radius: 12px;
     }
     .details p {
-      margin: 8px 0;
+      margin: 10px 0;
     }
     .details strong {
       color: #1abc9c;
     }
     .button {
-      display: inline-block;
-      padding: 12px 24px;
-      background-color: #1abc9c;
+      display: block;
+      margin: 30px auto 20px;
+      padding: 14px 28px;
+      background: linear-gradient(90deg, #1abc9c, #3498db);
       color: white;
       text-decoration: none;
-      border-radius: 8px;
-      margin-top: 30px;
+      border-radius: 12px;
+      font-size: 16px;
       font-weight: bold;
       text-align: center;
-      width: 100%;
-      max-width: 250px;
-      transition: background-color 0.3s ease;
+      max-width: 260px;
+      box-shadow: 0 6px 15px rgba(26, 188, 156, 0.3);
+      transition: background 0.3s ease, transform 0.2s ease;
     }
     .button:hover {
-      background-color: #16a085;
+      background: linear-gradient(90deg, #16a085, #2980b9);
+      transform: translateY(-2px);
     }
     .qr-code {
       text-align: center;
       margin-top: 30px;
     }
     .qr-code img {
-      max-width: 180px;
-      border-radius: 10px;
-      border: none;
+      max-width: 200px;
+      border-radius: 12px;
+      border: 1px solid #e2e8f0;
     }
     .footer {
       font-size: 14px;
-      color: #7f8c8d;
+      color: #718096;
       text-align: center;
       margin-top: 40px;
     }
     .footer p {
-      margin: 8px 0;
+      margin: 10px 0;
     }
     .footer a {
       color: #1abc9c;
       text-decoration: none;
+      font-weight: 500;
+    }
+    .footer a:hover {
+      text-decoration: underline;
     }
   </style>
 </head>
@@ -92,12 +110,12 @@
   <div class="container">
     <div class="header">
       <h2>Booking Confirmation</h2>
-      <p>We're excited to have you on board!</p>
+      <p>We're thrilled to have you with us!</p>
     </div>
 
     <div class="greeting">
       <p>Dear <strong><%= userName %></strong>,</p>
-      <p>Thank you for booking with us! Here are the details of your appointment:</p>
+      <p>Thank you for choosing our service. Below are the details of your booking:</p>
     </div>
 
     <div class="details">
@@ -108,15 +126,15 @@
     </div>
 
     <div class="qr-code">
-      <p>Show this QR code at the venue:</p>
+      <p>Present this QR code at the venue:</p>
       <img src="<%= qrCode %>" alt="QR Code">
     </div>
 
     <a href="<%= bookingLink %>" class="button">View Booking Details</a>
 
     <div class="footer">
-      <p>If you have any questions, please <a href="mailto:support@example.com">contact our support team</a>.</p>
-      <p>This is an automated email, please do not reply.</p>
+      <p>If you have any questions, feel free to <a href="mailto:support@example.com">contact our support team</a>.</p>
+      <p>This email was automatically generated. Please do not reply.</p>
     </div>
   </div>
 </body>
