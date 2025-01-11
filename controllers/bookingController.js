@@ -5,7 +5,6 @@ const ejs = require('ejs');
 const path = require('path');
 const { Op } = require('sequelize');
 const moment = require('moment');
-
 const fs = require('fs');
 
 const BookingController = {
@@ -34,7 +33,7 @@ const BookingController = {
                 day: 'numeric',
                 hour: 'numeric',
                 minute: 'numeric',
-                hour12: true
+                hour12: true,
             };
 
             const formattedDate = new Date(date).toLocaleString('en-GB', options);
@@ -48,22 +47,23 @@ const BookingController = {
                 suffix = 'rd';
             }
 
-            // Replace the day number with the day + suffix (e.g., "5th")
             const dayWithSuffix = formattedDate.replace(day, day + suffix);
-
             return dayWithSuffix;
         }
 
         try {
-            const payment = await Payment.findOne({
-                where: { unique_code: paymentUniqueCode },
-            });
+            let paymentId = null;
+            if (paymentUniqueCode) {
+                const payment = await Payment.findOne({
+                    where: { unique_code: paymentUniqueCode },
+                });
 
-            if (!payment) {
-                return res.status(404).json({ error: 'Payment not found' });
+                if (!payment) {
+                    return res.status(404).json({ error: 'Payment not found' });
+                }
+
+                paymentId = payment.id;
             }
-
-            const paymentId = payment.id;
 
             const offer = await Offer.findByPk(offerId, {
                 include: {
@@ -89,6 +89,11 @@ const BookingController = {
                 return res.status(400).json({ error: 'Service duration is not defined' });
             }
 
+            const user = await User.findByPk(userId);
+            if (!user) {
+                return res.status(404).json({ error: 'User not found' });
+            }
+
             const endTime = new Date(new Date(startTime).getTime() + service.duration * 60000);
 
             const booking = await Booking.create({
@@ -96,53 +101,44 @@ const BookingController = {
                 userId,
                 paymentId,
                 paymentUniqueCode,
-                status: 'pending',
+                status: paymentId ? 'pending' : 'pending',
                 startTime,
                 endTime,
             });
 
-            const qrData = JSON.stringify({ paymentUniqueCode: booking.paymentUniqueCode });
-            const qrCode = await QRCode.toDataURL(qrData);
+            const qrData = JSON.stringify({ paymentUniqueCode: booking.paymentUniqueCode || 'N/A' });
 
-            booking.qrCode = qrCode;
+            // Save the QR Code as a file
+            const qrCodePath = path.join(__dirname, '..', 'public', 'qrcodes', `${booking.id}.png`);
+            await QRCode.toFile(qrCodePath, qrData);
+
+            const qrCodeUrl = `${req.protocol}://${req.get('host')}/qrcodes/${booking.id}.png`;
+
+            booking.qrCode = qrCodeUrl;
             await booking.save();
-
-            const assignedStaff = await Staff.findAll({
-                include: {
-                    model: Service,
-                    where: { id: service.id },
-                    through: { attributes: [] },
-                }
-            });
 
             const formattedStartTime = formatDateTime(startTime);
             const formattedEndTime = formatDateTime(endTime);
 
-            const bookingLink = `https://yourdomain.com/booking/${booking.id}`;
+            const customerTemplatePath = path.join(__dirname, '..', 'templates', 'customerBookingConfirmation.ejs');
+            const customerTemplate = fs.readFileSync(customerTemplatePath, 'utf8');
 
-            if (assignedStaff && assignedStaff.length > 0) {
-                for (const staff of assignedStaff) {
-                    const templatePath = path.join(__dirname, '..', 'templates', 'bookingNotification.ejs'); // Going one level up from the controllers folder
-                    const template = fs.readFileSync(templatePath, 'utf8');
+            const customerEmailContent = ejs.render(customerTemplate, {
+                userName: user.name,
+                serviceName: service.name,
+                bookingStartTime: formattedStartTime,
+                bookingEndTime: formattedEndTime,
+                status: booking.status,
+                qrCode: booking.qrCode,
+                bookingLink: booking.link,
+            });
 
-                    const emailContent = ejs.render(template, {
-                        staffName: staff.name,
-                        serviceName: service.name,
-                        bookingStartTime: formattedStartTime,
-                        bookingEndTime: formattedEndTime,
-                        customerId: userId,
-                        bookingLink: bookingLink,
-                    });
-
-                    // Send the email to the staff
-                    await sendEmail(
-                        staff.email,
-                        'New Booking Notification',
-                        '', // No attachment
-                        emailContent
-                    );
-                }
-            }
+            await sendEmail(
+                user.email,
+                'Booking Confirmation',
+                '',
+                customerEmailContent
+            );
 
             res.status(201).json({ booking });
         } catch (error) {

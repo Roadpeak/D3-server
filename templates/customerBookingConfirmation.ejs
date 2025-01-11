@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    body {
+      font-family: 'Helvetica Neue', Arial, sans-serif;
+      margin: 0;
+      padding: 0;
+      background-color: #f6f9fc;
+      color: #333;
+      line-height: 1.6;
+    }
+    .container {
+      width: 100%;
+      max-width: 600px;
+      margin: 0 auto;
+      padding: 30px;
+      background-color: #ffffff;
+      border-radius: 12px;
+      box-shadow: 0 12px 24px rgba(0, 0, 0, 0.06);
+    }
+    .header {
+      text-align: center;
+      margin-bottom: 30px;
+      color: #34495e;
+    }
+    .header h2 {
+      font-size: 24px;
+      font-weight: 600;
+      margin: 0;
+    }
+    .greeting {
+      font-size: 18px;
+      color: #2c3e50;
+      margin-bottom: 12px;
+    }
+    .details {
+      margin-top: 20px;
+      font-size: 16px;
+      color: #34495e;
+    }
+    .details p {
+      margin: 8px 0;
+    }
+    .details strong {
+      color: #1abc9c;
+    }
+    .button {
+      display: inline-block;
+      padding: 12px 24px;
+      background-color: #1abc9c;
+      color: white;
+      text-decoration: none;
+      border-radius: 8px;
+      margin-top: 30px;
+      font-weight: bold;
+      text-align: center;
+      width: 100%;
+      max-width: 250px;
+      transition: background-color 0.3s ease;
+    }
+    .button:hover {
+      background-color: #16a085;
+    }
+    .qr-code {
+      text-align: center;
+      margin-top: 30px;
+    }
+    .qr-code img {
+      max-width: 180px;
+      border-radius: 10px;
+      border: none;
+    }
+    .footer {
+      font-size: 14px;
+      color: #7f8c8d;
+      text-align: center;
+      margin-top: 40px;
+    }
+    .footer p {
+      margin: 8px 0;
+    }
+    .footer a {
+      color: #1abc9c;
+      text-decoration: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h2>Booking Confirmation</h2>
+      <p>We're excited to have you on board!</p>
+    </div>
+
+    <div class="greeting">
+      <p>Dear <strong><%= userName %></strong>,</p>
+      <p>Thank you for booking with us! Here are the details of your appointment:</p>
+    </div>
+
+    <div class="details">
+      <p><strong>Service Name:</strong> <%= serviceName %></p>
+      <p><strong>Booking Start Time:</strong> <%= bookingStartTime %></p>
+      <p><strong>Booking End Time:</strong> <%= bookingEndTime %></p>
+      <p><strong>Status:</strong> <%= status %></p>
+    </div>
+
+    <div class="qr-code">
+      <p>Show this QR code at the venue:</p>
+      <img src="<%= qrCode %>" alt="QR Code">
+    </div>
+
+    <a href="<%= bookingLink %>" class="button">View Booking Details</a>
+
+    <div class="footer">
+      <p>If you have any questions, please <a href="mailto:support@example.com">contact our support team</a>.</p>
+      <p>This is an automated email, please do not reply.</p>
+    </div>
+  </div>
+</body>
+</html>

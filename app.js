@@ -57,6 +57,7 @@ app.use('/api/v1/likes', likeRoutes);
 app.use('/api/v1/forms', formRoutes);
 app.use('/api/v1/form-fields', formFieldRoutes);
 app.use('/api/v1/form-responses', formResponseRoutes);
+app.use('/qrcodes', express.static(path.join(__dirname, 'public', 'qrcodes')));
 
 app.use(
   '/api/v1/api-docs',
@@ -126,7 +127,7 @@ wss.on('connection', (ws) => {
   });
 });
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 4000;
 server.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
