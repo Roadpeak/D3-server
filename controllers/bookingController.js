@@ -317,8 +317,8 @@ const BookingController = {
                     offer.Bookings.forEach(booking => {
                         if (isBookingFromToday(booking.startTime)) {
                             bookings.push({
-                                startTime: formatDatetime(booking.startTime),
-                                endTime: formatDatetime(booking.endTime),
+                                startTime: booking.startTime,
+                                endTime: booking.endTime,
                             });
                         }
                     });
