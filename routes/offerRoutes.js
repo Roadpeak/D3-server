@@ -1,13 +1,20 @@
+// routes/offerRoutes.js
 const express = require('express');
 const router = express.Router();
 const offerController = require('../controllers/offerController');
 
-router.post('/offers', offerController.createOffer);
-router.get('/offers/:storeId/store', offerController.getOffersByStore);
-router.get('/offers/random', offerController.getRandomOffers);
-router.get('/offers', offerController.getOffers);
-router.get('/offers/:id', offerController.getOfferById);
-router.put('/offers/:id', offerController.updateOffer);
-router.delete('/offers/:id', offerController.deleteOffer);
+// GET routes (public)
+router.get('/', offerController.getOffers);
+router.get('/random', offerController.getRandomOffers);
+router.get('/categories', offerController.getCategories);
+router.get('/top-deals', offerController.getTopDeals);
+router.get('/featured', offerController.getFeaturedOffers);
+router.get('/store/:storeId', offerController.getOffersByStore);
+router.get('/:id', offerController.getOfferById);
+
+// POST, PUT, DELETE routes (may require authentication middleware)
+router.post('/', offerController.createOffer);
+router.put('/:id', offerController.updateOffer);
+router.delete('/:id', offerController.deleteOffer);
 
 module.exports = router;

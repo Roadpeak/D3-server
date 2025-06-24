@@ -1,6 +1,6 @@
 const express = require('express');
 const { register, login } = require('../controllers/userController');
-const { verifyToken } = require('../milddlewares/auth'); // Import the middleware to verify JWT
+const { verifyToken } = require('../middleware/auth'); // Import the middleware to verify JWT
 const router = express.Router();
 
 // Register new user

@@ -2,7 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const { WebSocketServer } = require('ws');
 const http = require('http');
-const storeRoutes = require('./routes/storeRoutes');
+const storesRoutes = require('./routes/storesRoutes');
 const merchantRoutes = require('./routes/merchantRoutes');
 const userRoutes = require('./routes/userRoutes');
 const serviceRoutes = require('./routes/serviceRoutes');
@@ -23,6 +23,10 @@ const followRoutes = require('./routes/followRoutes');
 const likeRoutes = require('./routes/likeRoutes');
 const categoryRoutes = require('./routes/categoryRoutes');
 const chatRoutes = require('./routes/chatRoutes');
+const heroRoutes = require('./routes/heroRoutes');
+const homedealsstores = require('./routes/homedealsstoresRoutes');
+// Add the new service request routes
+const serviceRequestRoutes = require('./routes/serviceRequestRoutes');
 const swaggerUi = require('swagger-ui-express');
 const fs = require('fs');
 const path = require('path');
@@ -39,24 +43,28 @@ app.use(express.json());
 // API Routes
 app.use('/api/v1/users', userRoutes);
 app.use('/api/v1', merchantRoutes);
-app.use('/api/v1', storeRoutes);
+app.use('/api/v1/stores', storesRoutes);
 app.use('/api/v1', serviceRoutes);
 app.use('/api/v1', uploadRoutes);
 app.use('/api/v1', paymentRoutes);
 app.use('/api/v1', staffRoutes);
-app.use('/api/v1', offerRoutes);
+app.use('/api/v1/offer', offerRoutes);
 app.use('/api/v1', bookingRoutes);
+app.use('/api/v1/hero', heroRoutes);
 app.use('/api/v1', socialRoutes);
 app.use('/api/v1', reviewRoutes);
 app.use('/api/v1', categoryRoutes);
 app.use('/api/v1', serviceFormsRoutes);
 app.use('/api/v1', transactionRoutes);
 app.use('/api/v1', followRoutes);
+app.use('/api/v1', homedealsstores);
 app.use('/api/v1/chats', chatRoutes);
 app.use('/api/v1/likes', likeRoutes);
 app.use('/api/v1/forms', formRoutes);
 app.use('/api/v1/form-fields', formFieldRoutes);
 app.use('/api/v1/form-responses', formResponseRoutes);
+// Add the new service request routes
+app.use('/api/v1/service-requests', serviceRequestRoutes);
 app.use('/qrcodes', express.static(path.join(__dirname, 'public', 'qrcodes')));
 
 app.use(
