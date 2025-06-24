@@ -1,6 +1,5 @@
 const express = require('express');
 const cors = require('cors');
-const { WebSocketServer } = require('ws');
 const http = require('http');
 const storesRoutes = require('./routes/storesRoutes');
 const merchantRoutes = require('./routes/merchantRoutes');
@@ -24,6 +23,7 @@ const likeRoutes = require('./routes/likeRoutes');
 const categoryRoutes = require('./routes/categoryRoutes');
 const chatRoutes = require('./routes/chatRoutes');
 const heroRoutes = require('./routes/heroRoutes');
+const { socketManager } = require('./socket/websocket');
 const homedealsstores = require('./routes/homedealsstoresRoutes');
 // Add the new service request routes
 const serviceRequestRoutes = require('./routes/serviceRequestRoutes');
@@ -48,7 +48,7 @@ app.use('/api/v1', serviceRoutes);
 app.use('/api/v1', uploadRoutes);
 app.use('/api/v1', paymentRoutes);
 app.use('/api/v1', staffRoutes);
-app.use('/api/v1/offer', offerRoutes);
+app.use(' ', offerRoutes);
 app.use('/api/v1', bookingRoutes);
 app.use('/api/v1/hero', heroRoutes);
 app.use('/api/v1', socialRoutes);
@@ -87,10 +87,7 @@ sequelize
 const server = http.createServer(app);
 
 // WebSocket Setup
-const wss = new WebSocketServer({ server });
-
-wss.on('connection', (ws) => {
-  console.log('New WebSocket connection established');
+ socketManager.initialize(server);
 
   // Handle the status update (merchant comes online)
   ws.on('message', (message) => {
@@ -133,7 +130,7 @@ wss.on('connection', (ws) => {
   ws.on('error', (error) => {
     console.error('WebSocket error:', error);
   });
-});
+
 
 const PORT = process.env.PORT || 4000;
 server.listen(PORT, () => {

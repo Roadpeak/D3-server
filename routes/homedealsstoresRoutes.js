@@ -9,7 +9,7 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // Import route files
-const offerRoutes = require('./routes/offerRoutes');
+const offerRoutes = require('./offerRoutes');
 // Add other route files as needed
 // const userRoutes = require('./routes/userRoutes');
 // const authRoutes = require('./routes/authRoutes');
@@ -49,9 +49,9 @@ app.use((err, req, res, next) => {
     });
 });
 
-const PORT = process.env.PORT || 4000;
-app.listen(PORT, () => {
-    console.log(`Server is running on port ${PORT}`);
-});
+// const PORT = process.env.PORT || 4000;
+// app.listen(PORT, () => {
+//     console.log(`Server is running on port ${PORT}`);
+// });
 
 module.exports = app;
