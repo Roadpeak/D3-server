@@ -656,50 +656,50 @@ messageSchema.index({ sender: 1, timestamp: -1 });
 module.exports = mongoose.model('Message', messageSchema);
 
 // models/Conversation.js
-const mongoose = require('mongoose');
+// const mongoose = require('mongoose');
 
-const conversationSchema = new mongoose.Schema({
-  storeId: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Store',
-    required: true
-  },
-  participants: [{
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User'
-  }],
-  participantTypes: [{
-    type: String,
-    enum: ['customer', 'merchant']
-  }],
-  lastMessage: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Message'
-  },
-  unreadCount: {
-    type: Map,
-    of: Number,
-    default: {}
-  },
-  status: {
-    type: String,
-    enum: ['active', 'archived', 'blocked'],
-    default: 'active'
-  },
-  tags: [String],
-  priority: {
-    type: String,
-    enum: ['low', 'normal', 'high', 'urgent'],
-    default: 'normal'
-  }
-}, {
-  timestamps: true
-});
+// const conversationSchema = new mongoose.Schema({
+//   storeId: {
+//     type: mongoose.Schema.Types.ObjectId,
+//     ref: 'Store',
+//     required: true
+//   },
+//   participants: [{
+//     type: mongoose.Schema.Types.ObjectId,
+//     ref: 'User'
+//   }],
+//   participantTypes: [{
+//     type: String,
+//     enum: ['customer', 'merchant']
+//   }],
+//   lastMessage: {
+//     type: mongoose.Schema.Types.ObjectId,
+//     ref: 'Message'
+//   },
+//   unreadCount: {
+//     type: Map,
+//     of: Number,
+//     default: {}
+//   },
+//   status: {
+//     type: String,
+//     enum: ['active', 'archived', 'blocked'],
+//     default: 'active'
+//   },
+//   tags: [String],
+//   priority: {
+//     type: String,
+//     enum: ['low', 'normal', 'high', 'urgent'],
+//     default: 'normal'
+//   }
+// }, {
+//   timestamps: true
+// });
 
-conversationSchema.index({ storeId: 1, updatedAt: -1 });
-conversationSchema.index({ participants: 1, updatedAt: -1 });
+// conversationSchema.index({ storeId: 1, updatedAt: -1 });
+// conversationSchema.index({ participants: 1, updatedAt: -1 });
 
-module.exports = mongoose.model('Conversation', conversationSchema);
+// module.exports = mongoose.model('Conversation', conversationSchema);
 
 // utils/socketManager.js
 const socketIo = require('socket.io');
@@ -826,110 +826,110 @@ module.exports = {
 
 // middleware/auth.js
 const jwt = require('jsonwebtoken');
-const User = require('../models/user');
+// const User = require('../models/user');
 
-const authenticateToken = async (req, res, next) => {
-  try {
-    const authHeader = req.headers['authorization'];
-    const token = authHeader && authHeader.split(' ')[1];
+// const authenticateToken = async (req, res, next) => {
+//   try {
+//     const authHeader = req.headers['authorization'];
+//     const token = authHeader && authHeader.split(' ')[1];
 
-    if (!token) {
-      return res.status(401).json({
-        success: false,
-        message: 'Access token required'
-      });
-    }
+//     if (!token) {
+//       return res.status(401).json({
+//         success: false,
+//         message: 'Access token required'
+//       });
+//     }
 
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    const user = await User.findById(decoded.userId).select('-password');
+//     const decoded = jwt.verify(token, process.env.JWT_SECRET);
+//     const user = await User.findById(decoded.userId).select('-password');
     
-    if (!user) {
-      return res.status(401).json({
-        success: false,
-        message: 'Invalid token'
-      });
-    }
+//     if (!user) {
+//       return res.status(401).json({
+//         success: false,
+//         message: 'Invalid token'
+//       });
+//     }
 
-    req.user = user;
-    next();
-  } catch (error) {
-    console.error('Auth error:', error);
-    return res.status(403).json({
-      success: false,
-      message: 'Invalid or expired token'
-    });
-  }
-};
+//     req.user = user;
+//     next();
+//   } catch (error) {
+//     console.error('Auth error:', error);
+//     return res.status(403).json({
+//       success: false,
+//       message: 'Invalid or expired token'
+//     });
+//   }
+// };
 
-const authorizeRole = (roles) => {
-  return (req, res, next) => {
-    if (!req.user) {
-      return res.status(401).json({
-        success: false,
-        message: 'Authentication required'
-      });
-    }
+// const authorizeRole = (roles) => {
+//   return (req, res, next) => {
+//     if (!req.user) {
+//       return res.status(401).json({
+//         success: false,
+//         message: 'Authentication required'
+//       });
+//     }
 
-    if (!roles.includes(req.user.role)) {
-      return res.status(403).json({
-        success: false,
-        message: 'Insufficient permissions'
-      });
-    }
+//     if (!roles.includes(req.user.role)) {
+//       return res.status(403).json({
+//         success: false,
+//         message: 'Insufficient permissions'
+//       });
+//     }
 
-    next();
-  };
-};
+//     next();
+//   };
+// };
 
-module.exports = {
-  authenticateToken,
-  authorizeRole
-};
+// module.exports = {
+//   authenticateToken,
+//   authorizeRole
+// };
 
-// app.js - Main application setup
-const express = require('express');
-const mongoose = require('mongoose');
-const cors = require('cors');
-const http = require('http');
-require('dotenv').config();
+// // app.js - Main application setup
+// const express = require('express');
+// const mongoose = require('mongoose');
+// const cors = require('cors');
+// const http = require('http');
+// require('dotenv').config();
 
-const chatRoutes = require('./routes/chatRoutes');
-const { socketManager } = require('./utils/socketManager');
+// const chatRoutes = require('./routes/chatRoutes');
+// const { socketManager } = require('./utils/socketManager');
 
-const app = express();
-const server = http.createServer(app);
+// const app = express();
+// const server = http.createServer(app);
 
-// Initialize Socket.IO
-socketManager.initialize(server);
+// // Initialize Socket.IO
+// socketManager.initialize(server);
 
-// Middleware
-app.use(cors());
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true }));
+// // Middleware
+// app.use(cors());
+// app.use(express.json({ limit: '10mb' }));
+// app.use(express.urlencoded({ extended: true }));
 
-// Routes
-app.use('/api/chat', chatRoutes);
+// // Routes
+// app.use('/api/chat', chatRoutes);
 
-// Error handling middleware
-app.use((error, req, res, next) => {
-  console.error('Error:', error);
-  res.status(500).json({
-    success: false,
-    message: 'Internal server error'
-  });
-});
+// // Error handling middleware
+// app.use((error, req, res, next) => {
+//   console.error('Error:', error);
+//   res.status(500).json({
+//     success: false,
+//     message: 'Internal server error'
+//   });
+// });
 
-// Database connection
-mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/chat_app', {
-  useNewUrlParser: true,
-  useUnifiedTopology: true
-})
-.then(() => console.log('Connected to MongoDB'))
-.catch(err => console.error('MongoDB connection error:', err));
+// // Database connection
+// mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/chat_app', {
+//   useNewUrlParser: true,
+//   useUnifiedTopology: true
+// })
+// .then(() => console.log('Connected to MongoDB'))
+// .catch(err => console.error('MongoDB connection error:', err));
 
-const PORT = process.env.PORT || 5000;
-server.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
+// const PORT = process.env.PORT || 5000;
+// server.listen(PORT, () => {
+//   console.log(`Server running on port ${PORT}`);
+// });
 
-module.exports = app;
+// module.exports = app;

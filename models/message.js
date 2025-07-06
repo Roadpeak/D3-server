@@ -1,191 +1,198 @@
-// models/Message.js
-const mongoose = require('mongoose');
+'use strict';
 
-const messageSchema = new mongoose.Schema({
-  conversationId: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Conversation',
-    required: true,
-    index: true
-  },
-  sender: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
-    required: true,
-    index: true
-  },
-  senderType: {
-    type: String,
-    enum: ['customer', 'merchant'],
-    required: true
-  },
-  content: {
-    type: String,
-    required: true,
-    trim: true,
-    maxlength: 5000 // Limit message length
-  },
-  messageType: {
-    type: String,
-    enum: ['text', 'image', 'file', 'order', 'product', 'system'],
-    default: 'text'
-  },
-  timestamp: {
-    type: Date,
-    default: Date.now,
-    index: true
-  },
-  status: {
-    type: String,
-    enum: ['sent', 'delivered', 'read', 'failed'],
-    default: 'sent'
-  },
-  // Additional metadata for different message types
-  metadata: {
-    type: mongoose.Schema.Types.Mixed,
-    default: {},
-    // For images: { fileName, fileSize, mimeType, url }
-    // For files: { fileName, fileSize, mimeType, url }
-    // For orders: { orderId, orderNumber, status }
-    // For products: { productId, name, price, image }
-  },
-  // Message reactions/emoji responses
-  reactions: [{
-    userId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'User'
+module.exports = (sequelize, DataTypes) => {
+  const Message = sequelize.define('Message', {
+    id: {
+      type: DataTypes.INTEGER,
+      primaryKey: true,
+      autoIncrement: true,
     },
-    reaction: String, // emoji
-    timestamp: {
-      type: Date,
-      default: Date.now
+    chat_id: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      references: {
+        model: 'chats',
+        key: 'id'
+      }
+    },
+    sender_id: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      references: {
+        model: 'users',
+        key: 'id'
+      }
+    },
+    senderType: {
+      type: DataTypes.ENUM('customer', 'merchant'),
+      allowNull: false,
+    },
+    content: {
+      type: DataTypes.TEXT,
+      allowNull: false,
+      validate: {
+        len: [1, 5000] // Limit message length
+      }
+    },
+    messageType: {
+      type: DataTypes.ENUM('text', 'image', 'file', 'order', 'product', 'system'),
+      defaultValue: 'text'
+    },
+    status: {
+      type: DataTypes.ENUM('sent', 'delivered', 'read', 'failed'),
+      defaultValue: 'sent'
+    },
+    // Store metadata as JSON
+    metadata: {
+      type: DataTypes.JSON,
+      defaultValue: {}
+      // For images: { fileName, fileSize, mimeType, url }
+      // For files: { fileName, fileSize, mimeType, url }
+      // For orders: { orderId, orderNumber, status }
+      // For products: { productId, name, price, image }
+    },
+    // Store reactions as JSON array
+    reactions: {
+      type: DataTypes.JSON,
+      defaultValue: []
+      // Format: [{ userId, reaction, timestamp }]
+    },
+    // For reply/thread functionality
+    replyTo: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      references: {
+        model: 'messages',
+        key: 'id'
+      }
+    },
+    // Store edit history as JSON
+    editHistory: {
+      type: DataTypes.JSON,
+      defaultValue: []
+      // Format: [{ content, editedAt }]
+    },
+    // Soft delete flag
+    isDeleted: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: false
+    },
+    deletedAt: {
+      type: DataTypes.DATE,
+      allowNull: true
+    },
+    deletedBy: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      references: {
+        model: 'users',
+        key: 'id'
+      }
     }
-  }],
-  // For reply/thread functionality
-  replyTo: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Message'
-  },
-  // Message editing history
-  editHistory: [{
-    content: String,
-    editedAt: {
-      type: Date,
-      default: Date.now
+  }, {
+    tableName: 'messages',
+    timestamps: true, // Adds createdAt and updatedAt
+    indexes: [
+      {
+        fields: ['chat_id', 'createdAt']
+      },
+      {
+        fields: ['sender_id', 'createdAt']
+      },
+      {
+        fields: ['chat_id', 'status']
+      },
+      {
+        fields: ['chat_id', 'messageType']
+      }
+    ],
+    // Default scope to exclude deleted messages
+    defaultScope: {
+      where: {
+        isDeleted: false
+      }
+    },
+    scopes: {
+      // Include deleted messages
+      withDeleted: {
+        where: {}
+      }
     }
-  }],
-  // Soft delete flag
-  isDeleted: {
-    type: Boolean,
-    default: false
-  },
-  deletedAt: Date,
-  deletedBy: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User'
-  }
-}, {
-  timestamps: true // Adds createdAt and updatedAt
-});
-
-// Compound indexes for efficient queries
-messageSchema.index({ conversationId: 1, timestamp: -1 });
-messageSchema.index({ sender: 1, timestamp: -1 });
-messageSchema.index({ conversationId: 1, status: 1 });
-messageSchema.index({ conversationId: 1, messageType: 1 });
-
-// Virtual for checking if message is edited
-messageSchema.virtual('isEdited').get(function() {
-  return this.editHistory && this.editHistory.length > 0;
-});
-
-// Instance method to mark message as read
-messageSchema.methods.markAsRead = function() {
-  this.status = 'read';
-  return this.save();
-};
-
-// Instance method to mark message as delivered
-messageSchema.methods.markAsDelivered = function() {
-  this.status = 'delivered';
-  return this.save();
-};
-
-// Instance method to add reaction
-messageSchema.methods.addReaction = function(userId, reaction) {
-  // Remove existing reaction from this user
-  this.reactions = this.reactions.filter(r => !r.userId.equals(userId));
-  
-  // Add new reaction
-  this.reactions.push({ userId, reaction });
-  return this.save();
-};
-
-// Instance method to remove reaction
-messageSchema.methods.removeReaction = function(userId) {
-  this.reactions = this.reactions.filter(r => !r.userId.equals(userId));
-  return this.save();
-};
-
-// Instance method to soft delete message
-messageSchema.methods.softDelete = function(deletedBy) {
-  this.isDeleted = true;
-  this.deletedAt = new Date();
-  this.deletedBy = deletedBy;
-  return this.save();
-};
-
-// Static method to get unread messages count for a conversation
-messageSchema.statics.getUnreadCount = function(conversationId, userId) {
-  return this.countDocuments({
-    conversationId,
-    sender: { $ne: userId },
-    status: { $ne: 'read' },
-    isDeleted: false
   });
+
+  // Instance methods
+  Message.prototype.markAsRead = function() {
+    this.status = 'read';
+    return this.save();
+  };
+
+  Message.prototype.markAsDelivered = function() {
+    this.status = 'delivered';
+    return this.save();
+  };
+
+  Message.prototype.addReaction = function(userId, reaction) {
+    let reactions = this.reactions || [];
+    // Remove existing reaction from this user
+    reactions = reactions.filter(r => r.userId !== userId);
+    
+    // Add new reaction
+    reactions.push({ userId, reaction, timestamp: new Date() });
+    this.reactions = reactions;
+    return this.save();
+  };
+
+  Message.prototype.removeReaction = function(userId) {
+    let reactions = this.reactions || [];
+    this.reactions = reactions.filter(r => r.userId !== userId);
+    return this.save();
+  };
+
+  Message.prototype.softDelete = function(deletedBy) {
+    this.isDeleted = true;
+    this.deletedAt = new Date();
+    this.deletedBy = deletedBy;
+    return this.save();
+  };
+
+  // Class methods
+  Message.getUnreadCount = function(chatId, userId) {
+    return this.count({
+      where: {
+        chat_id: chatId,
+        sender_id: { [sequelize.Sequelize.Op.ne]: userId },
+        status: { [sequelize.Sequelize.Op.ne]: 'read' },
+        isDeleted: false
+      }
+    });
+  };
+
+  Message.getConversationMessages = function(chatId, page = 1, limit = 50) {
+    return this.findAll({
+      where: { 
+        chat_id: chatId,
+        isDeleted: false 
+      },
+      include: [
+        {
+          association: 'sender',
+          attributes: ['id', 'name', 'avatar']
+        },
+        {
+          association: 'replyToMessage',
+          attributes: ['id', 'content', 'sender_id']
+        }
+      ],
+      order: [['createdAt', 'DESC']],
+      limit: limit,
+      offset: (page - 1) * limit
+    });
+  };
+
+  // Virtual for checking if message is edited
+  Message.prototype.getIsEdited = function() {
+    return this.editHistory && this.editHistory.length > 0;
+  };
+
+  return Message;
 };
-
-// Static method to get messages with pagination
-messageSchema.statics.getConversationMessages = function(conversationId, page = 1, limit = 50) {
-  return this.find({ 
-    conversationId,
-    isDeleted: false 
-  })
-  .populate('sender', 'name avatar')
-  .populate('replyTo', 'content sender')
-  .sort({ timestamp: -1 })
-  .limit(limit * 1)
-  .skip((page - 1) * limit);
-};
-
-// Pre-save middleware to validate message content based on type
-messageSchema.pre('save', function(next) {
-  if (this.messageType === 'image' || this.messageType === 'file') {
-    if (!this.metadata || !this.metadata.url) {
-      return next(new Error('File URL is required for image/file messages'));
-    }
-  }
-  
-  if (this.messageType === 'order') {
-    if (!this.metadata || !this.metadata.orderId) {
-      return next(new Error('Order ID is required for order messages'));
-    }
-  }
-  
-  if (this.messageType === 'product') {
-    if (!this.metadata || !this.metadata.productId) {
-      return next(new Error('Product ID is required for product messages'));
-    }
-  }
-  
-  next();
-});
-
-// Pre-find middleware to exclude deleted messages by default
-messageSchema.pre(/^find/, function() {
-  if (!this.getQuery().isDeleted) {
-    this.where({ isDeleted: { $ne: true } });
-  }
-});
-
-module.exports = mongoose.model('Message', messageSchema);

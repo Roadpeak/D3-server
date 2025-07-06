@@ -147,6 +147,10 @@ Message.belongsTo(Chat, { foreignKey: 'chat_id', as: 'chat' });
 Message.belongsTo(User, { foreignKey: 'sender_id', as: 'sender', onDelete: 'CASCADE' });
 User.hasMany(Message, { foreignKey: 'sender_id', as: 'sentMessages' });
 
+// Add this after your existing Message associations
+Message.belongsTo(Message, { foreignKey: 'replyTo', as: 'replyToMessage' });
+Message.hasMany(Message, { foreignKey: 'replyTo', as: 'replies' });
+
 // Follow-User
 Follow.belongsTo(User, { foreignKey: 'follower_id', as: 'follower', onDelete: 'CASCADE' });
 Follow.belongsTo(User, { foreignKey: 'following_id', as: 'following', onDelete: 'CASCADE' });
