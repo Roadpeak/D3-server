@@ -35,6 +35,8 @@
     "nodemailer": "^6.9.16",
     "qrcode": "^1.5.4",
     "sequelize": "^6.37.5",
+    "socket.io": "^4.8.1",
+    "socket.io-client": "^4.8.1",
     "swagger-autogen": "^2.23.7",
     "swagger-jsdoc": "^6.2.8",
     "swagger-ui-express": "^5.0.1",
@@ -51,4 +53,7 @@
     "url": "https://github.com/Roadpeak/D3-server/issues"
   },
   "homepage": "https://github.com/Roadpeak/D3-server#readme"
+
+
+  
 }

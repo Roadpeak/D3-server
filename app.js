@@ -48,7 +48,7 @@ app.use('/api/v1', serviceRoutes);
 app.use('/api/v1', uploadRoutes);
 app.use('/api/v1', paymentRoutes);
 app.use('/api/v1', staffRoutes);
-app.use(' ', offerRoutes);
+app.use('/api/v1', offerRoutes);
 app.use('/api/v1', bookingRoutes);
 app.use('/api/v1/hero', heroRoutes);
 app.use('/api/v1', socialRoutes);
@@ -87,50 +87,10 @@ sequelize
 const server = http.createServer(app);
 
 // WebSocket Setup
- socketManager.initialize(server);
+socketManager.initialize(server);
 
-  // Handle the status update (merchant comes online)
-  ws.on('message', (message) => {
-    const parsedMessage = JSON.parse(message);
-
-    // If it's a status update, handle the merchant's online status
-    if (parsedMessage.type === 'status') {
-      const { storeId, status } = parsedMessage;
-
-      // Save the status or handle it in any other way if needed
-      console.log(`Merchant ${storeId} is now ${status}`);
-
-      // Broadcast to all connected clients
-      wss.clients.forEach((client) => {
-        if (client.readyState === ws.OPEN) { // Use ws.OPEN here
-          client.send(JSON.stringify({
-            type: 'merchant_status',
-            storeId,
-            status,
-          }));
-        }
-      });
-    }
-    // Handle messages here (like chat messages)
-    else {
-      // Broadcast other types of messages (e.g., chat messages)
-      wss.clients.forEach((client) => {
-        if (client.readyState === ws.OPEN) { // Use ws.OPEN here
-          client.send(JSON.stringify(parsedMessage));
-        }
-      });
-    }
-  });
-
-  ws.on('close', () => {
-    console.log('WebSocket connection closed');
-    // Handle merchant going offline (need storeId tracking logic)
-  });
-
-  ws.on('error', (error) => {
-    console.error('WebSocket error:', error);
-  });
-
+// Note: The WebSocket event handlers should be inside your socketManager 
+// or in a proper WebSocket connection context, not here in the main app.js
 
 const PORT = process.env.PORT || 4000;
 server.listen(PORT, () => {

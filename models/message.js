@@ -3,12 +3,12 @@
 module.exports = (sequelize, DataTypes) => {
   const Message = sequelize.define('Message', {
     id: {
-      type: DataTypes.INTEGER,
+      type: DataTypes.INTEGER.UNSIGNED, // Make explicit unsigned
       primaryKey: true,
       autoIncrement: true,
     },
     chat_id: {
-      type: DataTypes.INTEGER,
+      type: DataTypes.INTEGER.UNSIGNED, // Also update foreign keys to be unsigned
       allowNull: false,
       references: {
         model: 'chats',
@@ -16,7 +16,7 @@ module.exports = (sequelize, DataTypes) => {
       }
     },
     sender_id: {
-      type: DataTypes.INTEGER,
+      type: DataTypes.INTEGER.UNSIGNED, // Also update foreign keys to be unsigned
       allowNull: false,
       references: {
         model: 'users',
@@ -57,9 +57,9 @@ module.exports = (sequelize, DataTypes) => {
       defaultValue: []
       // Format: [{ userId, reaction, timestamp }]
     },
-    // For reply/thread functionality
+    // For reply/thread functionality - NOW UNSIGNED TO MATCH id
     replyTo: {
-      type: DataTypes.INTEGER,
+      type: DataTypes.INTEGER.UNSIGNED, // Changed to unsigned
       allowNull: true,
       references: {
         model: 'messages',
@@ -82,7 +82,7 @@ module.exports = (sequelize, DataTypes) => {
       allowNull: true
     },
     deletedBy: {
-      type: DataTypes.INTEGER,
+      type: DataTypes.INTEGER.UNSIGNED, // Also update this foreign key
       allowNull: true,
       references: {
         model: 'users',

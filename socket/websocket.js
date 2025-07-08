@@ -28,14 +28,14 @@ class SocketManager {
     this.io.use(async (socket, next) => {
       try {
         const token = socket.handshake.auth?.token || socket.handshake.headers?.authorization?.split(' ')[1];
-        
+
         if (!token) {
           return next(new Error('Authentication error: No token provided'));
         }
 
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
         const user = await User.findById(decoded.userId).select('-password');
-        
+
         if (!user) {
           return next(new Error('Authentication error: Invalid token'));
         }
@@ -50,7 +50,7 @@ class SocketManager {
 
     this.io.on('connection', (socket) => {
       console.log(`User connected: ${socket.user.name} (${socket.user.role}) - Socket ID: ${socket.id}`);
-      
+
       this.handleUserConnection(socket);
       this.setupEventHandlers(socket);
     });
@@ -60,22 +60,22 @@ class SocketManager {
 
   handleUserConnection(socket) {
     const userId = socket.user._id.toString();
-    
+
     // Store user connection
     this.onlineUsers.set(userId, socket.id);
     this.userSockets.set(socket.id, userId);
-    
+
     // Join user to their personal room
     socket.join(`user_${userId}`);
-    
+
     // Join merchant to store room if applicable
     if (socket.user.role === 'merchant' && socket.user.storeId) {
       socket.join(`store_${socket.user.storeId}`);
     }
-    
+
     // Broadcast online status to relevant users
     this.broadcastUserStatus(userId, 'online');
-    
+
     // Send current online users to the newly connected user
     socket.emit('online_users', this.getOnlineUsers());
   }
@@ -129,12 +129,22 @@ class SocketManager {
     socket.on('error', (error) => {
       console.error(`Socket error for user ${socket.user.name}:`, error);
     });
+
+    // Enhanced store status with merchant online/offline tracking
+    socket.on('merchant_status_update', (data) => {
+      this.handleMerchantStatusUpdate(socket, data);
+    });
+
+    // Generic message handler for backward compatibility
+    socket.on('message', (data) => {
+      this.handleGenericMessage(socket, data);
+    });
   }
 
   async handleJoinConversation(socket, { conversationId }) {
     try {
       const userId = socket.user._id.toString();
-      
+
       // Verify user has access to this conversation
       const conversation = await Conversation.findById(conversationId);
       if (!conversation) {
@@ -142,9 +152,9 @@ class SocketManager {
         return;
       }
 
-      const hasAccess = conversation.participants.includes(userId) || 
-                       (socket.user.storeId && conversation.storeId.toString() === socket.user.storeId.toString());
-      
+      const hasAccess = conversation.participants.includes(userId) ||
+        (socket.user.storeId && conversation.storeId.toString() === socket.user.storeId.toString());
+
       if (!hasAccess) {
         socket.emit('error', { message: 'Access denied to conversation' });
         return;
@@ -152,7 +162,7 @@ class SocketManager {
 
       // Join the conversation room
       socket.join(`conversation_${conversationId}`);
-      
+
       // Track conversation participants
       if (!this.conversationRooms.has(conversationId)) {
         this.conversationRooms.set(conversationId, new Set());
@@ -179,10 +189,10 @@ class SocketManager {
 
   handleLeaveConversation(socket, { conversationId }) {
     socket.leave(`conversation_${conversationId}`);
-    
+
     if (this.conversationRooms.has(conversationId)) {
       this.conversationRooms.get(conversationId).delete(socket.id);
-      
+
       // Clean up empty conversation rooms
       if (this.conversationRooms.get(conversationId).size === 0) {
         this.conversationRooms.delete(conversationId);
@@ -214,9 +224,9 @@ class SocketManager {
         return;
       }
 
-      const hasAccess = conversation.participants.includes(senderId) || 
-                       (socket.user.storeId && conversation.storeId.toString() === socket.user.storeId.toString());
-      
+      const hasAccess = conversation.participants.includes(senderId) ||
+        (socket.user.storeId && conversation.storeId.toString() === socket.user.storeId.toString());
+
       if (!hasAccess) {
         socket.emit('error', { message: 'Access denied' });
         return;
@@ -239,9 +249,9 @@ class SocketManager {
       // Update conversation
       conversation.lastMessage = message._id;
       conversation.updatedAt = new Date();
-      
+
       // Update unread counts
-      const otherParticipants = senderType === 'customer' 
+      const otherParticipants = senderType === 'customer'
         ? [conversation.storeId.toString()]
         : conversation.participants.filter(p => p.toString() !== senderId);
 
@@ -275,7 +285,7 @@ class SocketManager {
       if (conversationParticipants && conversationParticipants.size > 1) {
         message.status = 'delivered';
         await message.save();
-        
+
         formattedMessage.status = 'delivered';
         this.io.to(`conversation_${conversationId}`).emit('message_status_update', {
           messageId: message._id,
@@ -295,13 +305,13 @@ class SocketManager {
 
   handleTypingStart(socket, { conversationId }) {
     const userId = socket.user._id.toString();
-    
+
     if (!this.typingUsers.has(conversationId)) {
       this.typingUsers.set(conversationId, new Set());
     }
-    
+
     this.typingUsers.get(conversationId).add(userId);
-    
+
     socket.to(`conversation_${conversationId}`).emit('typing_start', {
       conversationId,
       user: {
@@ -313,15 +323,15 @@ class SocketManager {
 
   handleTypingStop(socket, { conversationId }) {
     const userId = socket.user._id.toString();
-    
+
     if (this.typingUsers.has(conversationId)) {
       this.typingUsers.get(conversationId).delete(userId);
-      
+
       if (this.typingUsers.get(conversationId).size === 0) {
         this.typingUsers.delete(conversationId);
       }
     }
-    
+
     socket.to(`conversation_${conversationId}`).emit('typing_stop', {
       conversationId,
       userId: socket.user._id
@@ -334,7 +344,7 @@ class SocketManager {
 
       // Update message status
       await Message.updateMany(
-        { 
+        {
           _id: { $in: messageIds },
           sender: { $ne: userId }
         },
@@ -372,7 +382,7 @@ class SocketManager {
     }
 
     const storeId = socket.user.storeId.toString();
-    
+
     // Broadcast store status to all clients
     this.io.emit('store_status_update', {
       storeId,
@@ -424,22 +434,22 @@ class SocketManager {
 
   handleUserDisconnect(socket) {
     const userId = this.userSockets.get(socket.id);
-    
+
     if (userId) {
       // Remove from online users
       this.onlineUsers.delete(userId);
       this.userSockets.delete(socket.id);
-      
+
       // Clean up conversation rooms
       this.conversationRooms.forEach((participants, conversationId) => {
         if (participants.has(socket.id)) {
           participants.delete(socket.id);
-          
+
           // Stop typing if user was typing
           if (this.typingUsers.has(conversationId)) {
             this.typingUsers.get(conversationId).delete(userId);
           }
-          
+
           // Notify other participants
           socket.to(`conversation_${conversationId}`).emit('user_left_conversation', {
             conversationId,
@@ -447,10 +457,10 @@ class SocketManager {
           });
         }
       });
-      
+
       // Broadcast offline status
       this.broadcastUserStatus(userId, 'offline');
-      
+
       console.log(`User ${socket.user?.name || userId} disconnected`);
     }
   }
@@ -509,14 +519,160 @@ class SocketManager {
     const diffInHours = (now - messageTime) / (1000 * 60 * 60);
 
     if (diffInHours < 24) {
-      return messageTime.toLocaleTimeString('en-US', { 
-        hour: 'numeric', 
-        minute: '2-digit' 
+      return messageTime.toLocaleTimeString('en-US', {
+        hour: 'numeric',
+        minute: '2-digit'
       });
     } else {
       return messageTime.toLocaleDateString('en-US');
     }
   }
+
+  handleMerchantStatusUpdate(socket, { storeId, status }) {
+    if (socket.user.role !== 'merchant') {
+      socket.emit('error', { message: 'Unauthorized to update merchant status' });
+      return;
+    }
+
+    console.log(`Merchant ${storeId} is now ${status}`);
+
+    // Broadcast to all connected clients
+    this.io.emit('merchant_status', {
+      type: 'merchant_status',
+      storeId,
+      status,
+      timestamp: new Date()
+    });
+  }
+
+  handleGenericMessage(socket, messageData) {
+    try {
+      const parsedMessage = typeof messageData === 'string'
+        ? JSON.parse(messageData)
+        : messageData;
+
+      // Handle status updates
+      if (parsedMessage.type === 'status') {
+        this.handleMerchantStatusUpdate(socket, parsedMessage);
+      }
+      // Handle other message types
+      else if (parsedMessage.type === 'chat') {
+        // Route to existing chat handler
+        this.handleSendMessage(socket, parsedMessage);
+      }
+      // Broadcast other types of messages
+      else {
+        this.io.emit('message', parsedMessage);
+      }
+    } catch (error) {
+      console.error('Error handling generic message:', error);
+      socket.emit('error', { message: 'Invalid message format' });
+    }
+  }
+
+  // Enhanced user connection handling with automatic status broadcasting
+  handleUserConnection(socket) {
+    const userId = socket.user._id.toString();
+
+    // Store user connection
+    this.onlineUsers.set(userId, socket.id);
+    this.userSockets.set(socket.id, userId);
+
+    // Join user to their personal room
+    socket.join(`user_${userId}`);
+
+    // Join merchant to store room if applicable
+    if (socket.user.role === 'merchant' && socket.user.storeId) {
+      socket.join(`store_${socket.user.storeId}`);
+
+      // Automatically broadcast merchant coming online
+      this.io.emit('merchant_status', {
+        type: 'merchant_status',
+        storeId: socket.user.storeId,
+        status: 'online',
+        timestamp: new Date()
+      });
+    }
+
+    // Broadcast online status to relevant users
+    this.broadcastUserStatus(userId, 'online');
+
+    // Send current online users to the newly connected user
+    socket.emit('online_users', this.getOnlineUsers());
+  }
+
+  // Enhanced disconnect handling
+  handleUserDisconnect(socket) {
+    const userId = this.userSockets.get(socket.id);
+
+    if (userId) {
+      // Remove from online users
+      this.onlineUsers.delete(userId);
+      this.userSockets.delete(socket.id);
+
+      // If merchant is disconnecting, broadcast offline status
+      if (socket.user.role === 'merchant' && socket.user.storeId) {
+        this.io.emit('merchant_status', {
+          type: 'merchant_status',
+          storeId: socket.user.storeId,
+          status: 'offline',
+          timestamp: new Date()
+        });
+      }
+
+      // Clean up conversation rooms
+      this.conversationRooms.forEach((participants, conversationId) => {
+        if (participants.has(socket.id)) {
+          participants.delete(socket.id);
+
+          // Stop typing if user was typing
+          if (this.typingUsers.has(conversationId)) {
+            this.typingUsers.get(conversationId).delete(userId);
+          }
+
+          // Notify other participants
+          socket.to(`conversation_${conversationId}`).emit('user_left_conversation', {
+            conversationId,
+            userId
+          });
+        }
+      });
+
+      // Broadcast offline status
+      this.broadcastUserStatus(userId, 'offline');
+
+      console.log(`User ${socket.user?.name || userId} disconnected`);
+    }
+  }
+
+  // Add method to get merchant status
+  getMerchantStatus(storeId) {
+    return Array.from(this.onlineUsers.keys()).some(userId => {
+      const socket = this.io.sockets.sockets.get(this.onlineUsers.get(userId));
+      return socket?.user?.storeId?.toString() === storeId.toString() &&
+        socket?.user?.role === 'merchant';
+    });
+  }
+
+  // Add method to get all online merchants
+  getOnlineMerchants() {
+    const onlineMerchants = [];
+
+    this.onlineUsers.forEach((socketId, userId) => {
+      const socket = this.io.sockets.sockets.get(socketId);
+      if (socket?.user?.role === 'merchant' && socket?.user?.storeId) {
+        onlineMerchants.push({
+          userId,
+          storeId: socket.user.storeId,
+          name: socket.user.name,
+          socketId
+        });
+      }
+    });
+
+    return onlineMerchants;
+  }
+
 }
 
 // Create singleton instance

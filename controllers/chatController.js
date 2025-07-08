@@ -10,18 +10,18 @@ class ChatController {
   async getUserConversations(req, res) {
     try {
       const userId = req.user.id;
-      
+
       const conversations = await Conversation.find({
         participants: userId,
         participantTypes: { $in: ['customer'] }
       })
-      .populate('participants', 'name avatar email')
-      .populate('storeId', 'name avatar category online')
-      .populate({
-        path: 'lastMessage',
-        select: 'content timestamp sender status'
-      })
-      .sort({ updatedAt: -1 });
+        .populate('participants', 'name avatar email')
+        .populate('storeId', 'name avatar category online')
+        .populate({
+          path: 'lastMessage',
+          select: 'content timestamp sender status'
+        })
+        .sort({ updatedAt: -1 });
 
       const formattedConversations = conversations.map(conv => ({
         id: conv._id,
@@ -54,23 +54,23 @@ class ChatController {
   async getMerchantConversations(req, res) {
     try {
       const storeId = req.user.storeId;
-      
+
       const conversations = await Conversation.find({
         storeId: storeId
       })
-      .populate('participants', 'name avatar email createdAt')
-      .populate({
-        path: 'lastMessage',
-        select: 'content timestamp sender status'
-      })
-      .sort({ updatedAt: -1 });
+        .populate('participants', 'name avatar email createdAt')
+        .populate({
+          path: 'lastMessage',
+          select: 'content timestamp sender status'
+        })
+        .sort({ updatedAt: -1 });
 
       const formattedConversations = await Promise.all(
         conversations.map(async (conv) => {
           const customer = conv.participants.find(p => p._id.toString() !== req.user.id);
           const orderCount = await this.getCustomerOrderCount(customer._id, storeId);
           const customerSince = new Date(customer.createdAt).getFullYear();
-          
+
           return {
             id: conv._id,
             customer: {
@@ -118,9 +118,9 @@ class ChatController {
         });
       }
 
-      const hasAccess = conversation.participants.includes(userId) || 
-                       conversation.storeId.toString() === req.user.storeId;
-      
+      const hasAccess = conversation.participants.includes(userId) ||
+        conversation.storeId.toString() === req.user.storeId;
+
       if (!hasAccess) {
         return res.status(403).json({
           success: false,
@@ -180,9 +180,9 @@ class ChatController {
         });
       }
 
-      const hasAccess = conversation.participants.includes(senderId) || 
-                       conversation.storeId.toString() === req.user.storeId;
-      
+      const hasAccess = conversation.participants.includes(senderId) ||
+        conversation.storeId.toString() === req.user.storeId;
+
       if (!hasAccess) {
         return res.status(403).json({
           success: false,
@@ -206,14 +206,14 @@ class ChatController {
       // Update conversation
       conversation.lastMessage = message._id;
       conversation.updatedAt = new Date();
-      
+
       // Update unread counts
-      const otherParticipants = senderType === 'customer' 
+      const otherParticipants = senderType === 'customer'
         ? [conversation.storeId]
         : conversation.participants.filter(p => p.toString() !== senderId);
 
       otherParticipants.forEach(participantId => {
-        conversation.unreadCount.set(participantId.toString(), 
+        conversation.unreadCount.set(participantId.toString(),
           (conversation.unreadCount.get(participantId.toString()) || 0) + 1);
       });
 
@@ -328,8 +328,8 @@ class ChatController {
     try {
       // Update message status
       await Message.updateMany(
-        { 
-          conversationId, 
+        {
+          conversationId,
           sender: { $ne: userId },
           status: { $ne: 'read' }
         },
@@ -407,7 +407,7 @@ class ChatController {
       const userRole = req.user.role;
 
       let searchFilter = {};
-      
+
       if (userRole === 'customer') {
         searchFilter.participants = userId;
       } else {
@@ -422,7 +422,7 @@ class ChatController {
       const conversationIds = messages
         .filter(msg => {
           const conv = msg.conversationId;
-          return userRole === 'customer' 
+          return userRole === 'customer'
             ? conv.participants.includes(userId)
             : conv.storeId.toString() === req.user.storeId;
         })
@@ -435,9 +435,9 @@ class ChatController {
           searchFilter
         ]
       })
-      .populate('participants', 'name avatar')
-      .populate('storeId', 'name avatar category')
-      .populate('lastMessage');
+        .populate('participants', 'name avatar')
+        .populate('storeId', 'name avatar category')
+        .populate('lastMessage');
 
       res.status(200).json({
         success: true,
@@ -463,19 +463,19 @@ class ChatController {
       const analytics = await Promise.all([
         // Total conversations
         Conversation.countDocuments({ storeId }),
-        
+
         // New conversations in period
-        Conversation.countDocuments({ 
-          storeId, 
-          createdAt: { $gte: startDate } 
+        Conversation.countDocuments({
+          storeId,
+          createdAt: { $gte: startDate }
         }),
-        
+
         // Total messages in period
         Message.countDocuments({
           timestamp: { $gte: startDate },
           conversationId: { $in: await Conversation.find({ storeId }).distinct('_id') }
         }),
-        
+
         // Response time analytics
         this.getResponseTimeAnalytics(storeId, startDate)
       ]);
@@ -515,9 +515,9 @@ class ChatController {
     const diffInHours = (now - messageTime) / (1000 * 60 * 60);
 
     if (diffInHours < 24) {
-      return messageTime.toLocaleTimeString('en-US', { 
-        hour: 'numeric', 
-        minute: '2-digit' 
+      return messageTime.toLocaleTimeString('en-US', {
+        hour: 'numeric',
+        minute: '2-digit'
       });
     } else {
       return messageTime.toLocaleDateString('en-US');
@@ -548,388 +548,16 @@ class ChatController {
   }
 }
 
-module.exports = new ChatController();
-
-// routes/chatRoutes.js
-const express = require('express');
-const router = express.Router();
-const chatController = require('../controllers/chatController');
-const { authenticateToken, authorizeRole } = require('../middleware/auth');
-
-// User/Customer routes
-router.get('/conversations', 
-  authenticateToken, 
-  authorizeRole(['customer', 'merchant']), 
-  (req, res) => {
-    if (req.user.role === 'customer') {
-      return chatController.getUserConversations(req, res);
-    } else {
-      return chatController.getMerchantConversations(req, res);
-    }
-  }
-);
-
-router.post('/conversations', 
-  authenticateToken, 
-  authorizeRole(['customer']), 
-  chatController.startConversation
-);
-
-router.get('/conversations/:conversationId/messages', 
-  authenticateToken, 
-  chatController.getMessages
-);
-
-router.post('/messages', 
-  authenticateToken, 
-  chatController.sendMessage
-);
-
-router.patch('/messages/:messageId/status', 
-  authenticateToken, 
-  chatController.updateMessageStatus
-);
-
-router.get('/search', 
-  authenticateToken, 
-  chatController.searchConversations
-);
-
-// Merchant-specific routes
-router.get('/analytics', 
-  authenticateToken, 
-  authorizeRole(['merchant']), 
-  chatController.getConversationAnalytics
-);
-
-module.exports = router;
-
-// models/Message.js
-const mongoose = require('mongoose');
-
-const messageSchema = new mongoose.Schema({
-  conversationId: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Conversation',
-    required: true
-  },
-  sender: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
-    required: true
-  },
-  senderType: {
-    type: String,
-    enum: ['customer', 'merchant'],
-    required: true
-  },
-  content: {
-    type: String,
-    required: true,
-    trim: true
-  },
-  messageType: {
-    type: String,
-    enum: ['text', 'image', 'file', 'order', 'product'],
-    default: 'text'
-  },
-  timestamp: {
-    type: Date,
-    default: Date.now
-  },
-  status: {
-    type: String,
-    enum: ['sent', 'delivered', 'read'],
-    default: 'sent'
-  },
-  metadata: {
-    type: mongoose.Schema.Types.Mixed,
-    default: {}
-  }
-}, {
-  timestamps: true
-});
-
-messageSchema.index({ conversationId: 1, timestamp: -1 });
-messageSchema.index({ sender: 1, timestamp: -1 });
-
-module.exports = mongoose.model('Message', messageSchema);
-
-// models/Conversation.js
-// const mongoose = require('mongoose');
-
-// const conversationSchema = new mongoose.Schema({
-//   storeId: {
-//     type: mongoose.Schema.Types.ObjectId,
-//     ref: 'Store',
-//     required: true
-//   },
-//   participants: [{
-//     type: mongoose.Schema.Types.ObjectId,
-//     ref: 'User'
-//   }],
-//   participantTypes: [{
-//     type: String,
-//     enum: ['customer', 'merchant']
-//   }],
-//   lastMessage: {
-//     type: mongoose.Schema.Types.ObjectId,
-//     ref: 'Message'
-//   },
-//   unreadCount: {
-//     type: Map,
-//     of: Number,
-//     default: {}
-//   },
-//   status: {
-//     type: String,
-//     enum: ['active', 'archived', 'blocked'],
-//     default: 'active'
-//   },
-//   tags: [String],
-//   priority: {
-//     type: String,
-//     enum: ['low', 'normal', 'high', 'urgent'],
-//     default: 'normal'
-//   }
-// }, {
-//   timestamps: true
-// });
-
-// conversationSchema.index({ storeId: 1, updatedAt: -1 });
-// conversationSchema.index({ participants: 1, updatedAt: -1 });
-
-// module.exports = mongoose.model('Conversation', conversationSchema);
-
-// utils/socketManager.js
-const socketIo = require('socket.io');
-
-class SocketManager {
-  constructor() {
-    this.io = null;
-    this.onlineUsers = new Map();
-    this.conversationRooms = new Map();
-  }
-
-  initialize(server) {
-    this.io = socketIo(server, {
-      cors: {
-        origin: process.env.FRONTEND_URL || "http://localhost:3000",
-        methods: ["GET", "POST"]
-      }
-    });
-
-    this.io.on('connection', (socket) => {
-      console.log('User connected:', socket.id);
-
-      socket.on('user_join', (userData) => {
-        this.handleUserJoin(socket, userData);
-      });
-
-      socket.on('join_conversation', (conversationId) => {
-        this.handleJoinConversation(socket, conversationId);
-      });
-
-      socket.on('leave_conversation', (conversationId) => {
-        this.handleLeaveConversation(socket, conversationId);
-      });
-
-      socket.on('typing_start', (data) => {
-        this.handleTypingStart(socket, data);
-      });
-
-      socket.on('typing_stop', (data) => {
-        this.handleTypingStop(socket, data);
-      });
-
-      socket.on('disconnect', () => {
-        this.handleUserDisconnect(socket);
-      });
-    });
-  }
-
-  handleUserJoin(socket, userData) {
-    socket.userId = userData.userId;
-    socket.userRole = userData.role;
-    this.onlineUsers.set(userData.userId, socket.id);
-    
-    // Join user to their personal room
-    socket.join(`user_${userData.userId}`);
-    
-    // Broadcast online status
-    socket.broadcast.emit('user_online', userData.userId);
-  }
-
-  handleJoinConversation(socket, conversationId) {
-    socket.join(`conversation_${conversationId}`);
-    
-    if (!this.conversationRooms.has(conversationId)) {
-      this.conversationRooms.set(conversationId, new Set());
-    }
-    this.conversationRooms.get(conversationId).add(socket.id);
-  }
-
-  handleLeaveConversation(socket, conversationId) {
-    socket.leave(`conversation_${conversationId}`);
-    
-    if (this.conversationRooms.has(conversationId)) {
-      this.conversationRooms.get(conversationId).delete(socket.id);
-    }
-  }
-
-  handleTypingStart(socket, { conversationId, userId }) {
-    socket.to(`conversation_${conversationId}`).emit('typing_start', {
-      userId,
-      conversationId
-    });
-  }
-
-  handleTypingStop(socket, { conversationId, userId }) {
-    socket.to(`conversation_${conversationId}`).emit('typing_stop', {
-      userId,
-      conversationId
-    });
-  }
-
-  handleUserDisconnect(socket) {
-    if (socket.userId) {
-      this.onlineUsers.delete(socket.userId);
-      socket.broadcast.emit('user_offline', socket.userId);
-    }
-    
-    // Clean up conversation rooms
-    this.conversationRooms.forEach((participants, conversationId) => {
-      participants.delete(socket.id);
-    });
-  }
-
-  emitToUser(userId, event, data) {
-    this.io.to(`user_${userId}`).emit(event, data);
-  }
-
-  emitToConversation(conversationId, event, data) {
-    this.io.to(`conversation_${conversationId}`).emit(event, data);
-  }
-
-  isUserOnline(userId) {
-    return this.onlineUsers.has(userId);
-  }
-
-  getOnlineUsers() {
-    return Array.from(this.onlineUsers.keys());
-  }
-}
+// Create instance and export properly bound methods
+const chatController = new ChatController();
 
 module.exports = {
-  socketManager: new SocketManager()
+  startConversation: chatController.startConversation.bind(chatController),
+  sendMessage: chatController.sendMessage.bind(chatController),
+  getMessages: chatController.getMessages.bind(chatController),
+  updateMessageStatus: chatController.updateMessageStatus.bind(chatController),
+  getUserConversations: chatController.getUserConversations.bind(chatController),
+  getMerchantConversations: chatController.getMerchantConversations.bind(chatController),
+  searchConversations: chatController.searchConversations.bind(chatController),
+  getConversationAnalytics: chatController.getConversationAnalytics.bind(chatController)
 };
-
-// middleware/auth.js
-const jwt = require('jsonwebtoken');
-// const User = require('../models/user');
-
-// const authenticateToken = async (req, res, next) => {
-//   try {
-//     const authHeader = req.headers['authorization'];
-//     const token = authHeader && authHeader.split(' ')[1];
-
-//     if (!token) {
-//       return res.status(401).json({
-//         success: false,
-//         message: 'Access token required'
-//       });
-//     }
-
-//     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-//     const user = await User.findById(decoded.userId).select('-password');
-    
-//     if (!user) {
-//       return res.status(401).json({
-//         success: false,
-//         message: 'Invalid token'
-//       });
-//     }
-
-//     req.user = user;
-//     next();
-//   } catch (error) {
-//     console.error('Auth error:', error);
-//     return res.status(403).json({
-//       success: false,
-//       message: 'Invalid or expired token'
-//     });
-//   }
-// };
-
-// const authorizeRole = (roles) => {
-//   return (req, res, next) => {
-//     if (!req.user) {
-//       return res.status(401).json({
-//         success: false,
-//         message: 'Authentication required'
-//       });
-//     }
-
-//     if (!roles.includes(req.user.role)) {
-//       return res.status(403).json({
-//         success: false,
-//         message: 'Insufficient permissions'
-//       });
-//     }
-
-//     next();
-//   };
-// };
-
-// module.exports = {
-//   authenticateToken,
-//   authorizeRole
-// };
-
-// // app.js - Main application setup
-// const express = require('express');
-// const mongoose = require('mongoose');
-// const cors = require('cors');
-// const http = require('http');
-// require('dotenv').config();
-
-// const chatRoutes = require('./routes/chatRoutes');
-// const { socketManager } = require('./utils/socketManager');
-
-// const app = express();
-// const server = http.createServer(app);
-
-// // Initialize Socket.IO
-// socketManager.initialize(server);
-
-// // Middleware
-// app.use(cors());
-// app.use(express.json({ limit: '10mb' }));
-// app.use(express.urlencoded({ extended: true }));
-
-// // Routes
-// app.use('/api/chat', chatRoutes);
-
-// // Error handling middleware
-// app.use((error, req, res, next) => {
-//   console.error('Error:', error);
-//   res.status(500).json({
-//     success: false,
-//     message: 'Internal server error'
-//   });
-// });
-
-// // Database connection
-// mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/chat_app', {
-//   useNewUrlParser: true,
-//   useUnifiedTopology: true
-// })
-// .then(() => console.log('Connected to MongoDB'))
-// .catch(err => console.error('MongoDB connection error:', err));
-
-// const PORT = process.env.PORT || 5000;
-// server.listen(PORT, () => {
-//   console.log(`Server running on port ${PORT}`);
-// });
-
-// module.exports = app;
