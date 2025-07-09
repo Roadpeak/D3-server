@@ -47,10 +47,13 @@ module.exports = (sequelize, DataTypes) => {
   Review.associate = (models) => {
     Review.belongsTo(models.Store, {
       foreignKey: 'store_id',
+      as: 'store',
       onDelete: 'CASCADE',
     });
+
     Review.belongsTo(models.User, {
       foreignKey: 'user_id',
+      as: 'user', // ✅ Important: Alias must match controller's `include: { as: 'user' }`
       onDelete: 'SET NULL',
     });
   };

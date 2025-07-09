@@ -1,4 +1,4 @@
-const { User } = require('../models/user');
+const { User } = require('../models');
 const { Op } = require('sequelize'); // Import Sequelize operators
 
 // Create a new user

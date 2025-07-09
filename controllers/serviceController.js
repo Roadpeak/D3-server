@@ -7,14 +7,37 @@ exports.createService = async (req, res) => {
   try {
     const { name, price, duration, image_url, store_id, category, description, type } = req.body;
 
+    // Validate required fields
+    if (!name || !store_id || !category || !description || !type) {
+      return res.status(400).json({ 
+        message: 'Missing required fields',
+        required: ['name', 'store_id', 'category', 'description', 'type']
+      });
+    }
+
+    // Check if store exists
+    const store = await Store.findByPk(store_id);
+    if (!store) {
+      return res.status(400).json({ 
+        message: 'Store not found',
+        store_id: store_id
+      });
+    }
+
     if (!['fixed', 'dynamic'].includes(type)) {
       return res.status(400).json({ message: 'Invalid service type. Must be "fixed" or "dynamic".' });
     }
 
+    if (type === 'fixed' && (!price || !duration)) {
+      return res.status(400).json({ 
+        message: 'Fixed services require price and duration' 
+      });
+    }
+
     const newService = await Service.create({
       name,
-      price: type === 'fixed' ? price : null,
-      duration: type === 'fixed' ? duration : null,
+      price: type === 'fixed' ? parseFloat(price) : null,
+      duration: type === 'fixed' ? parseInt(duration) : null,
       image_url,
       store_id,
       category,
@@ -24,8 +47,11 @@ exports.createService = async (req, res) => {
 
     return res.status(201).json({ newService });
   } catch (err) {
-    console.error(err);
-    return res.status(500).json({ message: 'Error creating service' });
+    console.error('Service creation error:', err);
+    return res.status(500).json({ 
+      message: 'Error creating service',
+      error: process.env.NODE_ENV === 'development' ? err.message : undefined
+    });
   }
 };
 
