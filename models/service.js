@@ -1,3 +1,4 @@
+// Service.js - Fixed version
 'use strict';
 const { v4: uuidv4 } = require('uuid');
 
@@ -5,7 +6,7 @@ module.exports = (sequelize, DataTypes) => {
   const Service = sequelize.define('Service', {
     id: {
       type: DataTypes.UUID,
-      defaultValue: uuidv4,
+      defaultValue: DataTypes.UUIDV4, // Fixed: use DataTypes.UUIDV4 instead of uuidv4()
       primaryKey: true,
     },
     name: {
@@ -14,11 +15,11 @@ module.exports = (sequelize, DataTypes) => {
     },
     price: {
       type: DataTypes.FLOAT,
-      allowNull: true, // For dynamic services, price can be null
+      allowNull: true,
     },
     duration: {
       type: DataTypes.INTEGER,
-      allowNull: true, // Optional for dynamic services
+      allowNull: true,
     },
     image_url: {
       type: DataTypes.STRING,
@@ -28,7 +29,7 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.UUID,
       allowNull: false,
       references: {
-        model: 'Stores',
+        model: 'stores', // Changed to lowercase
         key: 'id',
       },
     },
@@ -46,13 +47,13 @@ module.exports = (sequelize, DataTypes) => {
       defaultValue: 'fixed',
     },
   }, {
-    tableName: 'Services',
+    tableName: 'services', // Changed to lowercase
     timestamps: true,
     paranoid: true,
     indexes: [],
   });
 
-  // Add the associate method to define associations
+  // Fixed associations
   Service.associate = (models) => {
     // Many-to-Many relationship with Staff through StaffService
     Service.belongsToMany(models.Staff, {
@@ -65,10 +66,17 @@ module.exports = (sequelize, DataTypes) => {
     // Service belongs to a Store (one-to-many)
     Service.belongsTo(models.Store, {
       foreignKey: 'store_id',
+      as: 'store', // Use consistent alias
       onDelete: 'CASCADE',
-      as: 'store',
     });
-  };
+  
+
+    Service.hasMany(models.Offer, {
+    foreignKey: 'service_id',
+    as: 'offers'
+    });
+
+  };  
 
   return Service;
 };

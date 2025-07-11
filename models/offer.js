@@ -2,13 +2,26 @@ const { Model, DataTypes } = require('sequelize');
 const { v4: uuidv4 } = require('uuid');
 
 module.exports = (sequelize) => {
-  class Offer extends Model { }
+  class Offer extends Model { 
+    static associate(models) {
+      // Define associations here
+      Offer.belongsTo(models.Service, {
+        foreignKey: 'service_id',
+        as: 'service'
+      });
+      
+      Offer.belongsTo(models.Store, {
+        foreignKey: 'storeId',
+        as: 'store'
+      });
+    }
+  }
 
   Offer.init(
     {
       id: {
         type: DataTypes.UUID,
-        defaultValue: uuidv4,
+        defaultValue: DataTypes.UUIDV4, // Fixed: use DataTypes.UUIDV4
         primaryKey: true,
       },
       discount: {
@@ -39,7 +52,7 @@ module.exports = (sequelize) => {
         type: DataTypes.UUID,
         allowNull: false,
         references: {
-          model: 'Services',
+          model: 'services', // Changed from 'Services' to 'services' (lowercase)
           key: 'id',
         },
       },
@@ -55,10 +68,10 @@ module.exports = (sequelize) => {
     {
       sequelize,
       modelName: 'Offer',
+      tableName: 'offers', // Added explicit table name (lowercase)
+      timestamps: true,
     }
   );
-
-  Offer.belongsTo(sequelize.models.Service, { foreignKey: 'service_id' });
 
   return Offer;
 };

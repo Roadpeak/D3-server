@@ -3,12 +3,12 @@
 module.exports = (sequelize, DataTypes) => {
   const Message = sequelize.define('Message', {
     id: {
-      type: DataTypes.INTEGER.UNSIGNED, // Make explicit unsigned
+      type: DataTypes.UUID,
+      defaultValue: DataTypes.UUIDV4,
       primaryKey: true,
-      autoIncrement: true,
     },
     chat_id: {
-      type: DataTypes.INTEGER.UNSIGNED, // Also update foreign keys to be unsigned
+      type: DataTypes.UUID,
       allowNull: false,
       references: {
         model: 'chats',
@@ -16,7 +16,7 @@ module.exports = (sequelize, DataTypes) => {
       }
     },
     sender_id: {
-      type: DataTypes.INTEGER.UNSIGNED, // Also update foreign keys to be unsigned
+      type: DataTypes.UUID,
       allowNull: false,
       references: {
         model: 'users',
@@ -31,7 +31,7 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.TEXT,
       allowNull: false,
       validate: {
-        len: [1, 5000] // Limit message length
+        len: [1, 5000]
       }
     },
     messageType: {
@@ -42,37 +42,26 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.ENUM('sent', 'delivered', 'read', 'failed'),
       defaultValue: 'sent'
     },
-    // Store metadata as JSON
     metadata: {
       type: DataTypes.JSON,
       defaultValue: {}
-      // For images: { fileName, fileSize, mimeType, url }
-      // For files: { fileName, fileSize, mimeType, url }
-      // For orders: { orderId, orderNumber, status }
-      // For products: { productId, name, price, image }
     },
-    // Store reactions as JSON array
     reactions: {
       type: DataTypes.JSON,
       defaultValue: []
-      // Format: [{ userId, reaction, timestamp }]
     },
-    // For reply/thread functionality - NOW UNSIGNED TO MATCH id
     replyTo: {
-      type: DataTypes.INTEGER.UNSIGNED, // Changed to unsigned
+      type: DataTypes.UUID,
       allowNull: true,
       references: {
         model: 'messages',
         key: 'id'
       }
     },
-    // Store edit history as JSON
     editHistory: {
       type: DataTypes.JSON,
       defaultValue: []
-      // Format: [{ content, editedAt }]
     },
-    // Soft delete flag
     isDeleted: {
       type: DataTypes.BOOLEAN,
       defaultValue: false
@@ -82,7 +71,7 @@ module.exports = (sequelize, DataTypes) => {
       allowNull: true
     },
     deletedBy: {
-      type: DataTypes.INTEGER.UNSIGNED, // Also update this foreign key
+      type: DataTypes.UUID,
       allowNull: true,
       references: {
         model: 'users',
@@ -91,7 +80,7 @@ module.exports = (sequelize, DataTypes) => {
     }
   }, {
     tableName: 'messages',
-    timestamps: true, // Adds createdAt and updatedAt
+    timestamps: true,
     indexes: [
       {
         fields: ['chat_id', 'createdAt']
@@ -106,19 +95,49 @@ module.exports = (sequelize, DataTypes) => {
         fields: ['chat_id', 'messageType']
       }
     ],
-    // Default scope to exclude deleted messages
     defaultScope: {
       where: {
         isDeleted: false
       }
     },
     scopes: {
-      // Include deleted messages
       withDeleted: {
         where: {}
       }
     }
   });
+
+  // ADD THIS ASSOCIATION METHOD
+  Message.associate = function(models) {
+    // Message belongs to User (sender)
+    Message.belongsTo(models.User, {
+      foreignKey: 'sender_id',
+      as: 'sender'
+    });
+
+    // Message belongs to Chat
+    Message.belongsTo(models.Chat, {
+      foreignKey: 'chat_id',
+      as: 'chat'
+    });
+
+    // Message belongs to User (who deleted it)
+    Message.belongsTo(models.User, {
+      foreignKey: 'deletedBy',
+      as: 'deletedByUser'
+    });
+
+    // Self-referencing association for replies
+    Message.belongsTo(models.Message, {
+      foreignKey: 'replyTo',
+      as: 'replyToMessage'
+    });
+
+    Message.hasMany(models.Message, {
+      foreignKey: 'replyTo',
+      as: 'replies'
+    });
+  };
 
   // Instance methods
   Message.prototype.markAsRead = function() {
@@ -133,10 +152,7 @@ module.exports = (sequelize, DataTypes) => {
 
   Message.prototype.addReaction = function(userId, reaction) {
     let reactions = this.reactions || [];
-    // Remove existing reaction from this user
     reactions = reactions.filter(r => r.userId !== userId);
-    
-    // Add new reaction
     reactions.push({ userId, reaction, timestamp: new Date() });
     this.reactions = reactions;
     return this.save();
@@ -175,11 +191,13 @@ module.exports = (sequelize, DataTypes) => {
       },
       include: [
         {
-          association: 'sender',
-          attributes: ['id', 'name', 'avatar']
+          model: sequelize.models.User, // Use model instead of association
+          as: 'sender',
+          attributes: ['id', 'firstName', 'lastName'] // Updated to match your User model
         },
         {
-          association: 'replyToMessage',
+          model: sequelize.models.Message, // Use model instead of association
+          as: 'replyToMessage',
           attributes: ['id', 'content', 'sender_id']
         }
       ],

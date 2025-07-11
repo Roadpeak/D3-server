@@ -9,7 +9,8 @@ exports.createUser = async (firstName, lastName, email, phoneNumber, password) =
       lastName,
       email,
       phoneNumber,
-      password
+      password,
+      userType: 'customer' // Set default user type
     });
     return user;
   } catch (error) {
@@ -45,17 +46,60 @@ exports.findUserByEmailOrPhone = async (email, phoneNumber) => {
   }
 };
 
-// Find a user by email (for login)
+// Find a user by email (for login) - FIXED to handle password properly
 exports.findUserByEmail = async (email) => {
   try {
     if (!email) {
       return null;
     }
 
-    return await User.findOne({
-      where: { email }
-    });
+    // Try different approaches to get the user with password
+    let user = null;
+
+    // Method 1: Try with scope if it exists
+    try {
+      user = await User.scope('withPassword').findOne({
+        where: { email }
+      });
+    } catch (scopeError) {
+      // Scope doesn't exist, continue to method 2
+    }
+
+    // Method 2: Try without default scope (raw query)
+    if (!user) {
+      try {
+        user = await User.unscoped().findOne({
+          where: { email }
+        });
+      } catch (unscopedError) {
+        // Continue to method 3
+      }
+    }
+
+    // Method 3: Force include password
+    if (!user) {
+      user = await User.findOne({
+        where: { email },
+        attributes: {
+          include: ['password']
+        }
+      });
+    }
+
+    // Method 4: Get all attributes
+    if (!user) {
+      user = await User.findOne({
+        where: { email },
+        attributes: '*'
+      });
+    }
+
+    console.log('Found user for login:', user ? 'Yes' : 'No');
+    console.log('User has password field:', user && user.password ? 'Yes' : 'No');
+    
+    return user;
   } catch (error) {
+    console.error('Error in findUserByEmail:', error);
     throw new Error('Error finding user: ' + error.message);
   }
 };
@@ -139,5 +183,50 @@ exports.userExistsByPhone = async (phoneNumber) => {
     return !!user;
   } catch (error) {
     throw new Error('Error checking user existence: ' + error.message);
+  }
+};
+
+// Additional helper methods for user verification
+exports.markPhoneAsVerified = async (userId) => {
+  try {
+    return await User.update(
+      { 
+        phoneVerifiedAt: new Date(),
+        isPhoneVerified: true 
+      },
+      { where: { id: userId } }
+    );
+  } catch (error) {
+    throw new Error('Error marking phone as verified: ' + error.message);
+  }
+};
+
+exports.markEmailAsVerified = async (userId) => {
+  try {
+    return await User.update(
+      { 
+        emailVerifiedAt: new Date(),
+        isEmailVerified: true 
+      },
+      { where: { id: userId } }
+    );
+  } catch (error) {
+    throw new Error('Error marking email as verified: ' + error.message);
+  }
+};
+
+// Get user with verification status
+exports.getUserWithVerificationStatus = async (id) => {
+  try {
+    const user = await User.findByPk(id);
+    if (!user) return null;
+
+    return {
+      ...user.toJSON(),
+      isEmailVerified: !!user.emailVerifiedAt,
+      isPhoneVerified: !!user.phoneVerifiedAt
+    };
+  } catch (error) {
+    throw new Error('Error getting user verification status: ' + error.message);
   }
 };

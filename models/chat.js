@@ -1,44 +1,13 @@
-// Example of consistent model definitions
-
-// User.js
-'use strict';
-module.exports = (sequelize, DataTypes) => {
-  const User = sequelize.define('User', {
-    id: {
-      type: DataTypes.INTEGER.UNSIGNED, // Make sure this matches across all models
-      primaryKey: true,
-      autoIncrement: true,
-    },
-    // ... other user fields
-  });
-  return User;
-};
-
-// Store.js
-'use strict';
-module.exports = (sequelize, DataTypes) => {
-  const Store = sequelize.define('Store', {
-    id: {
-      type: DataTypes.INTEGER.UNSIGNED, // Consistent with User
-      primaryKey: true,
-      autoIncrement: true,
-    },
-    // ... other store fields
-  });
-  return Store;
-};
-
-// Chat.js (your updated model)
 'use strict';
 module.exports = (sequelize, DataTypes) => {
   const Chat = sequelize.define('Chat', {
     id: {
-      type: DataTypes.INTEGER.UNSIGNED, // Consistent with User and Store
-      primaryKey: true,
-      autoIncrement: true,
+      type: DataTypes.UUID,
+      defaultValue: DataTypes.UUIDV4,
+      primaryKey: true
     },
     userId: {
-      type: DataTypes.INTEGER.UNSIGNED, // Must match User.id exactly
+      type: DataTypes.UUID,
       allowNull: false,
       references: {
         model: 'users',
@@ -46,7 +15,7 @@ module.exports = (sequelize, DataTypes) => {
       }
     },
     storeId: {
-      type: DataTypes.INTEGER.UNSIGNED, // Must match Store.id exactly
+      type: DataTypes.UUID,
       allowNull: false,
       references: {
         model: 'stores',
@@ -85,7 +54,28 @@ module.exports = (sequelize, DataTypes) => {
     ]
   });
 
-  // Your instance methods remain the same
+  // Associations
+  Chat.associate = (models) => {
+    Chat.belongsTo(models.User, {
+      foreignKey: 'userId',
+      as: 'user',
+      onDelete: 'CASCADE',
+    });
+
+    Chat.belongsTo(models.Store, {
+      foreignKey: 'storeId',
+      as: 'store',
+      onDelete: 'CASCADE',
+    });
+
+    Chat.hasMany(models.Message, {
+      foreignKey: 'chat_id', // Updated to match Message model field name
+      as: 'messages',
+      onDelete: 'CASCADE',
+    });
+  };
+
+  // Instance methods
   Chat.prototype.updateLastMessage = function () {
     this.lastMessageAt = new Date();
     return this.save();
@@ -101,6 +91,7 @@ module.exports = (sequelize, DataTypes) => {
     return this.save();
   };
 
+  // Class methods
   Chat.findOrCreateChat = async function (userId, storeId) {
     const [chat, created] = await this.findOrCreate({
       where: { userId, storeId },
@@ -114,11 +105,13 @@ module.exports = (sequelize, DataTypes) => {
       where: { userId },
       include: [
         {
-          association: 'store',
-          attributes: ['id', 'name', 'logo']
+          model: sequelize.models.Store,
+          as: 'store',
+          attributes: ['id', 'name', 'logo_url']
         },
         {
-          association: 'messages',
+          model: sequelize.models.Message,
+          as: 'messages',
           limit: 1,
           order: [['createdAt', 'DESC']],
           attributes: ['id', 'content', 'messageType', 'createdAt']

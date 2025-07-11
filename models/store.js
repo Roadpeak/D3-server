@@ -1,5 +1,5 @@
+// Store.js - Updated associations
 'use strict';
-
 module.exports = (sequelize, DataTypes) => {
   const Store = sequelize.define(
     'Store',
@@ -99,7 +99,7 @@ module.exports = (sequelize, DataTypes) => {
     },
     {
       timestamps: true,
-      tableName: 'Stores',
+      tableName: 'stores', // Changed to lowercase for consistency
       indexes: [
         { fields: ['category'] },
         { fields: ['location'] },
@@ -179,6 +179,13 @@ module.exports = (sequelize, DataTypes) => {
       as: 'galleries',
       onDelete: 'CASCADE',
     });
+
+    // Add Chat association
+    Store.hasMany(models.Chat, {
+      foreignKey: 'storeId',
+      as: 'chats',
+      onDelete: 'CASCADE',
+    });
   };
 
   // INSTANCE METHODS
@@ -189,7 +196,7 @@ module.exports = (sequelize, DataTypes) => {
     return values;
   };
 
-  // CLASS METHODS
+  // CLASS METHODS (keeping your existing methods)
   Store.getCategories = async function () {
     const categories = await this.findAll({
       attributes: [[sequelize.fn('DISTINCT', sequelize.col('category')), 'category']],
