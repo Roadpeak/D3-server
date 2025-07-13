@@ -31,11 +31,14 @@ const fs = require('fs');
 const path = require('path');
 const swaggerFile = path.join(__dirname, 'swagger_output.json');
 
+// Import API key middleware
+const { apiKeyMiddleware } = require('./middleware/apiKey');
+
 require('dotenv').config();
 
 const app = express();
 
-// CORS Configuration
+// CORS Configuration - UPDATED TO ALLOW API-KEY HEADER
 const corsOptions = {
   origin: function (origin, callback) {
     // Allow requests with no origin (like mobile apps or curl requests)
@@ -64,7 +67,10 @@ const corsOptions = {
     'Authorization', 
     'X-Requested-With',
     'Accept',
-    'Origin'
+    'Origin',
+    'api-key', // ADDED: This fixes the CORS error
+    'x-api-key', // ADDED: Alternative format
+    'X-API-Key'  // ADDED: Another common variant
   ],
   exposedHeaders: ['Authorization'],
   maxAge: 86400, // 24 hours
@@ -82,6 +88,9 @@ app.set('trust proxy', 1);
 // Basic middleware
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+
+// Apply API key middleware (optional in development)
+app.use(apiKeyMiddleware);
 
 // Security headers
 app.use((req, res, next) => {
@@ -349,6 +358,7 @@ app.post('/api/v1/users/register', (req, res) => {
     access_token: token,
   });
 });
+
 // Create HTTP Server
 const server = http.createServer(app);
 

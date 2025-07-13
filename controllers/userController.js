@@ -69,8 +69,13 @@ exports.register = async (req, res) => {
       userData.password
     );
 
+    // FIXED: Add type field to token
     const token = jwt.sign(
-      { userId: newUser.id, email: newUser.email },
+      { 
+        userId: newUser.id, 
+        email: newUser.email,
+        type: 'user'  // ADDED THIS LINE
+      },
       JWT_SECRET,
       { expiresIn: '30d' }
     );
@@ -146,7 +151,7 @@ exports.register = async (req, res) => {
   }
 };
 
-// LOGIN - FIXED to handle password issues
+// LOGIN - FIXED to include type field
 exports.login = async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -202,8 +207,13 @@ exports.login = async (req, res) => {
       });
     }
 
+    // FIXED: Add type field to token
     const token = jwt.sign(
-      { userId: user.id, email: user.email },
+      { 
+        userId: user.id, 
+        email: user.email,
+        type: 'user'  // ADDED THIS LINE
+      },
       JWT_SECRET,
       { expiresIn: '30d' }
     );
