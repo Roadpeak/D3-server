@@ -86,11 +86,11 @@ exports.findUserByEmail = async (email) => {
       });
     }
 
-    // Method 4: Get all attributes
+    // Method 4: Get all attributes (FIXED - removed the problematic attributes: '*')
     if (!user) {
       user = await User.findOne({
-        where: { email },
-        attributes: '*'
+        where: { email }
+        // No attributes specified = get all attributes by default
       });
     }
 

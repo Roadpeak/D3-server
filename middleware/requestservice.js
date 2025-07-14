@@ -1,5 +1,5 @@
 const jwt = require('jsonwebtoken');
-const { User } = require('../models/Requestservice'); // Adjust path based on your project structure
+const { User } = require('../models'); // Adjust path based on your project structure
 
 // JWT Secret - In production, use environment variable
 const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-jwt-key-here';

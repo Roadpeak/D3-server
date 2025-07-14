@@ -14,6 +14,7 @@ const sequelize = new Sequelize(
   }
 );
 
+// Import existing models
 const User = require('./user')(sequelize, DataTypes);
 const Merchant = require('./merchant')(sequelize, DataTypes);
 const Booking = require('./bookings')(sequelize, DataTypes);
@@ -37,6 +38,12 @@ const Chat = require('./chat')(sequelize, DataTypes);
 const Message = require('./message')(sequelize, DataTypes);
 const StoreSubscription = require('./storesubscription')(sequelize, DataTypes);
 
+// Import NEW service marketplace models
+// const ServiceRequest = require('./serviceRequest')(sequelize, DataTypes);
+// const ServiceOffer = require('./ServiceOffer')(sequelize, DataTypes);
+// const Notification = require('./notification')(sequelize, DataTypes);
+
+// EXISTING ASSOCIATIONS (keep all your current associations)
 // Service-Store
 Service.belongsTo(Store, { foreignKey: 'store_id', as: 'store', onDelete: 'CASCADE' });
 Store.hasMany(Service, { foreignKey: 'store_id', as: 'services' });
@@ -147,7 +154,7 @@ Message.belongsTo(Chat, { foreignKey: 'chat_id', as: 'chat' });
 Message.belongsTo(User, { foreignKey: 'sender_id', as: 'sender', onDelete: 'CASCADE' });
 User.hasMany(Message, { foreignKey: 'sender_id', as: 'sentMessages' });
 
-// Add this after your existing Message associations
+// Message replies
 Message.belongsTo(Message, { foreignKey: 'replyTo', as: 'replyToMessage' });
 Message.hasMany(Message, { foreignKey: 'replyTo', as: 'replies' });
 
@@ -169,10 +176,63 @@ Service.belongsTo(Category, {
   as: 'serviceCategory',
 });
 
-
 // Social-Store
 Social.belongsTo(Store, { foreignKey: 'store_id', as: 'store', onDelete: 'CASCADE' });
 Store.hasMany(Social, { foreignKey: 'store_id', as: 'socialLinks' });
+
+// NEW SERVICE MARKETPLACE ASSOCIATIONS (updated to handle circular dependency)
+
+// // ServiceRequest-User
+// ServiceRequest.belongsTo(User, { foreignKey: 'postedBy', as: 'requestOwner', onDelete: 'CASCADE' });
+// User.hasMany(ServiceRequest, { foreignKey: 'postedBy', as: 'serviceRequests' });
+
+// // ServiceOffer-ServiceRequest
+// ServiceOffer.belongsTo(ServiceRequest, { foreignKey: 'requestId', as: 'serviceRequest', onDelete: 'CASCADE' });
+// ServiceRequest.hasMany(ServiceOffer, { foreignKey: 'requestId', as: 'offers' });
+
+// // ServiceOffer-User (provider)
+// ServiceOffer.belongsTo(User, { foreignKey: 'providerId', as: 'provider', onDelete: 'CASCADE' });
+// User.hasMany(ServiceOffer, { foreignKey: 'providerId', as: 'sentOffers' });
+
+// // ServiceOffer-Store
+// ServiceOffer.belongsTo(Store, { foreignKey: 'storeId', as: 'store', onDelete: 'CASCADE' });
+// Store.hasMany(ServiceOffer, { foreignKey: 'storeId', as: 'serviceOffers' });
+
+// // Handle acceptedOffer relationship through association (not foreign key)
+// ServiceRequest.belongsTo(ServiceOffer, { 
+//   foreignKey: 'acceptedOfferId', 
+//   as: 'acceptedOffer', 
+//   constraints: false  // This tells Sequelize not to create the foreign key constraint
+// });
+// ServiceOffer.hasOne(ServiceRequest, { 
+//   foreignKey: 'acceptedOfferId', 
+//   as: 'acceptedRequest',
+//   constraints: false  // This tells Sequelize not to create the foreign key constraint
+// });
+
+// // ServiceOffer self-reference for revisions
+// ServiceOffer.belongsTo(ServiceOffer, { 
+//   foreignKey: 'originalOfferId', 
+//   as: 'originalOffer', 
+//   constraints: false  // No constraint since it's self-referencing
+// });
+// ServiceOffer.hasMany(ServiceOffer, { 
+//   foreignKey: 'originalOfferId', 
+//   as: 'revisions',
+//   constraints: false
+// });
+
+// // Notification-User (recipient)
+// Notification.belongsTo(User, { foreignKey: 'recipientId', as: 'recipient', onDelete: 'CASCADE' });
+// User.hasMany(Notification, { foreignKey: 'recipientId', as: 'notifications' });
+
+// // Notification-User (sender)
+// Notification.belongsTo(User, { foreignKey: 'senderId', as: 'sender', onDelete: 'SET NULL' });
+// User.hasMany(Notification, { foreignKey: 'senderId', as: 'sentNotifications' });
+
+// Notification-User (sender)
+// Notification.belongsTo(User, { foreignKey: 'senderId', as: 'sender', onDelete: 'SET NULL' });
+// User.hasMany(Notification, { foreignKey: 'senderId', as: 'sentNotifications' });
 
 module.exports = {
   User,
@@ -197,5 +257,9 @@ module.exports = {
   Category,
   Chat,
   Message,
+  // NEW MODELS
+  // ServiceRequest,
+  // ServiceOffer,
+  // Notification,
   sequelize,
 };

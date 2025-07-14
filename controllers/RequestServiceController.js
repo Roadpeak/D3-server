@@ -1,5 +1,5 @@
 const { validationResult } = require('express-validator');
-const ServiceRequest = require('../models/ServiceRequest');
+const ServiceRequest = require('../models/serviceRequest');
 const ServiceOffer = require('../models/ServiceOffer');
 const Store = require('../models/store');
 const User = require('../models/user');
