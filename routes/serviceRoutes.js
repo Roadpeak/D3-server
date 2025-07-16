@@ -12,114 +12,84 @@ const {
 } = require('../middleware/auth');
 
 // ==========================================
-// PUBLIC ROUTES (Browsable by everyone)
+// IMPORTANT: Specific routes MUST come before parameterized routes (:id)
 // ==========================================
 
-// Get all services - using optionalAuth for potential user-specific data (favorites, etc.)
-router.get('/services', optionalAuth, serviceController.getServices);
+// ==========================================
+// MERCHANT DASHBOARD ROUTES (Must come first)
+// ==========================================
+
+// Get merchant's services - this is what your frontend is calling
+router.get('/merchant/:merchantId', authenticateMerchant, serviceController.getServicesByMerchantId);
+
+// Alternative merchant services route
+router.get('/merchant/my-services', authenticateMerchant, serviceController.getMerchantServices);
+
+// Get service analytics/stats for merchant
+router.get('/:id/analytics', authenticateMerchant, serviceController.getServiceAnalytics);
+
+// ==========================================
+// STORE-SPECIFIC ROUTES (Must come before /:id)
+// ==========================================
+
+// Get services by store ID - this is also what your frontend might call
+router.get('/store/:storeId', optionalAuth, serviceController.getServicesByStoreId);
+
+// ==========================================
+// SEARCH AND FILTERING (Must come before /:id)
+// ==========================================
 
 // Search services - public but with optional user context
-router.get('/services/search', optionalAuth, serviceController.searchServices);
-
-// Get specific service by ID - public with optional user context
-router.get('/services/:id', optionalAuth, serviceController.getServiceById);
-
-// Get services by store ID - public browsing
-router.get('/services/store/:storeId', optionalAuth, serviceController.getServicesByStoreId);
+router.get('/search', optionalAuth, serviceController.searchServices);
 
 // ==========================================
-// MERCHANT PROTECTED ROUTES (Service owners)
-// ==========================================
-
-// Create service - typically merchants only
-// Change to authenticateUser if regular users can also create services
-router.post('/services', authenticateMerchant, serviceController.createService);
-
-// Update service - should verify ownership in controller
-// Change to authenticateUser if regular users can also update their services
-router.put('/services/:id', authenticateMerchant, serviceController.updateService);
-
-// Delete service - should verify ownership in controller
-// Change to authenticateUser if regular users can also delete their services
-router.delete('/services/:id', authenticateMerchant, serviceController.deleteService);
-
-// ==========================================
-// USER INTERACTION ROUTES (if you want to add them)
+// USER INTERACTION ROUTES (Must come before /:id)
 // ==========================================
 
 // Add service to favorites (if you have favorites feature)
-router.post('/services/:id/favorite', authenticateUser, (req, res) => {
-  res.status(200).json({
-    message: 'Add service to favorites',
-    serviceId: req.params.id,
-    userId: req.user.userId
-  });
-});
+router.post('/:id/favorite', authenticateUser, serviceController.addToFavorites);
 
 // Remove service from favorites
-router.delete('/services/:id/favorite', authenticateUser, (req, res) => {
-  res.status(200).json({
-    message: 'Remove service from favorites',
-    serviceId: req.params.id,
-    userId: req.user.userId
-  });
-});
+router.delete('/:id/favorite', authenticateUser, serviceController.removeFromFavorites);
 
 // Submit service review/rating
-router.post('/services/:id/reviews', authenticateUser, (req, res) => {
-  res.status(200).json({
-    message: 'Submit service review',
-    serviceId: req.params.id,
-    userId: req.user.userId
-  });
-});
+router.post('/:id/reviews', authenticateUser, serviceController.submitReview);
 
 // ==========================================
-// MERCHANT DASHBOARD ROUTES
+// ADMIN ROUTES (Must come before general /:id routes)
 // ==========================================
-
-// Get merchant's services
-router.get('/merchant/my-services', authenticateMerchant, (req, res) => {
-  res.status(200).json({
-    message: 'Get merchant services',
-    merchantId: req.user.userId
-  });
-});
-
-// Get service analytics/stats for merchant
-router.get('/services/:id/analytics', authenticateMerchant, (req, res) => {
-  res.status(200).json({
-    message: 'Get service analytics',
-    serviceId: req.params.id,
-    merchantId: req.user.userId
-  });
-});
-
-// ==========================================
-// ADMIN ROUTES (Service verification/management)
-// ==========================================
-
-// Admin verify/approve service
-router.put('/services/:id/verify', authenticateAdmin, (req, res) => {
-  res.status(200).json({
-    message: 'Verify service',
-    serviceId: req.params.id
-  });
-});
 
 // Admin get pending services for verification
-router.get('/admin/pending-services', authenticateAdmin, (req, res) => {
-  res.status(200).json({
-    message: 'Get pending services for verification'
-  });
-});
+router.get('/admin/pending', authenticateAdmin, serviceController.getPendingServices);
+
+// Admin verify/approve service
+router.put('/:id/verify', authenticateAdmin, serviceController.verifyService);
 
 // Admin suspend/unsuspend service
-router.put('/services/:id/status', authenticateAdmin, (req, res) => {
-  res.status(200).json({
-    message: 'Update service status',
-    serviceId: req.params.id
-  });
-});
+router.put('/:id/status', authenticateAdmin, serviceController.updateServiceStatus);
+
+// ==========================================
+// CRUD OPERATIONS
+// ==========================================
+
+// Create service - merchants only
+router.post('/', authenticateMerchant, serviceController.createService);
+
+// Update service - should verify ownership in controller
+router.put('/:id', authenticateMerchant, serviceController.updateService);
+
+// Delete service - should verify ownership in controller
+router.delete('/:id', authenticateMerchant, serviceController.deleteService);
+
+// ==========================================
+// PUBLIC ROUTES (These should come LAST)
+// ==========================================
+
+// Get all services - using optionalAuth for potential user-specific data
+router.get('/', optionalAuth, serviceController.getServices);
+
+// IMPORTANT: This MUST be the very last route because /:id catches everything
+// Get specific service by ID - public with optional user context
+router.get('/:id', optionalAuth, serviceController.getServiceById);
 
 module.exports = router;

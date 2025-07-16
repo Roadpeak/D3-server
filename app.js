@@ -38,7 +38,7 @@ require('dotenv').config();
 
 const app = express();
 
-// CORS Configuration - UPDATED TO ALLOW API-KEY HEADER
+// CORS Configuration - FIXED VERSION
 const corsOptions = {
   origin: function (origin, callback) {
     // Allow requests with no origin (like mobile apps or curl requests)
@@ -68,19 +68,59 @@ const corsOptions = {
     'X-Requested-With',
     'Accept',
     'Origin',
-    'api-key', // ADDED: This fixes the CORS error
-    'x-api-key', // ADDED: Alternative format
-    'X-API-Key'  // ADDED: Another common variant
+    'api-key',
+    'x-api-key',
+    'X-API-Key',
+    'credentials',
+    'Access-Control-Allow-Credentials',
+    'Cache-Control',
+    'Pragma'
   ],
-  exposedHeaders: ['Authorization'],
+  exposedHeaders: ['Authorization', 'Content-Type'],
   maxAge: 86400, // 24 hours
+  optionsSuccessStatus: 200 // For legacy browser support
 };
 
-// Apply CORS middleware
+// Apply CORS middleware FIRST
 app.use(cors(corsOptions));
 
-// Handle preflight requests
+// Handle preflight requests explicitly
 app.options('*', cors(corsOptions));
+
+// ADDITIONAL CORS MIDDLEWARE for extra compatibility
+app.use((req, res, next) => {
+  // Get the origin from the request
+  const origin = req.headers.origin;
+  
+  // Check if origin is allowed
+  const allowedOrigins = process.env.CORS_ORIGINS?.split(',') || [
+    'http://localhost:3000',
+    'http://localhost:5173',
+    'http://localhost:5174',
+    'https://discoun3ree.com',
+    'https://merchants.discoun3ree.com',
+    'https://admin.discoun3ree.com'
+  ];
+  
+  if (allowedOrigins.includes(origin)) {
+    res.header('Access-Control-Allow-Origin', origin);
+  }
+  
+  res.header('Access-Control-Allow-Credentials', 'true');
+  res.header('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,PATCH,OPTIONS');
+  res.header('Access-Control-Allow-Headers', 
+    'Origin, X-Requested-With, Content-Type, Accept, Authorization, Cache-Control, Pragma, credentials, api-key, x-api-key, X-API-Key'
+  );
+  
+  // Handle preflight requests
+  if (req.method === 'OPTIONS') {
+    res.status(200).json({
+      body: "OK"
+    });
+  } else {
+    next();
+  }
+});
 
 // Trust proxy (important for production deployments)
 app.set('trust proxy', 1);
@@ -104,6 +144,11 @@ app.use((req, res, next) => {
 if (process.env.NODE_ENV === 'development') {
   app.use((req, res, next) => {
     console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
+    if (req.method === 'OPTIONS') {
+      console.log('  - PREFLIGHT REQUEST');
+      console.log('  - Origin:', req.headers.origin);
+      console.log('  - Requested Headers:', req.headers['access-control-request-headers']);
+    }
     next();
   });
 }
@@ -115,6 +160,17 @@ app.get('/health', (req, res) => {
     timestamp: new Date().toISOString(),
     environment: process.env.NODE_ENV || 'development',
     database: 'connected'
+  });
+});
+
+// CORS test endpoint
+app.get('/api/v1/cors-test', (req, res) => {
+  res.status(200).json({
+    message: 'CORS is working!',
+    origin: req.headers.origin,
+    method: req.method,
+    headers: req.headers,
+    timestamp: new Date().toISOString()
   });
 });
 
@@ -136,7 +192,7 @@ app.use('/api/v1/service-forms', serviceFormsRoutes);
 app.use('/api/v1/transactions', transactionRoutes);
 app.use('/api/v1/follows', followRoutes);
 app.use('/api/v1/home-deals-stores', homedealsstores);
-app.use('/api/v1/chats', chatRoutes);
+app.use('/api/v1/chat', chatRoutes); // Chat routes - should now work with CORS fix
 app.use('/api/v1/likes', likeRoutes);
 app.use('/api/v1/forms', formRoutes);
 app.use('/api/v1/form-fields', formFieldRoutes);
@@ -266,98 +322,141 @@ app.use('*', (req, res) => {
 // Initialize database
 initializeDatabase();
 
-// Temporary debug routes - add these to your app.js
-app.get('/api/v1/users/test', (req, res) => {
-  res.json({ message: 'User routes are working via app.js!' });
-});
-
-app.post('/api/v1/users/verify-otp', (req, res) => {
-  console.log('OTP verification request:', req.body);
-  const { phone, otp } = req.body;
+// Temporary debug routes for testing
+if (process.env.NODE_ENV === 'development') {
+  const jwt = require('jsonwebtoken');
   
-  if (['123456', '111111', '000000', '999999'].includes(otp)) {
-    return res.status(200).json({
-      message: 'Phone number verified successfully',
-      success: true
-    });
-  }
-  
-  return res.status(400).json({
-    message: 'Invalid OTP',
-    errors: { otp: 'Use 123456, 111111, 000000, or 999999 for testing' }
+  app.get('/api/v1/users/test', (req, res) => {
+    res.json({ message: 'User routes are working via app.js!', timestamp: new Date().toISOString() });
   });
-});
 
-app.post('/api/v1/users/resend-otp', (req, res) => {
-  console.log('OTP resend request:', req.body);
-  return res.status(200).json({
-    message: 'OTP sent successfully',
-    success: true,
-    testOtp: '123456'
-  });
-});
-
-// Add this temporary login route to your app.js
-app.post('/api/v1/users/login', (req, res) => {
-  console.log('Login attempt:', req.body);
-  const { email, password } = req.body;
-  
-  if (!email || !password) {
+  app.post('/api/v1/users/verify-otp', (req, res) => {
+    console.log('OTP verification request:', req.body);
+    const { phone, otp } = req.body;
+    
+    if (['123456', '111111', '000000', '999999'].includes(otp)) {
+      return res.status(200).json({
+        message: 'Phone number verified successfully',
+        success: true
+      });
+    }
+    
     return res.status(400).json({
-      message: 'Email and password required',
-      errors: {}
+      message: 'Invalid OTP',
+      errors: { otp: 'Use 123456, 111111, 000000, or 999999 for testing' }
     });
-  }
-  
-  // Simple test login - accept any email/password for now
-  const jwt = require('jsonwebtoken');
-  const token = jwt.sign(
-    { userId: 1, email: email },
-    process.env.JWT_SECRET || 'your-secret-key',
-    { expiresIn: '30d' }
-  );
-  
-  return res.status(200).json({
-    message: 'Login successful',
-    user: {
-      id: 1,
-      firstName: 'Test',
-      lastName: 'User',
-      email: email,
-      phoneNumber: '+1234567890',
-      userType: 'customer',
-      isEmailVerified: true,
-      isPhoneVerified: true,
-    },
-    access_token: token,
   });
-});
 
-// Also add register route
-app.post('/api/v1/users/register', (req, res) => {
-  console.log('Registration attempt:', req.body);
-  const { firstName, lastName, email, phoneNumber, password } = req.body;
-  
-  const jwt = require('jsonwebtoken');
-  const token = jwt.sign(
-    { userId: 2, email: email },
-    process.env.JWT_SECRET || 'your-secret-key',
-    { expiresIn: '30d' }
-  );
-  
-  return res.status(201).json({
-    message: 'Registration successful',
-    user: {
-      id: 2,
-      firstName: firstName,
-      lastName: lastName,
-      email: email,
-      phoneNumber: phoneNumber,
-      userType: 'customer',
-    },
-    access_token: token,
+  app.post('/api/v1/users/resend-otp', (req, res) => {
+    console.log('OTP resend request:', req.body);
+    return res.status(200).json({
+      message: 'OTP sent successfully',
+      success: true,
+      testOtp: '123456'
+    });
   });
-});
+
+  // Test login route
+  app.post('/api/v1/users/login', (req, res) => {
+    console.log('Login attempt:', req.body);
+    const { email, password } = req.body;
+    
+    if (!email || !password) {
+      return res.status(400).json({
+        message: 'Email and password required',
+        errors: {}
+      });
+    }
+    
+    // Simple test login - accept any email/password for now
+    const token = jwt.sign(
+      { 
+        userId: 1, 
+        email: email,
+        type: 'user' // Important: specify the type
+      },
+      process.env.JWT_SECRET || 'your-secret-key',
+      { expiresIn: '30d' }
+    );
+    
+    return res.status(200).json({
+      message: 'Login successful',
+      user: {
+        id: 1,
+        firstName: 'Test',
+        lastName: 'User',
+        email: email,
+        phoneNumber: '+1234567890',
+        userType: 'customer',
+        isEmailVerified: true,
+        isPhoneVerified: true,
+      },
+      access_token: token,
+    });
+  });
+
+  // Test register route
+  app.post('/api/v1/users/register', (req, res) => {
+    console.log('Registration attempt:', req.body);
+    const { firstName, lastName, email, phoneNumber, password } = req.body;
+    
+    const token = jwt.sign(
+      { 
+        userId: 2, 
+        email: email,
+        type: 'user'
+      },
+      process.env.JWT_SECRET || 'your-secret-key',
+      { expiresIn: '30d' }
+    );
+    
+    return res.status(201).json({
+      message: 'Registration successful',
+      user: {
+        id: 2,
+        firstName: firstName,
+        lastName: lastName,
+        email: email,
+        phoneNumber: phoneNumber,
+        userType: 'customer',
+      },
+      access_token: token,
+    });
+  });
+
+  // Test profile route for debugging auth
+  app.get('/api/v1/users/profile', (req, res) => {
+    // Simple middleware to check token
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({
+        success: false,
+        message: 'No token provided'
+      });
+    }
+
+    const token = authHeader.substring(7);
+    try {
+      const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key');
+      return res.status(200).json({
+        success: true,
+        user: {
+          id: decoded.userId,
+          firstName: 'Test',
+          lastName: 'User',
+          email: decoded.email,
+          phoneNumber: '+1234567890',
+          userType: 'customer'
+        }
+      });
+    } catch (error) {
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid token'
+      });
+    }
+  });
+}
 
 // Create HTTP Server
 const server = http.createServer(app);
@@ -383,7 +482,9 @@ server.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`📚 API Documentation: http://localhost:${PORT}/api/v1/api-docs`);
   console.log(`🏥 Health Check: http://localhost:${PORT}/health`);
+  console.log(`🧪 CORS Test: http://localhost:${PORT}/api/v1/cors-test`);
   console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log(`💬 Chat API: http://localhost:${PORT}/api/v1/chat/*`);
 });
 
 // Graceful shutdown

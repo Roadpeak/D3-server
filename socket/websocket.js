@@ -1,684 +1,500 @@
 // socket/websocket.js
 const socketIo = require('socket.io');
 const jwt = require('jsonwebtoken');
-const User = require('../models/user');
-const Message = require('../models/message');
-const Conversation = require('../models/Conversation');
+const { sequelize } = require('../models/index');
 
 class SocketManager {
   constructor() {
     this.io = null;
+    this.initialized = false;
     this.onlineUsers = new Map(); // userId -> socketId
     this.userSockets = new Map(); // socketId -> userId
     this.conversationRooms = new Map(); // conversationId -> Set of socketIds
-    this.typingUsers = new Map(); // conversationId -> Set of userIds
   }
 
-  initialize(server) {
+  initialize(server, options = {}) {
     this.io = socketIo(server, {
       cors: {
-        origin: process.env.FRONTEND_URL || "http://localhost:3000",
+        origin: process.env.CLIENT_URL || "http://localhost:3000",
         methods: ["GET", "POST"],
-        credentials: true
-      },
-      transports: ['websocket', 'polling']
-    });
-
-    // Authentication middleware
-    this.io.use(async (socket, next) => {
-      try {
-        const token = socket.handshake.auth?.token || socket.handshake.headers?.authorization?.split(' ')[1];
-
-        if (!token) {
-          return next(new Error('Authentication error: No token provided'));
-        }
-
-        const decoded = jwt.verify(token, process.env.JWT_SECRET);
-        const user = await User.findById(decoded.userId).select('-password');
-
-        if (!user) {
-          return next(new Error('Authentication error: Invalid token'));
-        }
-
-        socket.user = user;
-        next();
-      } catch (error) {
-        console.error('Socket auth error:', error);
-        next(new Error('Authentication error'));
+        credentials: true,
+        ...options.cors
       }
     });
+
+  // Authentication middleware
+  this.io.use(async (socket, next) => {
+    try {
+      const token = socket.handshake.auth.token;
+      if (!token) {
+        return next(new Error('Authentication error: No token provided'));
+      }
+
+      const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key');
+      
+      // Use your existing auth logic to determine user type
+      let user = null;
+      let userType = null;
+
+      // Check if it's a user token
+      if (decoded.userId && decoded.type === 'user') {
+        const { User } = sequelize.models;
+        user = await User.findByPk(decoded.userId, {
+          attributes: ['id', 'firstName', 'lastName', 'email', 'userType', 'isOnline', 'lastSeen']
+        });
+        userType = 'user';
+      }
+      // Check if it's a merchant token
+      else if (decoded.type === 'merchant' && decoded.id) {
+        const { Merchant } = sequelize.models;
+        user = await Merchant.findByPk(decoded.id, {
+          attributes: ['id', 'firstName', 'lastName', 'email', 'isOnline', 'lastSeen']
+        });
+        userType = 'merchant';
+      }
+      // Fallback for old tokens
+      else if (decoded.userId) {
+        const { User } = sequelize.models;
+        user = await User.findByPk(decoded.userId, {
+          attributes: ['id', 'firstName', 'lastName', 'email', 'userType', 'isOnline', 'lastSeen']
+        });
+        userType = 'user';
+      }
+      else if (decoded.id) {
+        const { Merchant } = sequelize.models;
+        user = await Merchant.findByPk(decoded.id, {
+          attributes: ['id', 'firstName', 'lastName', 'email', 'isOnline', 'lastSeen']
+        });
+        userType = 'merchant';
+      }
+      
+      if (!user) {
+        return next(new Error('User not found'));
+      }
+
+      socket.userId = user.id;
+      socket.userRole = userType;
+      socket.userEmail = user.email;
+      socket.userName = `${user.firstName} ${user.lastName}`;
+      
+      // For merchants, get their store
+      if (userType === 'merchant') {
+        const { Store } = sequelize.models;
+        const store = await Store.findOne({ where: { ownerId: user.id } });
+        socket.storeId = store?.id;
+      }
+      
+      next();
+    } catch (error) {
+      console.error('Socket authentication error:', error);
+      next(new Error('Authentication error'));
+    }
+  });
 
     this.io.on('connection', (socket) => {
-      console.log(`User connected: ${socket.user.name} (${socket.user.role}) - Socket ID: ${socket.id}`);
+      console.log(`User ${socket.userId} (${socket.userName}) connected with socket ${socket.id}`);
+      
+      // Add user to online users
+      this.onlineUsers.set(socket.userId, socket.id);
+      this.userSockets.set(socket.id, socket.userId);
 
-      this.handleUserConnection(socket);
-      this.setupEventHandlers(socket);
-    });
+      // Update user online status in database
+      this.updateUserOnlineStatus(socket.userId, true);
 
-    console.log('Socket.IO server initialized');
-  }
+      // Broadcast user online status
+      this.io.emit('user_online', socket.userId);
 
-  handleUserConnection(socket) {
-    const userId = socket.user._id.toString();
+      // Handle user joining
+      socket.on('user_join', (userData) => {
+        console.log(`User ${userData.name || socket.userName} joined chat`);
+        socket.userData = userData;
+      });
 
-    // Store user connection
-    this.onlineUsers.set(userId, socket.id);
-    this.userSockets.set(socket.id, userId);
-
-    // Join user to their personal room
-    socket.join(`user_${userId}`);
-
-    // Join merchant to store room if applicable
-    if (socket.user.role === 'merchant' && socket.user.storeId) {
-      socket.join(`store_${socket.user.storeId}`);
-    }
-
-    // Broadcast online status to relevant users
-    this.broadcastUserStatus(userId, 'online');
-
-    // Send current online users to the newly connected user
-    socket.emit('online_users', this.getOnlineUsers());
-  }
-
-  setupEventHandlers(socket) {
-    // Join conversation room
-    socket.on('join_conversation', async (data) => {
-      await this.handleJoinConversation(socket, data);
-    });
-
-    // Leave conversation room
-    socket.on('leave_conversation', (data) => {
-      this.handleLeaveConversation(socket, data);
-    });
-
-    // Handle new message
-    socket.on('send_message', async (data) => {
-      await this.handleSendMessage(socket, data);
-    });
-
-    // Typing indicators
-    socket.on('typing_start', (data) => {
-      this.handleTypingStart(socket, data);
-    });
-
-    socket.on('typing_stop', (data) => {
-      this.handleTypingStop(socket, data);
-    });
-
-    // Message status updates
-    socket.on('message_read', async (data) => {
-      await this.handleMessageRead(socket, data);
-    });
-
-    // Store status updates (for merchants)
-    socket.on('store_status_update', (data) => {
-      this.handleStoreStatusUpdate(socket, data);
-    });
-
-    // Get conversation participants
-    socket.on('get_conversation_participants', async (data) => {
-      await this.handleGetConversationParticipants(socket, data);
-    });
-
-    // Handle disconnection
-    socket.on('disconnect', () => {
-      this.handleUserDisconnect(socket);
-    });
-
-    // Error handling
-    socket.on('error', (error) => {
-      console.error(`Socket error for user ${socket.user.name}:`, error);
-    });
-
-    // Enhanced store status with merchant online/offline tracking
-    socket.on('merchant_status_update', (data) => {
-      this.handleMerchantStatusUpdate(socket, data);
-    });
-
-    // Generic message handler for backward compatibility
-    socket.on('message', (data) => {
-      this.handleGenericMessage(socket, data);
-    });
-  }
-
-  async handleJoinConversation(socket, { conversationId }) {
-    try {
-      const userId = socket.user._id.toString();
-
-      // Verify user has access to this conversation
-      const conversation = await Conversation.findById(conversationId);
-      if (!conversation) {
-        socket.emit('error', { message: 'Conversation not found' });
-        return;
-      }
-
-      const hasAccess = conversation.participants.includes(userId) ||
-        (socket.user.storeId && conversation.storeId.toString() === socket.user.storeId.toString());
-
-      if (!hasAccess) {
-        socket.emit('error', { message: 'Access denied to conversation' });
-        return;
-      }
-
-      // Join the conversation room
-      socket.join(`conversation_${conversationId}`);
-
-      // Track conversation participants
-      if (!this.conversationRooms.has(conversationId)) {
-        this.conversationRooms.set(conversationId, new Set());
-      }
-      this.conversationRooms.get(conversationId).add(socket.id);
-
-      // Notify other participants that user joined
-      socket.to(`conversation_${conversationId}`).emit('user_joined_conversation', {
-        conversationId,
-        user: {
-          id: socket.user._id,
-          name: socket.user.name,
-          avatar: socket.user.avatar,
-          role: socket.user.role
+      // Handle joining conversation rooms
+      socket.on('join_conversation', (conversationId) => {
+        socket.join(`conversation_${conversationId}`);
+        
+        // Track conversation membership
+        if (!this.conversationRooms.has(conversationId)) {
+          this.conversationRooms.set(conversationId, new Set());
         }
+        this.conversationRooms.get(conversationId).add(socket.id);
+        
+        console.log(`User ${socket.userId} joined conversation ${conversationId}`);
+        
+        // Mark messages as delivered when joining
+        this.markMessagesAsDelivered(conversationId, socket.userId);
       });
 
-      console.log(`User ${socket.user.name} joined conversation ${conversationId}`);
-    } catch (error) {
-      console.error('Error joining conversation:', error);
-      socket.emit('error', { message: 'Failed to join conversation' });
-    }
-  }
-
-  handleLeaveConversation(socket, { conversationId }) {
-    socket.leave(`conversation_${conversationId}`);
-
-    if (this.conversationRooms.has(conversationId)) {
-      this.conversationRooms.get(conversationId).delete(socket.id);
-
-      // Clean up empty conversation rooms
-      if (this.conversationRooms.get(conversationId).size === 0) {
-        this.conversationRooms.delete(conversationId);
-      }
-    }
-
-    // Stop typing if user was typing
-    this.handleTypingStop(socket, { conversationId });
-
-    // Notify other participants
-    socket.to(`conversation_${conversationId}`).emit('user_left_conversation', {
-      conversationId,
-      userId: socket.user._id
-    });
-
-    console.log(`User ${socket.user.name} left conversation ${conversationId}`);
-  }
-
-  async handleSendMessage(socket, messageData) {
-    try {
-      const { conversationId, content, messageType = 'text' } = messageData;
-      const senderId = socket.user._id.toString();
-      const senderType = socket.user.role;
-
-      // Verify conversation access (same as in controller)
-      const conversation = await Conversation.findById(conversationId);
-      if (!conversation) {
-        socket.emit('error', { message: 'Conversation not found' });
-        return;
-      }
-
-      const hasAccess = conversation.participants.includes(senderId) ||
-        (socket.user.storeId && conversation.storeId.toString() === socket.user.storeId.toString());
-
-      if (!hasAccess) {
-        socket.emit('error', { message: 'Access denied' });
-        return;
-      }
-
-      // Create message
-      const message = new Message({
-        conversationId,
-        sender: senderId,
-        senderType,
-        content,
-        messageType,
-        timestamp: new Date(),
-        status: 'sent'
+      // Handle leaving conversation rooms
+      socket.on('leave_conversation', (conversationId) => {
+        socket.leave(`conversation_${conversationId}`);
+        
+        // Remove from conversation tracking
+        if (this.conversationRooms.has(conversationId)) {
+          this.conversationRooms.get(conversationId).delete(socket.id);
+        }
+        
+        console.log(`User ${socket.userId} left conversation ${conversationId}`);
       });
 
-      await message.save();
-      await message.populate('sender', 'name avatar');
-
-      // Update conversation
-      conversation.lastMessage = message._id;
-      conversation.updatedAt = new Date();
-
-      // Update unread counts
-      const otherParticipants = senderType === 'customer'
-        ? [conversation.storeId.toString()]
-        : conversation.participants.filter(p => p.toString() !== senderId);
-
-      otherParticipants.forEach(participantId => {
-        const currentCount = conversation.unreadCount.get(participantId) || 0;
-        conversation.unreadCount.set(participantId, currentCount + 1);
+      // Handle typing indicators
+      socket.on('typing_start', ({ conversationId, userId }) => {
+        socket.to(`conversation_${conversationId}`).emit('typing_start', {
+          userId: userId || socket.userId,
+          conversationId
+        });
       });
 
-      await conversation.save();
+      socket.on('typing_stop', ({ conversationId, userId }) => {
+        socket.to(`conversation_${conversationId}`).emit('typing_stop', {
+          userId: userId || socket.userId,
+          conversationId
+        });
+      });
 
-      const formattedMessage = {
-        id: message._id,
-        text: message.content,
-        sender: message.senderType,
-        senderInfo: {
-          id: message.sender._id,
-          name: message.sender.name,
-          avatar: message.sender.avatar
-        },
-        timestamp: this.formatTime(message.timestamp),
-        status: message.status,
-        messageType: message.messageType,
-        conversationId
-      };
-
-      // Emit to conversation participants
-      this.io.to(`conversation_${conversationId}`).emit('new_message', formattedMessage);
-
-      // Update message status to delivered if there are online participants
-      const conversationParticipants = this.conversationRooms.get(conversationId);
-      if (conversationParticipants && conversationParticipants.size > 1) {
-        message.status = 'delivered';
-        await message.save();
-
-        formattedMessage.status = 'delivered';
-        this.io.to(`conversation_${conversationId}`).emit('message_status_update', {
-          messageId: message._id,
+      // Handle message delivery confirmation
+      socket.on('message_delivered', ({ messageId, conversationId }) => {
+        this.updateMessageStatus(messageId, 'delivered');
+        socket.to(`conversation_${conversationId}`).emit('message_status_update', {
+          messageId,
           status: 'delivered'
         });
-      }
+      });
 
-      // Stop typing indicator for sender
-      this.handleTypingStop(socket, { conversationId });
+      // Handle message read confirmation
+      socket.on('message_read', ({ messageId, conversationId }) => {
+        this.updateMessageStatus(messageId, 'read');
+        socket.to(`conversation_${conversationId}`).emit('message_status_update', {
+          messageId,
+          status: 'read'
+        });
+      });
 
-      console.log(`Message sent in conversation ${conversationId} by ${socket.user.name}`);
-    } catch (error) {
-      console.error('Error sending message:', error);
-      socket.emit('error', { message: 'Failed to send message' });
-    }
-  }
+      // Handle disconnection
+      socket.on('disconnect', () => {
+        console.log(`User ${socket.userId} disconnected`);
+        
+        // Remove from online users
+        this.onlineUsers.delete(socket.userId);
+        this.userSockets.delete(socket.id);
+        
+        // Update user online status in database
+        this.updateUserOnlineStatus(socket.userId, false);
+        
+        // Remove from all conversation rooms
+        this.conversationRooms.forEach((sockets, conversationId) => {
+          sockets.delete(socket.id);
+        });
+        
+        // Broadcast user offline status
+        this.io.emit('user_offline', socket.userId);
+      });
 
-  handleTypingStart(socket, { conversationId }) {
-    const userId = socket.user._id.toString();
-
-    if (!this.typingUsers.has(conversationId)) {
-      this.typingUsers.set(conversationId, new Set());
-    }
-
-    this.typingUsers.get(conversationId).add(userId);
-
-    socket.to(`conversation_${conversationId}`).emit('typing_start', {
-      conversationId,
-      user: {
-        id: socket.user._id,
-        name: socket.user.name
-      }
+      // Handle errors
+      socket.on('error', (error) => {
+        console.error(`Socket error for user ${socket.userId}:`, error);
+      });
     });
+
+    this.initialized = true;
+    console.log('Socket.IO server initialized with Sequelize integration');
   }
 
-  handleTypingStop(socket, { conversationId }) {
-    const userId = socket.user._id.toString();
+  // Check if socket manager is initialized
+  isInitialized() {
+    return this.initialized;
+  }
 
-    if (this.typingUsers.has(conversationId)) {
-      this.typingUsers.get(conversationId).delete(userId);
-
-      if (this.typingUsers.get(conversationId).size === 0) {
-        this.typingUsers.delete(conversationId);
+  // Close socket connections
+  async close() {
+    if (this.io) {
+      // Update all online users to offline
+      for (const userId of this.onlineUsers.keys()) {
+        await this.updateUserOnlineStatus(userId, false);
       }
+      
+      this.io.close();
+      this.initialized = false;
+      console.log('Socket.IO server closed');
     }
-
-    socket.to(`conversation_${conversationId}`).emit('typing_stop', {
-      conversationId,
-      userId: socket.user._id
-    });
   }
 
-  async handleMessageRead(socket, { messageIds, conversationId }) {
+  // Emit message to specific conversation
+  emitToConversation(conversationId, event, data) {
+    if (this.io) {
+      this.io.to(`conversation_${conversationId}`).emit(event, data);
+    }
+  }
+
+  // Emit message to specific user
+  emitToUser(userId, event, data) {
+    const socketId = this.onlineUsers.get(userId);
+    if (socketId && this.io) {
+      this.io.to(socketId).emit(event, data);
+    }
+  }
+
+  // Emit to all users of a specific role
+  emitToRole(role, event, data) {
+    if (this.io) {
+      this.io.fetchSockets().then(sockets => {
+        sockets.forEach(socket => {
+          if (socket.userRole === role) {
+            socket.emit(event, data);
+          }
+        });
+      });
+    }
+  }
+
+  // Check if user is online
+  isUserOnline(userId) {
+    return this.onlineUsers.has(userId);
+  }
+
+  // Get online users count
+  getOnlineUsersCount() {
+    return this.onlineUsers.size;
+  }
+
+  // Get users in conversation
+  getUsersInConversation(conversationId) {
+    const sockets = this.conversationRooms.get(conversationId) || new Set();
+    return Array.from(sockets).map(socketId => this.userSockets.get(socketId)).filter(Boolean);
+  }
+
+  // Broadcast system message
+  broadcastSystemMessage(message, targetRole = null) {
+    if (targetRole) {
+      this.emitToRole(targetRole, 'system_message', { message, timestamp: new Date() });
+    } else {
+      this.io.emit('system_message', { message, timestamp: new Date() });
+    }
+  }
+
+  // Helper method to get user by ID using Sequelize
+  async getUserById(userId) {
     try {
-      const userId = socket.user._id.toString();
+      const { User } = sequelize.models;
+      return await User.findByPk(userId, {
+        attributes: ['id', 'firstName', 'lastName', 'email', 'userType', 'isOnline', 'lastSeen']
+      });
+    } catch (error) {
+      console.error('Error fetching user:', error);
+      return null;
+    }
+  }
 
-      // Update message status
-      await Message.updateMany(
-        {
-          _id: { $in: messageIds },
-          sender: { $ne: userId }
+  // Helper method to get store by owner ID
+  async getStoreByOwnerId(ownerId) {
+    try {
+      const { Store } = sequelize.models;
+      return await Store.findOne({
+        where: { ownerId: ownerId },
+        attributes: ['id', 'name', 'isOnline', 'lastSeen']
+      });
+    } catch (error) {
+      console.error('Error fetching store:', error);
+      return null;
+    }
+  }
+
+  // Update user's online status in database
+  async updateUserOnlineStatus(userId, isOnline) {
+    try {
+      const { User } = sequelize.models;
+      await User.update(
+        { 
+          isOnline,
+          lastSeen: isOnline ? null : new Date()
         },
-        { status: 'read' }
+        { where: { id: userId } }
       );
 
-      // Reset unread count for this user
-      const conversation = await Conversation.findById(conversationId);
-      if (conversation) {
-        conversation.unreadCount.set(userId, 0);
-        await conversation.save();
+      // Also update store status if user is a merchant
+      const user = await this.getUserById(userId);
+      if (user && user.userType === 'merchant') {
+        const { Store } = sequelize.models;
+        await Store.update(
+          {
+            isOnline,
+            lastSeen: isOnline ? null : new Date()
+          },
+          { where: { ownerId: userId } }
+        );
       }
-
-      // Emit read receipt to conversation
-      this.io.to(`conversation_${conversationId}`).emit('messages_read', {
-        conversationId,
-        messageIds,
-        readBy: {
-          id: socket.user._id,
-          name: socket.user.name
-        },
-        timestamp: new Date()
-      });
-
     } catch (error) {
-      console.error('Error marking messages as read:', error);
-      socket.emit('error', { message: 'Failed to mark messages as read' });
+      console.error('Error updating user online status:', error);
     }
   }
 
-  handleStoreStatusUpdate(socket, { status }) {
-    if (socket.user.role !== 'merchant' || !socket.user.storeId) {
-      socket.emit('error', { message: 'Unauthorized to update store status' });
-      return;
-    }
-
-    const storeId = socket.user.storeId.toString();
-
-    // Broadcast store status to all clients
-    this.io.emit('store_status_update', {
-      storeId,
-      status,
-      timestamp: new Date()
-    });
-
-    console.log(`Store ${storeId} status updated to: ${status}`);
-  }
-
-  async handleGetConversationParticipants(socket, { conversationId }) {
+  // Mark messages as delivered when user joins conversation
+  async markMessagesAsDelivered(conversationId, userId) {
     try {
-      const conversation = await Conversation.findById(conversationId)
-        .populate('participants', 'name avatar')
-        .populate('storeId', 'name avatar');
-
-      if (!conversation) {
-        socket.emit('error', { message: 'Conversation not found' });
-        return;
-      }
-
-      const participants = [
-        ...conversation.participants.map(p => ({
-          id: p._id,
-          name: p.name,
-          avatar: p.avatar,
-          role: 'customer',
-          online: this.isUserOnline(p._id.toString())
-        })),
+      const { Message } = sequelize.models;
+      
+      // Update messages that are not from this user and are still in 'sent' status
+      await Message.update(
+        { status: 'delivered' },
         {
-          id: conversation.storeId._id,
-          name: conversation.storeId.name,
-          avatar: conversation.storeId.avatar,
-          role: 'merchant',
-          online: this.isStoreOnline(conversation.storeId._id.toString())
-        }
-      ];
-
-      socket.emit('conversation_participants', {
-        conversationId,
-        participants
-      });
-
-    } catch (error) {
-      console.error('Error getting conversation participants:', error);
-      socket.emit('error', { message: 'Failed to get participants' });
-    }
-  }
-
-  handleUserDisconnect(socket) {
-    const userId = this.userSockets.get(socket.id);
-
-    if (userId) {
-      // Remove from online users
-      this.onlineUsers.delete(userId);
-      this.userSockets.delete(socket.id);
-
-      // Clean up conversation rooms
-      this.conversationRooms.forEach((participants, conversationId) => {
-        if (participants.has(socket.id)) {
-          participants.delete(socket.id);
-
-          // Stop typing if user was typing
-          if (this.typingUsers.has(conversationId)) {
-            this.typingUsers.get(conversationId).delete(userId);
+          where: {
+            conversationId: conversationId,
+            senderId: { [sequelize.Op.ne]: userId },
+            status: 'sent'
           }
-
-          // Notify other participants
-          socket.to(`conversation_${conversationId}`).emit('user_left_conversation', {
-            conversationId,
-            userId
-          });
         }
-      });
+      );
 
-      // Broadcast offline status
-      this.broadcastUserStatus(userId, 'offline');
-
-      console.log(`User ${socket.user?.name || userId} disconnected`);
-    }
-  }
-
-  // Public methods for external use
-  emitToUser(userId, event, data) {
-    const socketId = this.onlineUsers.get(userId.toString());
-    if (socketId) {
-      this.io.to(`user_${userId}`).emit(event, data);
-      return true;
-    }
-    return false;
-  }
-
-  emitToConversation(conversationId, event, data) {
-    this.io.to(`conversation_${conversationId}`).emit(event, data);
-  }
-
-  emitToStore(storeId, event, data) {
-    this.io.to(`store_${storeId}`).emit(event, data);
-  }
-
-  isUserOnline(userId) {
-    return this.onlineUsers.has(userId.toString());
-  }
-
-  isStoreOnline(storeId) {
-    // Check if any merchant from this store is online
-    return Array.from(this.onlineUsers.keys()).some(userId => {
-      const socket = this.io.sockets.sockets.get(this.onlineUsers.get(userId));
-      return socket?.user?.storeId?.toString() === storeId.toString();
-    });
-  }
-
-  getOnlineUsers() {
-    return Array.from(this.onlineUsers.keys());
-  }
-
-  getConversationParticipants(conversationId) {
-    const participants = this.conversationRooms.get(conversationId);
-    return participants ? Array.from(participants) : [];
-  }
-
-  // Helper methods
-  broadcastUserStatus(userId, status) {
-    this.io.emit('user_status_update', {
-      userId,
-      status,
-      timestamp: new Date()
-    });
-  }
-
-  formatTime(timestamp) {
-    const now = new Date();
-    const messageTime = new Date(timestamp);
-    const diffInHours = (now - messageTime) / (1000 * 60 * 60);
-
-    if (diffInHours < 24) {
-      return messageTime.toLocaleTimeString('en-US', {
-        hour: 'numeric',
-        minute: '2-digit'
-      });
-    } else {
-      return messageTime.toLocaleDateString('en-US');
-    }
-  }
-
-  handleMerchantStatusUpdate(socket, { storeId, status }) {
-    if (socket.user.role !== 'merchant') {
-      socket.emit('error', { message: 'Unauthorized to update merchant status' });
-      return;
-    }
-
-    console.log(`Merchant ${storeId} is now ${status}`);
-
-    // Broadcast to all connected clients
-    this.io.emit('merchant_status', {
-      type: 'merchant_status',
-      storeId,
-      status,
-      timestamp: new Date()
-    });
-  }
-
-  handleGenericMessage(socket, messageData) {
-    try {
-      const parsedMessage = typeof messageData === 'string'
-        ? JSON.parse(messageData)
-        : messageData;
-
-      // Handle status updates
-      if (parsedMessage.type === 'status') {
-        this.handleMerchantStatusUpdate(socket, parsedMessage);
-      }
-      // Handle other message types
-      else if (parsedMessage.type === 'chat') {
-        // Route to existing chat handler
-        this.handleSendMessage(socket, parsedMessage);
-      }
-      // Broadcast other types of messages
-      else {
-        this.io.emit('message', parsedMessage);
-      }
-    } catch (error) {
-      console.error('Error handling generic message:', error);
-      socket.emit('error', { message: 'Invalid message format' });
-    }
-  }
-
-  // Enhanced user connection handling with automatic status broadcasting
-  handleUserConnection(socket) {
-    const userId = socket.user._id.toString();
-
-    // Store user connection
-    this.onlineUsers.set(userId, socket.id);
-    this.userSockets.set(socket.id, userId);
-
-    // Join user to their personal room
-    socket.join(`user_${userId}`);
-
-    // Join merchant to store room if applicable
-    if (socket.user.role === 'merchant' && socket.user.storeId) {
-      socket.join(`store_${socket.user.storeId}`);
-
-      // Automatically broadcast merchant coming online
-      this.io.emit('merchant_status', {
-        type: 'merchant_status',
-        storeId: socket.user.storeId,
-        status: 'online',
+      // Emit status update to conversation
+      this.emitToConversation(conversationId, 'messages_delivered', {
+        conversationId,
+        deliveredBy: userId,
         timestamp: new Date()
       });
+    } catch (error) {
+      console.error('Error marking messages as delivered:', error);
     }
-
-    // Broadcast online status to relevant users
-    this.broadcastUserStatus(userId, 'online');
-
-    // Send current online users to the newly connected user
-    socket.emit('online_users', this.getOnlineUsers());
   }
 
-  // Enhanced disconnect handling
-  handleUserDisconnect(socket) {
-    const userId = this.userSockets.get(socket.id);
+  // Update individual message status
+  async updateMessageStatus(messageId, status) {
+    try {
+      const { Message } = sequelize.models;
+      await Message.update(
+        { status },
+        { where: { id: messageId } }
+      );
+    } catch (error) {
+      console.error('Error updating message status:', error);
+    }
+  }
 
-    if (userId) {
-      // Remove from online users
-      this.onlineUsers.delete(userId);
-      this.userSockets.delete(socket.id);
+  // Get conversation analytics
+  async getConversationAnalytics(storeId, period = '7d') {
+    try {
+      const { Conversation, Message } = sequelize.models;
+      
+      const startDate = this.getDateByPeriod(period);
 
-      // If merchant is disconnecting, broadcast offline status
-      if (socket.user.role === 'merchant' && socket.user.storeId) {
-        this.io.emit('merchant_status', {
-          type: 'merchant_status',
-          storeId: socket.user.storeId,
-          status: 'offline',
-          timestamp: new Date()
-        });
-      }
+      const analytics = await Promise.all([
+        // Total conversations
+        Conversation.count({ where: { storeId } }),
 
-      // Clean up conversation rooms
-      this.conversationRooms.forEach((participants, conversationId) => {
-        if (participants.has(socket.id)) {
-          participants.delete(socket.id);
-
-          // Stop typing if user was typing
-          if (this.typingUsers.has(conversationId)) {
-            this.typingUsers.get(conversationId).delete(userId);
+        // New conversations in period
+        Conversation.count({
+          where: {
+            storeId,
+            createdAt: { [sequelize.Op.gte]: startDate }
           }
+        }),
 
-          // Notify other participants
-          socket.to(`conversation_${conversationId}`).emit('user_left_conversation', {
-            conversationId,
-            userId
-          });
-        }
+        // Total messages in period
+        Message.count({
+          include: [{
+            model: Conversation,
+            as: 'conversation',
+            where: { storeId },
+            attributes: []
+          }],
+          where: {
+            createdAt: { [sequelize.Op.gte]: startDate }
+          }
+        }),
+
+        // Unread messages count
+        this.getUnreadMessagesCount(storeId)
+      ]);
+
+      return {
+        totalConversations: analytics[0],
+        newConversations: analytics[1],
+        totalMessages: analytics[2],
+        unreadMessages: analytics[3]
+      };
+    } catch (error) {
+      console.error('Error fetching conversation analytics:', error);
+      return {
+        totalConversations: 0,
+        newConversations: 0,
+        totalMessages: 0,
+        unreadMessages: 0
+      };
+    }
+  }
+
+  // Get unread messages count for a store
+  async getUnreadMessagesCount(storeId) {
+    try {
+      const { Conversation } = sequelize.models;
+      
+      const conversations = await Conversation.findAll({
+        where: { storeId },
+        attributes: ['merchantUnreadCount']
       });
 
-      // Broadcast offline status
-      this.broadcastUserStatus(userId, 'offline');
-
-      console.log(`User ${socket.user?.name || userId} disconnected`);
+      return conversations.reduce((total, conv) => total + (conv.merchantUnreadCount || 0), 0);
+    } catch (error) {
+      console.error('Error getting unread messages count:', error);
+      return 0;
     }
   }
 
-  // Add method to get merchant status
-  getMerchantStatus(storeId) {
-    return Array.from(this.onlineUsers.keys()).some(userId => {
-      const socket = this.io.sockets.sockets.get(this.onlineUsers.get(userId));
-      return socket?.user?.storeId?.toString() === storeId.toString() &&
-        socket?.user?.role === 'merchant';
-    });
+  // Helper method to get date by period
+  getDateByPeriod(period) {
+    const now = new Date();
+    switch (period) {
+      case '1d':
+        return new Date(now.setDate(now.getDate() - 1));
+      case '7d':
+        return new Date(now.setDate(now.getDate() - 7));
+      case '30d':
+        return new Date(now.setDate(now.getDate() - 30));
+      default:
+        return new Date(now.setDate(now.getDate() - 7));
+    }
   }
 
-  // Add method to get all online merchants
-  getOnlineMerchants() {
-    const onlineMerchants = [];
+  // Notify users of new conversation
+  async notifyNewConversation(conversationId, storeId, customerId) {
+    try {
+      const { Conversation, User, Store } = sequelize.models;
+      
+      const conversation = await Conversation.findByPk(conversationId, {
+        include: [
+          { model: User, as: 'customer' },
+          { model: Store, as: 'store' }
+        ]
+      });
 
-    this.onlineUsers.forEach((socketId, userId) => {
-      const socket = this.io.sockets.sockets.get(socketId);
-      if (socket?.user?.role === 'merchant' && socket?.user?.storeId) {
-        onlineMerchants.push({
-          userId,
-          storeId: socket.user.storeId,
-          name: socket.user.name,
-          socketId
+      if (conversation) {
+        // Notify store owner
+        const store = await Store.findByPk(storeId, {
+          include: [{ model: User, as: 'owner' }]
         });
+
+        if (store && store.owner) {
+          this.emitToUser(store.owner.id, 'new_conversation', {
+            conversationId,
+            customer: {
+              id: conversation.customer.id,
+              name: `${conversation.customer.firstName} ${conversation.customer.lastName}`,
+              email: conversation.customer.email
+            },
+            store: {
+              id: conversation.store.id,
+              name: conversation.store.name
+            }
+          });
+        }
       }
-    });
-
-    return onlineMerchants;
+    } catch (error) {
+      console.error('Error notifying new conversation:', error);
+    }
   }
-
 }
 
 // Create singleton instance
 const socketManager = new SocketManager();
 
-module.exports = {
-  socketManager,
-  SocketManager
-};
+module.exports = { socketManager };

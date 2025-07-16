@@ -246,3 +246,284 @@ exports.getServicesByStoreId = async (req, res) => {
   }
 };
 
+// Function that your frontend is calling: /services/merchant/:merchantId
+exports.getServicesByMerchantId = async (req, res) => {
+  try {
+    const { merchantId } = req.params;
+    
+    console.log('🔍 Getting services for merchant:', merchantId);
+    console.log('🔍 Authenticated user:', req.user);
+    
+    // Check if requesting merchant is the same as the authenticated merchant
+    if (req.user.id !== merchantId && req.user.userId !== merchantId) {
+      return res.status(403).json({ 
+        success: false,
+        message: 'Access denied. You can only access your own services.' 
+      });
+    }
+
+    // Get all stores for this merchant
+    const merchantStores = await Store.findAll({
+      where: { merchant_id: merchantId },
+      attributes: ['id', 'name', 'location']
+    });
+
+    if (merchantStores.length === 0) {
+      return res.status(200).json({ 
+        success: true,
+        message: 'No stores found for this merchant. Please create a store first.',
+        services: [],
+        storeCount: 0
+      });
+    }
+
+    const storeIds = merchantStores.map(store => store.id);
+    console.log('🏪 Found stores:', storeIds);
+
+    const services = await Service.findAll({
+      where: {
+        store_id: {
+          [Op.in]: storeIds
+        }
+      },
+      include: [{
+        model: Store,
+        attributes: ['id', 'name', 'location'],
+        required: false
+      }],
+      order: [['createdAt', 'DESC']]
+    });
+
+    console.log(`✅ Found ${services.length} services for merchant ${merchantId}`);
+
+    return res.status(200).json({ 
+      success: true,
+      services,
+      storeCount: merchantStores.length
+    });
+  } catch (err) {
+    console.error('Error fetching services by merchant:', err);
+    return res.status(500).json({ 
+      success: false,
+      message: 'Error fetching services',
+      error: process.env.NODE_ENV === 'development' ? err.message : undefined
+    });
+  }
+};
+
+// Alternative merchant services function
+exports.getMerchantServices = async (req, res) => {
+  try {
+    const merchantId = req.user.id || req.user.userId;
+    
+    // Get all stores for this merchant
+    const merchantStores = await Store.findAll({
+      where: { merchant_id: merchantId },
+      attributes: ['id', 'name', 'location']
+    });
+
+    if (merchantStores.length === 0) {
+      return res.status(200).json({ 
+        success: true,
+        message: 'No stores found. Please create a store first.',
+        services: []
+      });
+    }
+
+    const storeIds = merchantStores.map(store => store.id);
+
+    const services = await Service.findAll({
+      where: {
+        store_id: {
+          [Op.in]: storeIds
+        }
+      },
+      include: [{
+        model: Store,
+        attributes: ['id', 'name', 'location'],
+        required: false
+      }],
+      order: [['createdAt', 'DESC']]
+    });
+
+    return res.status(200).json({ 
+      success: true,
+      services
+    });
+  } catch (err) {
+    console.error('Error fetching merchant services:', err);
+    return res.status(500).json({ 
+      success: false,
+      message: 'Error fetching services'
+    });
+  }
+};
+
+// Function that your frontend might call: /services/store/:storeId
+exports.getServicesByStoreId = async (req, res) => {
+  try {
+    const { storeId } = req.params;
+    
+    console.log('🔍 Getting services for store:', storeId);
+    
+    // Check if store exists
+    const store = await Store.findByPk(storeId);
+    if (!store) {
+      return res.status(404).json({ 
+        success: false,
+        message: 'Store not found' 
+      });
+    }
+
+    // If user is authenticated and is a merchant, check ownership
+    if (req.user && req.user.type === 'merchant') {
+      const merchantId = req.user.id || req.user.userId;
+      if (store.merchant_id !== merchantId) {
+        return res.status(403).json({ 
+          success: false,
+          message: 'Access denied. You can only access your own store services.' 
+        });
+      }
+    }
+
+    const services = await Service.findAll({
+      where: {
+        store_id: storeId,
+      },
+      include: [{
+        model: Store,
+        attributes: ['id', 'name', 'location'],
+        required: false
+      }],
+      order: [['createdAt', 'DESC']]
+    });
+
+    console.log(`✅ Found ${services.length} services for store ${storeId}`);
+
+    return res.status(200).json({ 
+      success: true,
+      services 
+    });
+  } catch (err) {
+    console.error('Error fetching services for store:', err);
+    return res.status(500).json({ 
+      success: false,
+      message: 'Error fetching services for this store',
+      error: process.env.NODE_ENV === 'development' ? err.message : undefined
+    });
+  }
+};
+
+// Placeholder functions for the other routes (implement as needed)
+exports.getServiceAnalytics = async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    // Check service ownership
+    const service = await Service.findByPk(id, {
+      include: [{
+        model: Store,
+        attributes: ['merchant_id'],
+        required: true
+      }]
+    });
+
+    if (!service) {
+      return res.status(404).json({ 
+        success: false,
+        message: 'Service not found' 
+      });
+    }
+
+    const merchantId = req.user.id || req.user.userId;
+    if (service.Store.merchant_id !== merchantId) {
+      return res.status(403).json({ 
+        success: false,
+        message: 'Access denied' 
+      });
+    }
+
+    // Return mock analytics for now
+    return res.status(200).json({
+      success: true,
+      analytics: {
+        views: Math.floor(Math.random() * 100) + 10,
+        bookings: Math.floor(Math.random() * 20) + 1,
+        rating: (Math.random() * 2 + 3).toFixed(1) // 3.0 - 5.0
+      }
+    });
+  } catch (err) {
+    console.error('Get service analytics error:', err);
+    return res.status(500).json({ 
+      success: false,
+      message: 'Error fetching service analytics'
+    });
+  }
+};
+
+exports.addToFavorites = async (req, res) => {
+  res.status(200).json({
+    success: true,
+    message: 'Add service to favorites functionality coming soon',
+    serviceId: req.params.id,
+    userId: req.user.userId || req.user.id
+  });
+};
+
+exports.removeFromFavorites = async (req, res) => {
+  res.status(200).json({
+    success: true,
+    message: 'Remove service from favorites functionality coming soon',
+    serviceId: req.params.id,
+    userId: req.user.userId || req.user.id
+  });
+};
+
+exports.submitReview = async (req, res) => {
+  res.status(200).json({
+    success: true,
+    message: 'Submit service review functionality coming soon',
+    serviceId: req.params.id,
+    userId: req.user.userId || req.user.id
+  });
+};
+
+exports.getPendingServices = async (req, res) => {
+  try {
+    const pendingServices = await Service.findAll({
+      where: { status: 'pending' }, // Assuming you have a status field
+      include: [{
+        model: Store,
+        attributes: ['id', 'name', 'merchant_id'],
+        required: false
+      }],
+      order: [['createdAt', 'DESC']]
+    });
+
+    return res.status(200).json({
+      success: true,
+      services: pendingServices
+    });
+  } catch (err) {
+    return res.status(500).json({
+      success: false,
+      message: 'Error fetching pending services'
+    });
+  }
+};
+
+exports.verifyService = async (req, res) => {
+  res.status(200).json({
+    success: true,
+    message: 'Verify service functionality coming soon',
+    serviceId: req.params.id
+  });
+};
+
+exports.updateServiceStatus = async (req, res) => {
+  res.status(200).json({
+    success: true,
+    message: 'Update service status functionality coming soon',
+    serviceId: req.params.id
+  });
+};
