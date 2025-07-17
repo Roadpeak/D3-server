@@ -333,6 +333,9 @@ exports.getStoreById = async (req, res) => {
     let following = false;
     let followersCount = 0;
 
+
+    
+
     // Get followers count
     if (Follow) {
       try {

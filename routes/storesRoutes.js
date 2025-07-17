@@ -14,6 +14,10 @@ router.get('/random', storesController.getRandomStores);
 
 // Merchant-specific routes - these MUST come before /:id routes
 router.get('/merchant/my-stores', authenticateMerchant, storesController.getMerchantStores);
+
+// ADD THIS NEW ROUTE - Get stores by merchant ID (public route)
+router.get('/merchant/:merchantId', storesController.getStoresByMerchantId);
+
 router.get('/analytics', authenticateMerchant, storesController.getStoreAnalytics);
 router.get('/dashboard', authenticateMerchant, storesController.getStoreDashboard);
 

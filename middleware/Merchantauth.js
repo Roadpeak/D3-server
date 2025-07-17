@@ -1,3 +1,4 @@
+// middleware/auth.js - Updated with better error handling
 const jwt = require('jsonwebtoken');
 const { Merchant } = require('../models');
 
@@ -8,10 +9,18 @@ const authenticateMerchant = async (req, res, next) => {
   try {
     // Get token from header
     const authHeader = req.headers.authorization;
+    
+    console.log('🔐 Authenticating merchant...', {
+      hasAuthHeader: !!authHeader,
+      headerFormat: authHeader ? authHeader.substring(0, 10) + '...' : 'None'
+    });
+
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      console.error('❌ No valid authorization header found');
       return res.status(401).json({
         success: false,
-        message: 'Access denied. No token provided or invalid format.'
+        message: 'Access denied. No token provided or invalid format.',
+        code: 'MISSING_TOKEN'
       });
     }
 
@@ -21,7 +30,10 @@ const authenticateMerchant = async (req, res, next) => {
     let decoded;
     try {
       decoded = jwt.verify(token, JWT_SECRET);
+      console.log('✅ Token verified for merchant ID:', decoded.id);
     } catch (error) {
+      console.error('❌ Token verification failed:', error.message);
+      
       if (error.name === 'TokenExpiredError') {
         return res.status(401).json({
           success: false,
@@ -45,9 +57,11 @@ const authenticateMerchant = async (req, res, next) => {
 
     // Check if token is for a merchant
     if (decoded.type !== 'merchant') {
+      console.error('❌ Token type mismatch. Expected: merchant, Got:', decoded.type);
       return res.status(403).json({
         success: false,
-        message: 'Access denied. Merchant access required.'
+        message: 'Access denied. Merchant access required.',
+        code: 'INVALID_TOKEN_TYPE'
       });
     }
 
@@ -58,6 +72,7 @@ const authenticateMerchant = async (req, res, next) => {
     });
 
     if (!merchant) {
+      console.error('❌ Merchant not found in database for ID:', decoded.id);
       return res.status(401).json({
         success: false,
         message: 'Merchant not found. Please log in again.',
@@ -68,6 +83,7 @@ const authenticateMerchant = async (req, res, next) => {
     // Check if password was changed after token was issued
     if (merchant.passwordChangedAt && 
         new Date(decoded.iat * 1000) < merchant.passwordChangedAt) {
+      console.error('❌ Password changed after token issued');
       return res.status(401).json({
         success: false,
         message: 'Password was changed. Please log in again.',
@@ -83,12 +99,14 @@ const authenticateMerchant = async (req, res, next) => {
       merchantData: merchant
     };
 
+    console.log('✅ Merchant authenticated successfully:', merchant.email);
     next();
   } catch (error) {
-    console.error('Authentication middleware error:', error);
+    console.error('💥 Authentication middleware error:', error);
     return res.status(500).json({
       success: false,
       message: 'Authentication failed due to server error.',
+      code: 'AUTH_SERVER_ERROR',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
@@ -97,37 +115,37 @@ const authenticateMerchant = async (req, res, next) => {
 // Middleware to authenticate admins
 const authenticateAdmin = async (req, res, next) => {
   try {
-    // Get token from header
     const authHeader = req.headers.authorization;
+    
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
       return res.status(401).json({
         success: false,
-        message: 'Access denied. No token provided or invalid format.'
+        message: 'Access denied. No token provided or invalid format.',
+        code: 'MISSING_TOKEN'
       });
     }
 
     const token = authHeader.substring(7);
 
-    // Verify token
     let decoded;
     try {
       decoded = jwt.verify(token, JWT_SECRET);
     } catch (error) {
       return res.status(401).json({
         success: false,
-        message: 'Invalid or expired token. Please log in again.'
+        message: 'Invalid or expired token. Please log in again.',
+        code: 'INVALID_TOKEN'
       });
     }
 
-    // Check if token is for an admin
     if (decoded.type !== 'admin') {
       return res.status(403).json({
         success: false,
-        message: 'Access denied. Admin access required.'
+        message: 'Access denied. Admin access required.',
+        code: 'ADMIN_ACCESS_REQUIRED'
       });
     }
 
-    // Add admin info to request object
     req.user = {
       id: decoded.id,
       email: decoded.email,
@@ -139,134 +157,13 @@ const authenticateAdmin = async (req, res, next) => {
     console.error('Admin authentication middleware error:', error);
     return res.status(500).json({
       success: false,
-      message: 'Authentication failed due to server error.'
+      message: 'Authentication failed due to server error.',
+      code: 'AUTH_SERVER_ERROR'
     });
   }
 };
 
-// Middleware for optional authentication (doesn't fail if no token)
-const optionalAuth = async (req, res, next) => {
-  try {
-    const authHeader = req.headers.authorization;
-    
-          if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      // No token provided, continue without authentication
-      req.user = null;
-      return next();
-    }
-
-    const token = authHeader.substring(7);
-
-    try {
-      const decoded = jwt.verify(token, JWT_SECRET);
-      
-      if (decoded.type === 'merchant') {
-        const merchant = await Merchant.findOne({
-          where: { id: decoded.id },
-          attributes: { exclude: ['password', 'passwordResetOtp', 'passwordResetExpires'] }
-        });
-
-        if (merchant) {
-          req.user = {
-            id: merchant.id,
-            email: merchant.email,
-            type: 'merchant',
-            merchantData: merchant
-          };
-        } else {
-          req.user = null;
-        }
-      } else {
-        req.user = {
-          id: decoded.id,
-          email: decoded.email,
-          type: decoded.type
-        };
-      }
-    } catch (error) {
-      // Token is invalid, but we don't fail - just continue without auth
-      req.user = null;
-    }
-
-    next();
-  } catch (error) {
-    console.error('Optional auth middleware error:', error);
-    req.user = null;
-    next();
-  }
-};
-
-// Middleware to check if merchant owns the resource
-const checkMerchantOwnership = (resourceIdParam = 'merchantId') => {
-  return (req, res, next) => {
-    const resourceId = req.params[resourceIdParam];
-    
-    if (!req.user || req.user.type !== 'merchant') {
-      return res.status(401).json({
-        success: false,
-        message: 'Authentication required.'
-      });
-    }
-
-    if (req.user.id !== resourceId) {
-      return res.status(403).json({
-        success: false,
-        message: 'Access denied. You can only access your own resources.'
-      });
-    }
-
-    next();
-  };
-};
-
-// Middleware to check if merchant owns a store
-const checkStoreOwnership = async (req, res, next) => {
-  try {
-    const storeId = req.params.storeId || req.body.storeId;
-    
-    if (!storeId) {
-      return res.status(400).json({
-        success: false,
-        message: 'Store ID is required.'
-      });
-    }
-
-    if (!req.user || req.user.type !== 'merchant') {
-      return res.status(401).json({
-        success: false,
-        message: 'Authentication required.'
-      });
-    }
-
-    // Check if the store belongs to the authenticated merchant
-    const { Store } = require('../models');
-    const store = await Store.findOne({
-      where: { 
-        id: storeId,
-        merchant_id: req.user.id 
-      }
-    });
-
-    if (!store) {
-      return res.status(404).json({
-        success: false,
-        message: 'Store not found or access denied.'
-      });
-    }
-
-    // Add store to request for further use
-    req.store = store;
-    next();
-  } catch (error) {
-    console.error('Store ownership check error:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'Error checking store ownership.'
-    });
-  }
-};
-
-// Rate limiting middleware for auth endpoints
+// Rate limiting middleware
 const authRateLimit = (maxAttempts = 5, windowMs = 15 * 60 * 1000) => {
   const attempts = new Map();
 
@@ -293,6 +190,7 @@ const authRateLimit = (maxAttempts = 5, windowMs = 15 * 60 * 1000) => {
       return res.status(429).json({
         success: false,
         message: `Too many attempts. Please try again in ${timeLeft} minutes.`,
+        code: 'RATE_LIMIT_EXCEEDED',
         retryAfter: timeLeft
       });
     }
@@ -302,30 +200,8 @@ const authRateLimit = (maxAttempts = 5, windowMs = 15 * 60 * 1000) => {
   };
 };
 
-// Middleware to validate request body
-const validateRequest = (schema) => {
-  return (req, res, next) => {
-    const { error } = schema.validate(req.body);
-    if (error) {
-      return res.status(400).json({
-        success: false,
-        message: 'Validation error',
-        details: error.details.map(detail => ({
-          field: detail.path.join('.'),
-          message: detail.message
-        }))
-      });
-    }
-    next();
-  };
-};
-
 module.exports = {
   authenticateMerchant,
   authenticateAdmin,
-  optionalAuth,
-  checkMerchantOwnership,
-  checkStoreOwnership,
-  authRateLimit,
-  validateRequest
+  authRateLimit
 };

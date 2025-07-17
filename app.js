@@ -527,4 +527,109 @@ process.on('unhandledRejection', (reason, promise) => {
   gracefulShutdown('unhandledRejection');
 });
 
+// Route debugging middleware - add this AFTER your routes are defined
+if (process.env.NODE_ENV === 'development') {
+  console.log('\n🔍 DEBUGGING ROUTES:');
+  
+  // Function to extract routes from the app
+  const printRoutes = (app) => {
+    app._router.stack.forEach((middleware) => {
+      if (middleware.route) {
+        // Direct route
+        console.log(`📍 ${Object.keys(middleware.route.methods).join(',').toUpperCase()} ${middleware.route.path}`);
+      } else if (middleware.name === 'router') {
+        // Router middleware
+        const routerPath = middleware.regexp.source
+          .replace('\\', '')
+          .replace('(?:', '')
+          .replace('\\', '')
+          .replace('$', '');
+        
+        console.log(`📁 Router found: ${routerPath}`);
+        
+        if (middleware.handle && middleware.handle.stack) {
+          middleware.handle.stack.forEach((handler) => {
+            if (handler.route) {
+              const methods = Object.keys(handler.route.methods).join(',').toUpperCase();
+              console.log(`  └─ ${methods} ${routerPath}${handler.route.path}`);
+            }
+          });
+        }
+      }
+    });
+  };
+  
+  // Print routes after a short delay to ensure they're all loaded
+  setTimeout(() => {
+    console.log('\n📋 REGISTERED ROUTES:');
+    printRoutes(app);
+    console.log('\n');
+  }, 1000);
+}
+
+// Simple route test endpoints for verification
+app.get('/debug/routes', (req, res) => {
+  const routes = [];
+  
+  app._router.stack.forEach((middleware) => {
+    if (middleware.route) {
+      routes.push({
+        method: Object.keys(middleware.route.methods),
+        path: middleware.route.path
+      });
+    } else if (middleware.name === 'router') {
+      const routerPath = middleware.regexp.source
+        .replace(/\\/g, '')
+        .replace('(?:', '')
+        .replace('$', '');
+      
+      if (middleware.handle && middleware.handle.stack) {
+        middleware.handle.stack.forEach((handler) => {
+          if (handler.route) {
+            routes.push({
+              method: Object.keys(handler.route.methods),
+              path: routerPath + handler.route.path
+            });
+          }
+        });
+      }
+    }
+  });
+  
+  res.json({
+    message: 'Registered routes',
+    routes: routes,
+    timestamp: new Date().toISOString()
+  });
+});
+
+// Test specific merchant endpoints
+app.get('/debug/test-merchant', async (req, res) => {
+  const tests = {};
+  
+  try {
+    // Test 1: Basic merchant test endpoint
+    try {
+      const testResponse = await fetch('http://localhost:4000/api/v1/merchants/test');
+      tests.merchantTest = {
+        status: testResponse.status,
+        success: testResponse.ok
+      };
+    } catch (error) {
+      tests.merchantTest = { error: error.message };
+    }
+    
+    res.json({
+      message: 'Merchant endpoint tests',
+      tests,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: error.message,
+      message: 'Test failed'
+    });
+  }
+});
+
 module.exports = app;

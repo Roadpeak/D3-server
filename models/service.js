@@ -1,6 +1,5 @@
-// Service.js - Fixed version
+// models/Service.js - Fixed version
 'use strict';
-const { v4: uuidv4 } = require('uuid');
 
 module.exports = (sequelize, DataTypes) => {
   const Service = sequelize.define('Service', {
@@ -29,7 +28,7 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.UUID,
       allowNull: false,
       references: {
-        model: 'stores', // Changed to lowercase
+        model: 'stores', // Changed to lowercase to match your Store model
         key: 'id',
       },
     },
@@ -49,8 +48,21 @@ module.exports = (sequelize, DataTypes) => {
   }, {
     tableName: 'services', // Changed to lowercase
     timestamps: true,
-    paranoid: true,
-    indexes: [],
+    paranoid: true, // Enable soft deletes
+    indexes: [
+      {
+        fields: ['store_id'],
+        name: 'services_store_id_index'
+      },
+      {
+        fields: ['category'],
+        name: 'services_category_index'
+      },
+      {
+        fields: ['type'],
+        name: 'services_type_index'
+      }
+    ],
   });
 
   // Fixed associations
@@ -60,23 +72,23 @@ module.exports = (sequelize, DataTypes) => {
       through: models.StaffService,
       foreignKey: 'serviceId',
       otherKey: 'staffId',
-      as: 'staff',
+      as: 'staff', // Use lowercase for consistency
     });
 
-    // Service belongs to a Store (one-to-many)
+    // Service belongs to a Store (many-to-one)
     Service.belongsTo(models.Store, {
       foreignKey: 'store_id',
-      as: 'store', // Use consistent alias
+      as: 'store', // Use consistent lowercase alias
       onDelete: 'CASCADE',
     });
-  
 
+    // Service has many Offers (one-to-many)
     Service.hasMany(models.Offer, {
-    foreignKey: 'service_id',
-    as: 'offers'
+      foreignKey: 'service_id',
+      as: 'offers',
+      onDelete: 'CASCADE',
     });
-
-  };  
+  };
 
   return Service;
 };

@@ -1,4 +1,4 @@
-// Store.js - Updated associations
+// models/Store.js - Updated with Staff association
 'use strict';
 module.exports = (sequelize, DataTypes) => {
   const Store = sequelize.define(
@@ -141,6 +141,13 @@ module.exports = (sequelize, DataTypes) => {
     Store.hasMany(models.Service, {
       foreignKey: 'store_id',
       as: 'services',
+      onDelete: 'CASCADE',
+    });
+
+    // Add Staff association - Store has many Staff
+    Store.hasMany(models.Staff, {
+      foreignKey: 'storeId',
+      as: 'staff',
       onDelete: 'CASCADE',
     });
 
