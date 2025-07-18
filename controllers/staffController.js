@@ -264,6 +264,8 @@ const StaffController = {
     }
   },
 
+  
+
   async getStaffByStore(req, res) {
     try {
       const { storeId } = req.params;

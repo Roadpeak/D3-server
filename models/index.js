@@ -38,6 +38,10 @@ const Chat = require('./chat')(sequelize, DataTypes);
 const Message = require('./message')(sequelize, DataTypes);
 const StoreSubscription = require('./storesubscription')(sequelize, DataTypes);
 
+// ADD NEW BRANCH MODEL
+const Branch = require('./Branch')(sequelize, DataTypes);
+
+
 // Import NEW service marketplace models
 // const ServiceRequest = require('./serviceRequest')(sequelize, DataTypes);
 // const ServiceOffer = require('./ServiceOffer')(sequelize, DataTypes);
@@ -180,6 +184,32 @@ Service.belongsTo(Category, {
 Social.belongsTo(Store, { foreignKey: 'store_id', as: 'store', onDelete: 'CASCADE' });
 Store.hasMany(Social, { foreignKey: 'store_id', as: 'socialLinks' });
 
+// ==========================================
+// NEW BRANCH ASSOCIATIONS
+// ==========================================
+
+// Branch-Store
+Branch.belongsTo(Store, { 
+  foreignKey: 'storeId',
+  as: 'Store',
+  onDelete: 'CASCADE'
+});
+Store.hasMany(Branch, { 
+  foreignKey: 'storeId',
+  as: 'Branches'
+});
+
+// Branch-Merchant  
+Branch.belongsTo(Merchant, { 
+  foreignKey: 'merchantId',
+  as: 'Merchant',
+  onDelete: 'CASCADE'
+});
+Merchant.hasMany(Branch, { 
+  foreignKey: 'merchantId',
+  as: 'Branches'
+});
+
 // NEW SERVICE MARKETPLACE ASSOCIATIONS (updated to handle circular dependency)
 
 // // ServiceRequest-User
@@ -230,10 +260,6 @@ Store.hasMany(Social, { foreignKey: 'store_id', as: 'socialLinks' });
 // Notification.belongsTo(User, { foreignKey: 'senderId', as: 'sender', onDelete: 'SET NULL' });
 // User.hasMany(Notification, { foreignKey: 'senderId', as: 'sentNotifications' });
 
-// Notification-User (sender)
-// Notification.belongsTo(User, { foreignKey: 'senderId', as: 'sender', onDelete: 'SET NULL' });
-// User.hasMany(Notification, { foreignKey: 'senderId', as: 'sentNotifications' });
-
 module.exports = {
   User,
   Merchant,
@@ -257,6 +283,7 @@ module.exports = {
   Category,
   Chat,
   Message,
+  Branch, // ADD BRANCH TO EXPORTS
   // NEW MODELS
   // ServiceRequest,
   // ServiceOffer,

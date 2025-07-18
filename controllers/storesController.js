@@ -141,10 +141,9 @@ exports.getMerchantStores = async (req, res) => {
   try {
     const stores = await Store.findAll({
       where: { merchant_id: req.user.id },
-      order: [['created_at', 'DESC']]
+      order: [['createdAt', 'DESC']] // Use 'createdAt' instead of 'created_at'
     });
 
-    // Format stores data
     const formattedStores = stores.map(store => {
       const storeData = store.toJSON();
       try {
@@ -1286,6 +1285,285 @@ exports.getStoreDashboard = async (req, res) => {
       success: false,
       message: 'Error fetching store dashboard',
       error: process.env.NODE_ENV === 'development' ? err.message : undefined
+    });
+  }
+};
+
+// controllers/storesController.js - ADD these methods to your existing controller
+
+// Update store information (which serves as main branch)
+exports.updateStoreProfile = async (req, res) => {
+  try {
+    const { storeId } = req.params;
+    const merchantId = req.user.id;
+    const updateData = req.body;
+
+    console.log('🏪 Updating store (main branch info):', storeId, updateData);
+
+    // Verify store belongs to merchant
+    const store = await Store.findOne({
+      where: {
+        id: storeId,
+        merchant_id: merchantId
+      }
+    });
+
+    if (!store) {
+      return res.status(404).json({
+        success: false,
+        message: 'Store not found or access denied'
+      });
+    }
+
+    // Validate update data
+    const allowedFields = [
+      'name', 
+      'location', 
+      'phone_number', 
+      'primary_email', 
+      'description',
+      'opening_time',
+      'closing_time',
+      'working_days',
+      'website_url'
+    ];
+
+    const filteredData = {};
+    Object.keys(updateData).forEach(key => {
+      if (allowedFields.includes(key)) {
+        filteredData[key] = updateData[key];
+      }
+    });
+
+    // Handle working_days array
+    if (filteredData.working_days && Array.isArray(filteredData.working_days)) {
+      filteredData.working_days = JSON.stringify(filteredData.working_days);
+    }
+
+    // Validate email if it's being updated
+    if (filteredData.primary_email && filteredData.primary_email !== store.primary_email) {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(filteredData.primary_email)) {
+        return res.status(400).json({ 
+          success: false,
+          message: 'Invalid email format' 
+        });
+      }
+
+      const existingEmailStore = await Store.findOne({ 
+        where: { 
+          primary_email: filteredData.primary_email,
+          id: { [Op.ne]: storeId }
+        } 
+      });
+      if (existingEmailStore) {
+        return res.status(400).json({ 
+          success: false,
+          message: 'A store with this primary email already exists' 
+        });
+      }
+    }
+
+    // Update the store
+    await store.update({
+      ...filteredData,
+      updated_at: new Date()
+    });
+
+    // Fetch updated store with merchant info
+    const updatedStore = await Store.findByPk(storeId, {
+      include: [
+        {
+          model: Merchant,
+          attributes: ['id', 'first_name', 'last_name', 'email_address']
+        }
+      ]
+    });
+
+    const storeData = updatedStore.toJSON();
+    try {
+      storeData.working_days = JSON.parse(storeData.working_days || '[]');
+    } catch (e) {
+      storeData.working_days = [];
+    }
+
+    console.log('✅ Store updated successfully (main branch info updated)');
+
+    return res.status(200).json({
+      success: true,
+      message: 'Store information updated successfully. Main branch details have been updated.',
+      store: {
+        ...storeData,
+        logo: storeData.logo_url,
+        wasRate: storeData.was_rate
+      }
+    });
+
+  } catch (error) {
+    console.error('Update store error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Error updating store information',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+// Get store details (for main branch info)
+exports.getStoreProfile = async (req, res) => {
+  try {
+    const { storeId } = req.params;
+    const merchantId = req.user.id;
+
+    console.log('📋 Fetching store details:', storeId);
+
+    const store = await Store.findOne({
+      where: {
+        id: storeId,
+        merchant_id: merchantId
+      },
+      include: [
+        {
+          model: Merchant,
+          attributes: ['id', 'first_name', 'last_name', 'email_address', 'phone_number']
+        }
+      ]
+    });
+
+    if (!store) {
+      return res.status(404).json({
+        success: false,
+        message: 'Store not found or access denied'
+      });
+    }
+
+    const storeData = store.toJSON();
+    try {
+      storeData.working_days = JSON.parse(storeData.working_days || '[]');
+    } catch (e) {
+      storeData.working_days = [];
+    }
+
+    return res.status(200).json({
+      success: true,
+      store: {
+        ...storeData,
+        logo: storeData.logo_url,
+        wasRate: storeData.was_rate
+      },
+      mainBranchInfo: {
+        id: `store-${store.id}`,
+        name: `${store.name} - Main Branch`,
+        address: store.location,
+        phone: store.phone_number,
+        email: store.primary_email,
+        status: store.status || 'Active',
+        openingTime: store.opening_time,
+        closingTime: store.closing_time,
+        workingDays: storeData.working_days,
+        description: store.description,
+        isMainBranch: true,
+        isStoreMainBranch: true
+      }
+    });
+
+  } catch (error) {
+    console.error('Get store error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Error fetching store information',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+// Update merchant profile (personal info only)
+exports.updateMerchantProfile = async (req, res) => {
+  try {
+    const merchantId = req.user.id;
+    const updateData = req.body;
+
+    console.log('👤 Updating merchant profile:', merchantId, updateData);
+
+    const merchant = await Merchant.findByPk(merchantId);
+
+    if (!merchant) {
+      return res.status(404).json({
+        success: false,
+        message: 'Merchant not found'
+      });
+    }
+
+    // Validate update data
+    const allowedFields = [
+      'first_name',
+      'last_name', 
+      'email_address',
+      'phone_number'
+    ];
+
+    const filteredData = {};
+    Object.keys(updateData).forEach(key => {
+      if (allowedFields.includes(key)) {
+        filteredData[key] = updateData[key];
+      }
+    });
+
+    // Validate email if it's being updated
+    if (filteredData.email_address && filteredData.email_address !== merchant.email_address) {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(filteredData.email_address)) {
+        return res.status(400).json({ 
+          success: false,
+          message: 'Invalid email format' 
+        });
+      }
+
+      const existingMerchant = await Merchant.findOne({ 
+        where: { 
+          email_address: filteredData.email_address,
+          id: { [Op.ne]: merchantId }
+        } 
+      });
+      if (existingMerchant) {
+        return res.status(400).json({ 
+          success: false,
+          message: 'A merchant with this email already exists' 
+        });
+      }
+    }
+
+    // Update the merchant
+    await merchant.update({
+      ...filteredData,
+      updated_at: new Date()
+    });
+
+    // Fetch updated merchant with store info
+    const updatedMerchant = await Merchant.findByPk(merchantId, {
+      include: [
+        {
+          model: Store,
+          as: 'store',
+          attributes: ['id', 'name', 'location', 'phone_number', 'primary_email']
+        }
+      ]
+    });
+
+    console.log('✅ Merchant profile updated successfully');
+
+    return res.status(200).json({
+      success: true,
+      message: 'Profile updated successfully',
+      merchantProfile: updatedMerchant
+    });
+
+  } catch (error) {
+    console.error('Update merchant profile error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Error updating profile',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 };
