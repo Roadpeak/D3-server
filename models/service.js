@@ -1,11 +1,12 @@
-// models/Service.js - Fixed version
+// models/Service.js - Fixed version with correct association placement
+
 'use strict';
 
 module.exports = (sequelize, DataTypes) => {
   const Service = sequelize.define('Service', {
     id: {
       type: DataTypes.UUID,
-      defaultValue: DataTypes.UUIDV4, // Fixed: use DataTypes.UUIDV4 instead of uuidv4()
+      defaultValue: DataTypes.UUIDV4,
       primaryKey: true,
     },
     name: {
@@ -28,7 +29,7 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.UUID,
       allowNull: false,
       references: {
-        model: 'stores', // Changed to lowercase to match your Store model
+        model: 'stores',
         key: 'id',
       },
     },
@@ -46,9 +47,9 @@ module.exports = (sequelize, DataTypes) => {
       defaultValue: 'fixed',
     },
   }, {
-    tableName: 'services', // Changed to lowercase
+    tableName: 'services',
     timestamps: true,
-    paranoid: true, // Enable soft deletes
+    paranoid: true,
     indexes: [
       {
         fields: ['store_id'],
@@ -65,29 +66,37 @@ module.exports = (sequelize, DataTypes) => {
     ],
   });
 
-  // Fixed associations
+  // IMPORTANT: All associations must be inside this function
   Service.associate = (models) => {
     // Many-to-Many relationship with Staff through StaffService
     Service.belongsToMany(models.Staff, {
       through: models.StaffService,
       foreignKey: 'serviceId',
       otherKey: 'staffId',
-      as: 'staff', // Use lowercase for consistency
+      as: 'staff',
     });
 
     // Service belongs to a Store (many-to-one)
     Service.belongsTo(models.Store, {
       foreignKey: 'store_id',
-      as: 'store', // Use consistent lowercase alias
+      as: 'store',
       onDelete: 'CASCADE',
     });
 
+    // ADD THIS INSIDE THE ASSOCIATE FUNCTION:
     // Service has many Offers (one-to-many)
     Service.hasMany(models.Offer, {
       foreignKey: 'service_id',
       as: 'offers',
       onDelete: 'CASCADE',
     });
+
+    // If you have other associations, add them here too
+    // Service.hasMany(models.Booking, {
+    //   foreignKey: 'service_id',
+    //   as: 'bookings',
+    //   onDelete: 'CASCADE',
+    // });
   };
 
   return Service;

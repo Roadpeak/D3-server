@@ -1,20 +1,29 @@
-// models/Staff.js - Fixed version
+// models/Staff.js - Updated to match your current database structure
 'use strict';
 
 module.exports = (sequelize, DataTypes) => {
   const Staff = sequelize.define('Staff', {
     id: {
       type: DataTypes.UUID,
-      defaultValue: DataTypes.UUIDV4, // Fixed: use DataTypes.UUIDV4 instead of uuidv4
+      defaultValue: DataTypes.UUIDV4,
       primaryKey: true,
     },
     storeId: {
       type: DataTypes.UUID,
       allowNull: false,
       references: {
-        model: 'stores', // Changed to lowercase to match your Store model
+        model: 'stores',
         key: 'id',
       },
+    },
+    branchId: {
+      type: DataTypes.STRING, // Changed from UUID to STRING to accommodate longer IDs
+      allowNull: true,
+      // Temporarily removed foreign key reference to avoid sync issues
+      // references: {
+      //   model: 'branches',
+      //   key: 'id',
+      // },
     },
     name: {
       type: DataTypes.STRING,
@@ -23,14 +32,19 @@ module.exports = (sequelize, DataTypes) => {
     email: {
       type: DataTypes.STRING,
       allowNull: false,
-      unique: false, // Remove unique constraint since we check per store
+      unique: false,
     },
     phoneNumber: {
       type: DataTypes.STRING,
       allowNull: true,
     },
+    role: {
+      type: DataTypes.ENUM('staff', 'manager', 'supervisor', 'cashier', 'sales'),
+      defaultValue: 'staff',
+      allowNull: false,
+    },
     status: {
-      type: DataTypes.ENUM('active', 'suspended', 'inactive'), // Added 'suspended' status
+      type: DataTypes.ENUM('active', 'suspended', 'inactive'),
       defaultValue: 'active',
     },
     password: {
@@ -38,13 +52,13 @@ module.exports = (sequelize, DataTypes) => {
       allowNull: false,
     },
   }, {
-    tableName: 'staff', // Explicit table name
+    tableName: 'staff',
     timestamps: true,
-    paranoid: false, // Set to true if you want soft deletes
+    paranoid: false,
     indexes: [
       {
         unique: true,
-        fields: ['email', 'storeId'], // Unique email per store
+        fields: ['email', 'storeId'],
         name: 'staff_email_store_unique'
       },
       {
@@ -52,8 +66,16 @@ module.exports = (sequelize, DataTypes) => {
         name: 'staff_store_id_index'
       },
       {
+        fields: ['branchId'],
+        name: 'idx_staff_branch_id'
+      },
+      {
         fields: ['status'],
         name: 'staff_status_index'
+      },
+      {
+        fields: ['role'],
+        name: 'idx_staff_role'
       }
     ],
   });
@@ -65,18 +87,23 @@ module.exports = (sequelize, DataTypes) => {
       through: models.StaffService,
       foreignKey: 'staffId',
       otherKey: 'serviceId',
-      as: 'services', // Use lowercase for consistency
+      as: 'services',
     });
 
     // Staff belongs to a Store (many-to-one)
     Staff.belongsTo(models.Store, {
       foreignKey: 'storeId',
-      as: 'store', // Use lowercase for consistency
+      as: 'store',
       onDelete: 'CASCADE',
     });
 
-    // Remove the hasMany Service association - it's incorrect for this relationship
-    // Staff connects to Services through the many-to-many StaffService table
+    // Temporarily removed Branch association to avoid sync issues
+    // Staff belongs to a Branch (many-to-one)
+    // Staff.belongsTo(models.Branch, {
+    //   foreignKey: 'branchId',
+    //   as: 'branch',
+    //   onDelete: 'SET NULL',
+    // });
   };
 
   // Instance methods

@@ -3,37 +3,66 @@ const { Op } = require('sequelize');
 const jwt = require('jsonwebtoken');
 const JWT_SECRET = process.env.JWT_SECRET;
 
-exports.createService = async (req, res) => {
-  try {
-    const { name, price, duration, image_url, store_id, category, description, type } = req.body;
+// Replace your existing createService method with this enhanced version
 
-    // Validate required fields
+const {  Staff, StaffService, sequelize } = require('../models');
+const { v4: uuidv4 } = require('uuid');
+
+exports.createService = async (req, res) => {
+  const transaction = await sequelize.transaction();
+  
+  try {
+    const { 
+      name, 
+      price, 
+      duration, 
+      image_url, 
+      store_id, 
+      category, 
+      description, 
+      type,
+      staffIds = [], // Array of specific staff IDs to assign
+      autoAssignAllStaff = true // Auto-assign all store staff if no specific staff provided
+    } = req.body;
+
+    console.log('📝 Creating service:', { name, type, store_id, staffIds, autoAssignAllStaff });
+
+    // Validate required fields (keeping your existing validation)
     if (!name || !store_id || !category || !description || !type) {
+      await transaction.rollback();
       return res.status(400).json({ 
         message: 'Missing required fields',
         required: ['name', 'store_id', 'category', 'description', 'type']
       });
     }
 
-    // Check if store exists
+    // Check if store exists (keeping your existing validation)
     const store = await Store.findByPk(store_id);
     if (!store) {
+      await transaction.rollback();
       return res.status(400).json({ 
         message: 'Store not found',
         store_id: store_id
       });
     }
 
+    // Validate service type (keeping your existing validation)
     if (!['fixed', 'dynamic'].includes(type)) {
-      return res.status(400).json({ message: 'Invalid service type. Must be "fixed" or "dynamic".' });
+      await transaction.rollback();
+      return res.status(400).json({ 
+        message: 'Invalid service type. Must be "fixed" or "dynamic".' 
+      });
     }
 
+    // Validate fixed service requirements (keeping your existing validation)
     if (type === 'fixed' && (!price || !duration)) {
+      await transaction.rollback();
       return res.status(400).json({ 
         message: 'Fixed services require price and duration' 
       });
     }
 
+    // Create the service (keeping your existing creation logic)
     const newService = await Service.create({
       name,
       price: type === 'fixed' ? parseFloat(price) : null,
@@ -43,11 +72,106 @@ exports.createService = async (req, res) => {
       category,
       description,
       type,
-    });
+    }, { transaction });
 
-    return res.status(201).json({ newService });
+    console.log('✅ Service created:', newService.id);
+
+    // NEW: Handle staff assignment
+    let assignedStaffCount = 0;
+    let assignedStaffIds = [];
+    
+    if (staffIds && Array.isArray(staffIds) && staffIds.length > 0) {
+      // Option 1: Assign specific staff provided in the request
+      console.log('👥 Assigning specific staff:', staffIds);
+      
+      // Verify all staff belong to the same store and are active
+      const staff = await Staff.findAll({
+        where: { 
+          id: staffIds,
+          storeId: store_id,
+          status: 'active'
+        }
+      }, { transaction });
+      
+      if (staff.length !== staffIds.length) {
+        await transaction.rollback();
+        return res.status(400).json({ 
+          error: 'Some staff members not found, inactive, or do not belong to this store',
+          providedStaffIds: staffIds,
+          validStaffFound: staff.length
+        });
+      }
+      
+      assignedStaffIds = staffIds;
+      
+    } else if (autoAssignAllStaff) {
+      // Option 2: Auto-assign all active staff from the store
+      console.log('🤖 Auto-assigning all active store staff');
+      
+      const activeStaff = await Staff.findAll({
+        where: { 
+          storeId: store_id,
+          status: 'active'
+        },
+        attributes: ['id', 'name']
+      }, { transaction });
+      
+      assignedStaffIds = activeStaff.map(staff => staff.id);
+      console.log(`📋 Found ${assignedStaffIds.length} active staff to assign:`, 
+        activeStaff.map(s => s.name).join(', '));
+    }
+
+    // Create staff-service assignments
+    if (assignedStaffIds.length > 0) {
+      const assignments = assignedStaffIds.map(staffId => ({
+        id: uuidv4(),
+        staffId,
+        serviceId: newService.id,
+        isActive: true,
+        assignedAt: new Date(),
+        createdAt: new Date(),
+        updatedAt: new Date()
+      }));
+      
+      await StaffService.bulkCreate(assignments, { transaction });
+      assignedStaffCount = assignments.length;
+      console.log(`✅ Created ${assignedStaffCount} staff assignments`);
+    } else {
+      console.log('⚠️ No staff assigned to service - offers cannot be created until staff are assigned');
+    }
+
+    await transaction.commit();
+    
+    // Fetch the created service with staff info for response
+    let serviceWithStaff = newService;
+    try {
+      serviceWithStaff = await Service.findByPk(newService.id, {
+        include: [{
+          model: Staff,
+          through: { 
+            attributes: [] // Don't include junction table data in response
+          },
+          attributes: { exclude: ['password'] },
+          as: 'Staff' // Make sure this matches your association alias
+        }]
+      });
+      console.log('📊 Service response includes', serviceWithStaff?.Staff?.length || 0, 'staff members');
+    } catch (includeError) {
+      console.log('⚠️ Could not include staff in response:', includeError.message);
+      // Continue with basic service data
+    }
+    
+    return res.status(201).json({ 
+      newService: serviceWithStaff || newService,
+      staffAssigned: assignedStaffCount,
+      message: assignedStaffCount > 0 
+        ? `Service created successfully with ${assignedStaffCount} staff members assigned`
+        : 'Service created successfully (no staff assigned)'
+    });
+    
   } catch (err) {
-    console.error('Service creation error:', err);
+    await transaction.rollback();
+    console.error('❌ Service creation error:', err);
     return res.status(500).json({ 
       message: 'Error creating service',
       error: process.env.NODE_ENV === 'development' ? err.message : undefined

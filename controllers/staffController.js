@@ -1,5 +1,5 @@
-// controllers/StaffController.js - Fixed associations version
-const { Staff, Service, StaffService, Store, Booking, Offer, User } = require('../models');
+// controllers/StaffController.js - Complete Updated Version
+const { Staff, Service, StaffService, Store, Booking, Offer, User, sequelize } = require('../models');
 const bcrypt = require('bcryptjs');
 const fs = require('fs');
 const ejs = require('ejs');
@@ -9,13 +9,13 @@ const { validationResult } = require('express-validator');
 const StaffController = {
   async create(req, res) {
     try {
-      console.log('Creating staff for merchant:', req.user); // Debug log
+      console.log('📝 Creating staff for merchant:', req.user?.id);
+      console.log('📋 Request data:', req.body);
       
-      let { storeId, email, name, phoneNumber } = req.body;
+      let { storeId, email, name, phoneNumber, branchId, role = 'staff' } = req.body;
       
       // If no storeId provided, get it from the current merchant
       if (!storeId) {
-        // Get merchant from auth token
         const merchantId = req.user?.id || req.user?.merchantId;
         if (!merchantId) {
           return res.status(401).json({ error: 'Merchant not found in request' });
@@ -34,13 +34,22 @@ const StaffController = {
         }
         
         storeId = stores[0].id;
-        console.log('Using store ID:', storeId); // Debug log
+        console.log('🏪 Using store ID:', storeId);
       }
+
       // Check if store exists
       const store = await Store.findByPk(storeId);
       if (!store) {
         return res.status(404).json({
           error: 'Store not found',
+        });
+      }
+
+      // Validate role
+      const validRoles = ['staff', 'manager', 'supervisor', 'cashier', 'sales'];
+      if (role && !validRoles.includes(role)) {
+        return res.status(400).json({
+          error: 'Invalid role. Must be one of: ' + validRoles.join(', '),
         });
       }
 
@@ -59,15 +68,24 @@ const StaffController = {
       const temporaryPassword = Math.random().toString(36).substring(2, 10);
       const hashedPassword = await bcrypt.hash(temporaryPassword, 10);
 
-      // Create staff member
-      const staff = await Staff.create({
+      // Create staff member with new fields
+      const staffData = {
         storeId,
         email,
         name,
         phoneNumber,
         password: hashedPassword,
         status: 'active',
-      });
+        role: role || 'staff'
+      };
+
+      // Add branchId if provided
+      if (branchId) {
+        staffData.branchId = branchId;
+      }
+
+      console.log('💾 Creating staff with data:', staffData);
+      const staff = await Staff.create(staffData);
 
       // Send invitation email
       try {
@@ -100,13 +118,15 @@ const StaffController = {
           name: staff.name,
           phoneNumber: staff.phoneNumber,
           storeId: staff.storeId,
+          branchId: staff.branchId,
+          role: staff.role,
           status: staff.status,
           createdAt: staff.createdAt,
           updatedAt: staff.updatedAt,
         },
       });
     } catch (error) {
-      console.error('Create staff error:', error);
+      console.error('❌ Create staff error:', error);
       res.status(500).json({
         error: 'Failed to create staff member',
         details: process.env.NODE_ENV === 'development' ? error.message : undefined
@@ -116,11 +136,17 @@ const StaffController = {
 
   async getAll(req, res) {
     try {
-      const { page = 1, limit = 50, status, storeId } = req.query;
+      const { page = 1, limit = 50, status, storeId, branchId, role } = req.query;
+      
+      console.log('🔍 Staff getAll called with params:', { page, limit, status, storeId, branchId, role });
       
       const whereClause = {};
       if (status) whereClause.status = status;
       if (storeId) whereClause.storeId = storeId;
+      if (branchId) whereClause.branchId = branchId;
+      if (role) whereClause.role = role;
+
+      console.log('📋 Staff query filters:', whereClause);
 
       const offset = (parseInt(page) - 1) * parseInt(limit);
 
@@ -145,6 +171,8 @@ const StaffController = {
           order: [['createdAt', 'DESC']]
         });
 
+        console.log('✅ Found staff members:', count, 'staff returned');
+
         res.status(200).json({
           staff,
           pagination: {
@@ -156,7 +184,7 @@ const StaffController = {
         });
         
       } catch (associationError) {
-        console.log('Association error, trying without Store include:', associationError.message);
+        console.log('⚠️ Association error, trying without Store include:', associationError.message);
         
         // Fallback: Get staff without store include
         const { count, rows: staff } = await Staff.findAndCountAll({
@@ -166,6 +194,8 @@ const StaffController = {
           offset: offset,
           order: [['createdAt', 'DESC']]
         });
+
+        console.log('✅ Found staff members (fallback):', count);
 
         // Manually add store info if needed
         const staffWithStores = await Promise.all(
@@ -196,7 +226,7 @@ const StaffController = {
       }
       
     } catch (error) {
-      console.error('Get all staff error:', error);
+      console.error('❌ Get all staff error:', error);
       res.status(500).json({ 
         error: 'Failed to fetch staff members',
         details: process.env.NODE_ENV === 'development' ? error.message : undefined
@@ -217,17 +247,12 @@ const StaffController = {
             {
               model: Store,
               attributes: ['id', 'name', 'address']
-            },
-            {
-              model: Service,
-              through: { attributes: [] },
-              attributes: ['id', 'name', 'description', 'duration', 'price']
             }
           ],
           attributes: { exclude: ['password'] }
         });
       } catch (associationError) {
-        console.log('Association error, trying basic fetch:', associationError.message);
+        console.log('⚠️ Association error, trying basic fetch:', associationError.message);
         
         // Fallback: Basic fetch without includes
         staff = await Staff.findByPk(id, {
@@ -256,7 +281,7 @@ const StaffController = {
 
       res.status(200).json({ staff });
     } catch (error) {
-      console.error('Get staff by ID error:', error);
+      console.error('❌ Get staff by ID error:', error);
       res.status(500).json({ 
         error: 'Failed to fetch staff member',
         details: process.env.NODE_ENV === 'development' ? error.message : undefined
@@ -264,11 +289,10 @@ const StaffController = {
     }
   },
 
-  
-
   async getStaffByStore(req, res) {
     try {
       const { storeId } = req.params;
+      const { branchId, role, status } = req.query;
 
       // Verify store exists
       const store = await Store.findByPk(storeId);
@@ -276,9 +300,15 @@ const StaffController = {
         return res.status(404).json({ error: 'Store not found' });
       }
 
+      // Build where clause for filtering
+      const whereClause = { storeId };
+      if (branchId) whereClause.branchId = branchId;
+      if (role) whereClause.role = role;
+      if (status) whereClause.status = status;
+
       // Get staff without includes first, then try to add store info
       const staff = await Staff.findAll({
-        where: { storeId },
+        where: whereClause,
         attributes: { exclude: ['password'] },
         order: [['createdAt', 'DESC']]
       });
@@ -295,7 +325,7 @@ const StaffController = {
 
       res.status(200).json(staffWithStores);
     } catch (error) {
-      console.error('Get staff by store error:', error);
+      console.error('❌ Get staff by store error:', error);
       res.status(500).json({ 
         error: 'Failed to fetch staff members for store',
         details: process.env.NODE_ENV === 'development' ? error.message : undefined
@@ -306,7 +336,10 @@ const StaffController = {
   async update(req, res) {
     try {
       const { id } = req.params;
-      const { email, name, phoneNumber, status, storeId } = req.body;
+      const { email, name, phoneNumber, status, storeId, branchId, role } = req.body;
+
+      console.log('🔄 Updating staff ID:', id);
+      console.log('📋 Update data:', req.body);
 
       const staff = await Staff.findByPk(id);
       if (!staff) {
@@ -338,13 +371,27 @@ const StaffController = {
         }
       }
 
-      // Update staff member
+      // Validate role if provided
+      if (role) {
+        const validRoles = ['staff', 'manager', 'supervisor', 'cashier', 'sales'];
+        if (!validRoles.includes(role)) {
+          return res.status(400).json({
+            error: 'Invalid role. Must be one of: ' + validRoles.join(', '),
+          });
+        }
+      }
+
+      // Update staff member with all possible fields
       const updatedData = {};
       if (email) updatedData.email = email;
       if (name) updatedData.name = name;
       if (phoneNumber !== undefined) updatedData.phoneNumber = phoneNumber;
       if (status) updatedData.status = status;
       if (storeId) updatedData.storeId = storeId;
+      if (branchId !== undefined) updatedData.branchId = branchId; // Allow null values
+      if (role) updatedData.role = role;
+
+      console.log('💾 Updating staff with data:', updatedData);
 
       await staff.update(updatedData);
 
@@ -371,7 +418,7 @@ const StaffController = {
         staff: updatedStaff 
       });
     } catch (error) {
-      console.error('Update staff error:', error);
+      console.error('❌ Update staff error:', error);
       res.status(500).json({ 
         error: 'Failed to update staff member',
         details: process.env.NODE_ENV === 'development' ? error.message : undefined
@@ -388,25 +435,37 @@ const StaffController = {
         return res.status(404).json({ error: 'Staff member not found' });
       }
 
-      // Note: Simplified booking check - you may need to adjust based on your actual model structure
+      // Check if staff has any active bookings or service assignments
       try {
-        // Check if staff has any active bookings - simplified version
-        const hasActiveBookings = false; // You may need to implement this check based on your actual booking structure
-        
-        if (hasActiveBookings) {
+        // Check for service assignments
+        const serviceAssignments = await StaffService.findAll({
+          where: { staffId: id }
+        });
+
+        if (serviceAssignments.length > 0) {
           return res.status(400).json({ 
-            error: 'Cannot delete staff member with active bookings. Please reassign or complete all bookings first.' 
+            error: `Cannot delete staff member. They are assigned to ${serviceAssignments.length} service(s). Please unassign them first.`
           });
         }
-      } catch (bookingCheckError) {
-        console.log('Could not check for active bookings:', bookingCheckError.message);
+
+        // Note: Add booking check here if you have a Booking model
+        // const activeBookings = await Booking.findAll({
+        //   where: { staffId: id, status: 'confirmed' }
+        // });
+        // if (activeBookings.length > 0) {
+        //   return res.status(400).json({ 
+        //     error: 'Cannot delete staff member with active bookings. Please reassign or complete all bookings first.' 
+        //   });
+        // }
+      } catch (checkError) {
+        console.log('Could not check for staff dependencies:', checkError.message);
         // Continue with deletion anyway
       }
 
       await staff.destroy();
       res.status(200).json({ message: 'Staff member deleted successfully' });
     } catch (error) {
-      console.error('Delete staff error:', error);
+      console.error('❌ Delete staff error:', error);
       res.status(500).json({ 
         error: 'Failed to delete staff member',
         details: process.env.NODE_ENV === 'development' ? error.message : undefined
@@ -451,7 +510,7 @@ const StaffController = {
 
       res.status(200).json({ message: 'Service assigned to staff member successfully' });
     } catch (error) {
-      console.error('Assign service error:', error);
+      console.error('❌ Assign service error:', error);
       res.status(500).json({ 
         error: 'Failed to assign service to staff member',
         details: process.env.NODE_ENV === 'development' ? error.message : undefined
@@ -479,7 +538,7 @@ const StaffController = {
 
       res.status(200).json({ message: 'Service unassigned from staff member successfully' });
     } catch (error) {
-      console.error('Unassign service error:', error);
+      console.error('❌ Unassign service error:', error);
       res.status(500).json({ 
         error: 'Failed to unassign service from staff member',
         details: process.env.NODE_ENV === 'development' ? error.message : undefined
@@ -511,7 +570,7 @@ const StaffController = {
       });
       
     } catch (error) {
-      console.error('Get staff bookings error:', error);
+      console.error('❌ Get staff bookings error:', error);
       res.status(500).json({ 
         error: 'Failed to fetch bookings for staff member',
         details: process.env.NODE_ENV === 'development' ? error.message : undefined
@@ -528,33 +587,69 @@ const StaffController = {
         return res.status(404).json({ error: 'Staff member not found' });
       }
 
-      // Try to get services, fallback if association issues
+      console.log('🔍 Getting services for staff:', staffId);
+
+      // Try multiple approaches to get staff services
+      let services = [];
+      
       try {
-        const services = await staff.getServices({
+        // Method 1: Try using the Staff association
+        console.log('📋 Trying Method 1: staff.getServices()');
+        services = await staff.getServices({
           attributes: ['id', 'name', 'description', 'duration', 'price', 'store_id'],
           through: { attributes: [] }
         });
-        res.status(200).json(services);
+        console.log('✅ Method 1 successful:', services.length, 'services found');
+        
       } catch (associationError) {
-        console.log('Service association error:', associationError.message);
+        console.log('⚠️ Method 1 failed:', associationError.message);
         
-        // Fallback: Get services through StaffService table
-        const staffServices = await StaffService.findAll({
-          where: { staffId },
-          include: [
-            {
-              model: Service,
-              attributes: ['id', 'name', 'description', 'duration', 'price', 'store_id']
-            }
-          ]
-        });
-        
-        const services = staffServices.map(ss => ss.Service);
-        res.status(200).json(services);
+        try {
+          // Method 2: Query through StaffService table
+          console.log('📋 Trying Method 2: StaffService query');
+          const staffServices = await StaffService.findAll({
+            where: { staffId },
+            include: [
+              {
+                model: Service,
+                as: 'Service',
+                attributes: ['id', 'name', 'description', 'duration', 'price', 'store_id']
+              }
+            ]
+          });
+          
+          services = staffServices.map(ss => ss.Service).filter(s => s !== null);
+          console.log('✅ Method 2 successful:', services.length, 'services found');
+          
+        } catch (tableError) {
+          console.log('⚠️ Method 2 failed:', tableError.message);
+          
+          try {
+            // Method 3: Raw query
+            console.log('📋 Trying Method 3: Raw query');
+            const [results] = await sequelize.query(`
+              SELECT s.* FROM services s
+              INNER JOIN staff_services ss ON s.id = ss.serviceId
+              WHERE ss.staffId = ?
+            `, {
+              replacements: [staffId],
+              type: sequelize.QueryTypes.SELECT
+            });
+            
+            services = results;
+            console.log('✅ Method 3 successful:', services.length, 'services found');
+            
+          } catch (rawError) {
+            console.log('❌ All methods failed:', rawError.message);
+            services = [];
+          }
+        }
       }
+
+      res.status(200).json(services);
       
     } catch (error) {
-      console.error('Get staff services error:', error);
+      console.error('❌ Get staff services error:', error);
       res.status(500).json({ 
         error: 'Failed to fetch services for staff member',
         details: process.env.NODE_ENV === 'development' ? error.message : undefined
@@ -566,23 +661,96 @@ const StaffController = {
     try {
       const { serviceId } = req.params;
 
+      console.log('🔍 Getting staff for service:', serviceId);
+
+      // First verify the service exists
       const service = await Service.findByPk(serviceId);
       if (!service) {
         return res.status(404).json({ error: 'Service not found' });
       }
 
-      // Get staff through StaffService table
-      const staffServices = await StaffService.findAll({
-        where: { serviceId },
-        include: [
-          {
-            model: Staff,
-            attributes: { exclude: ['password'] }
-          }
-        ]
-      });
+      console.log('✅ Service found:', service.name);
 
-      const staff = staffServices.map(ss => ss.Staff);
+      // Try multiple approaches to get staff
+      let staff = [];
+      
+      try {
+        // Method 1: Try using the Service association
+        console.log('📋 Trying Method 1: service.getStaff()');
+        
+        // First check if the service has a getStaff method
+        if (typeof service.getStaff === 'function') {
+          staff = await service.getStaff({
+            attributes: { exclude: ['password'] },
+            through: { attributes: [] } // Exclude junction table data
+          });
+          console.log('✅ Method 1 successful:', staff.length, 'staff found');
+        } else {
+          throw new Error('getStaff method not available on service');
+        }
+        
+      } catch (associationError) {
+        console.log('⚠️ Method 1 failed:', associationError.message);
+        
+        try {
+          // Method 2: Query through StaffService table directly
+          console.log('📋 Trying Method 2: StaffService query');
+          const staffServices = await StaffService.findAll({
+            where: { serviceId },
+            include: [
+              {
+                model: Staff,
+                as: 'Staff',
+                attributes: { exclude: ['password'] }
+              }
+            ]
+          });
+          
+          staff = staffServices.map(ss => ss.Staff).filter(s => s !== null);
+          console.log('✅ Method 2 successful:', staff.length, 'staff found');
+          
+        } catch (tableError) {
+          console.log('⚠️ Method 2 failed:', tableError.message);
+          
+          try {
+            // Method 3: Raw query as last resort
+            console.log('📋 Trying Method 3: Raw query');
+            const [results] = await sequelize.query(`
+              SELECT s.id, s.name, s.email, s.role, s.status, s.phoneNumber, s.storeId, s.branchId
+              FROM staff s
+              INNER JOIN staff_services ss ON s.id = ss.staffId
+              WHERE ss.serviceId = ?
+            `, {
+              replacements: [serviceId],
+              type: sequelize.QueryTypes.SELECT
+            });
+            
+            staff = results;
+            console.log('✅ Method 3 successful:', staff.length, 'staff found');
+            
+          } catch (rawError) {
+            console.log('❌ All methods failed:', rawError.message);
+            throw new Error('Unable to fetch staff for this service');
+          }
+        }
+      }
+
+      // Format the response
+      const formattedStaff = staff.map(staffMember => {
+        // Handle both Sequelize model instances and plain objects
+        const staffData = staffMember.toJSON ? staffMember.toJSON() : staffMember;
+        
+        return {
+          id: staffData.id,
+          name: staffData.name,
+          email: staffData.email,
+          role: staffData.role || 'staff',
+          status: staffData.status,
+          phoneNumber: staffData.phoneNumber,
+          storeId: staffData.storeId,
+          branchId: staffData.branchId
+        };
+      });
 
       res.status(200).json({
         service: {
@@ -592,16 +760,116 @@ const StaffController = {
           duration: service.duration,
           price: service.price
         },
-        staff: staff,
+        staff: formattedStaff,
+        message: staff.length === 0 ? 'No staff assigned to this service' : undefined
       });
+
     } catch (error) {
-      console.error('Get staff by service error:', error);
+      console.error('❌ Get staff by service error:', error);
       res.status(500).json({ 
         error: 'Failed to fetch staff members for service',
         details: process.env.NODE_ENV === 'development' ? error.message : undefined
       });
     }
   },
+
+  // Bulk operations
+  async bulkAssignStaff(req, res) {
+    try {
+      const { staffIds, serviceId } = req.body;
+
+      if (!staffIds || !Array.isArray(staffIds) || staffIds.length === 0) {
+        return res.status(400).json({ error: 'staffIds array is required' });
+      }
+
+      if (!serviceId) {
+        return res.status(400).json({ error: 'serviceId is required' });
+      }
+
+      // Verify service exists
+      const service = await Service.findByPk(serviceId);
+      if (!service) {
+        return res.status(404).json({ error: 'Service not found' });
+      }
+
+      // Verify all staff exist and belong to the same store as the service
+      const staff = await Staff.findAll({
+        where: { id: staffIds }
+      });
+
+      if (staff.length !== staffIds.length) {
+        return res.status(400).json({ error: 'Some staff members were not found' });
+      }
+
+      // Check store consistency
+      const invalidStaff = staff.filter(s => s.storeId !== service.store_id);
+      if (invalidStaff.length > 0) {
+        return res.status(400).json({ 
+          error: 'All staff must belong to the same store as the service' 
+        });
+      }
+
+      // Create assignments (ignore duplicates)
+      const assignments = staffIds.map(staffId => ({
+        staffId,
+        serviceId,
+        createdAt: new Date(),
+        updatedAt: new Date()
+      }));
+
+      await StaffService.bulkCreate(assignments, { 
+        ignoreDuplicates: true 
+      });
+
+      res.status(200).json({ 
+        message: `Successfully assigned ${staffIds.length} staff members to service` 
+      });
+
+    } catch (error) {
+      console.error('❌ Bulk assign staff error:', error);
+      res.status(500).json({ 
+        error: 'Failed to bulk assign staff to service',
+        details: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
+    }
+  },
+
+  async updateStaffStatus(req, res) {
+    try {
+      const { id } = req.params;
+      const { status } = req.body;
+
+      const validStatuses = ['active', 'suspended', 'inactive'];
+      if (!validStatuses.includes(status)) {
+        return res.status(400).json({
+          error: 'Invalid status. Must be one of: ' + validStatuses.join(', ')
+        });
+      }
+
+      const staff = await Staff.findByPk(id);
+      if (!staff) {
+        return res.status(404).json({ error: 'Staff member not found' });
+      }
+
+      await staff.update({ status });
+
+      res.status(200).json({
+        message: `Staff status updated to ${status}`,
+        staff: {
+          id: staff.id,
+          name: staff.name,
+          status: staff.status
+        }
+      });
+
+    } catch (error) {
+      console.error('❌ Update staff status error:', error);
+      res.status(500).json({
+        error: 'Failed to update staff status',
+        details: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
+    }
+  }
 };
 
 module.exports = StaffController;

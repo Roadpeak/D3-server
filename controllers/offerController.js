@@ -1,42 +1,128 @@
 const { Offer, Store, Service, sequelize } = require('../models');
 
+// Helper function to format offers consistently
+const formatOffer = (offer) => ({
+  id: offer.id,
+  title: offer.title || offer.service?.name || 'Special Offer',
+  description: offer.description || 'Get exclusive offers with these amazing deals',
+  discount: offer.discount, // Keep as number
+  expiration_date: offer.expiration_date,
+  status: offer.status,
+  fee: offer.fee,
+  featured: offer.featured || false,
+  createdAt: offer.createdAt,
+  updatedAt: offer.updatedAt,
+  service: offer.service ? {
+    id: offer.service.id,
+    name: offer.service.name,
+    price: offer.service.price,
+    duration: offer.service.duration,
+    type: offer.service.type,
+    category: offer.service.category,
+    description: offer.service.description,
+    image_url: offer.service.image_url,
+    store_id: offer.service.store_id,
+  } : null,
+  store: offer.service?.store ? {
+    id: offer.service.store.id,
+    name: offer.service.store.name,
+    logo_url: offer.service.store.logo_url,
+    // Removed google_logo reference - use logo_url instead
+    googleLogo: offer.service.store.logo_url || '/api/placeholder/20/20',
+    location: offer.service.store.location,
+  } : null
+});
+
+// Helper function to get standard includes with proper aliases
+const getOfferIncludes = () => [
+  {
+    model: Service,
+    as: 'service',
+    attributes: ['id', 'name', 'image_url', 'price', 'duration', 'category', 'type', 'description', 'store_id'],
+    include: [
+      {
+        model: Store,
+        as: 'store',
+        // Removed 'google_logo' from attributes
+        attributes: ['id', 'name', 'logo_url', 'location'],
+      }
+    ]
+  }
+];
+
 exports.createOffer = async (req, res) => {
   try {
     const { discount, expiration_date, service_id, description, status, title, featured } = req.body;
 
+    // Validation
+    if (!discount || !expiration_date || !service_id) {
+      return res.status(400).json({ 
+        message: 'Discount, expiration date, and service ID are required' 
+      });
+    }
+
+    // Validate discount range
+    if (discount < 1 || discount > 100) {
+      return res.status(400).json({ 
+        message: 'Discount must be between 1 and 100' 
+      });
+    }
+
+    // Check if service exists
+    const service = await Service.findByPk(service_id);
+    if (!service) {
+      return res.status(404).json({ message: 'Service not found' });
+    }
+
+    // Validate expiration date
+    const expirationDate = new Date(expiration_date);
+    if (expirationDate <= new Date()) {
+      return res.status(400).json({ 
+        message: 'Expiration date must be in the future' 
+      });
+    }
+
     const fee = (discount * 0.05).toFixed(2);
 
     const newOffer = await Offer.create({
-      discount,
+      discount: parseFloat(discount),
       expiration_date,
       service_id,
-      description,
-      status,
-      fee,
-      title,
+      description: description || null,
+      status: status || 'active',
+      fee: parseFloat(fee),
+      title: title || null,
       featured: featured || false,
     });
 
-    return res.status(201).json({ newOffer });
+    // Fetch the created offer with includes
+    const createdOffer = await Offer.findByPk(newOffer.id, {
+      include: getOfferIncludes()
+    });
+
+    return res.status(201).json({ 
+      message: 'Offer created successfully',
+      offer: formatOffer(createdOffer)
+    });
   } catch (err) {
-    console.error(err);
+    console.error('Error creating offer:', err);
     return res.status(500).json({ message: 'Error creating offer' });
   }
 };
 
 exports.getOffers = async (req, res) => {
   try {
-    const { page = 1, limit = 12, category, sortBy = 'latest', viewMode = 'grid' } = req.query;
+    const { page = 1, limit = 12, category, sortBy = 'latest', store_id, status = 'active' } = req.query;
     const offset = (page - 1) * limit;
 
-    let orderClause = [['createdAt', 'DESC']]; // Default: Latest
-
+    // Build order clause
+    let orderClause = [['createdAt', 'DESC']];
     switch (sortBy) {
       case 'price_low_high':
-        orderClause = [[{ model: Service }, 'price', 'ASC']];
+        orderClause = [[{ model: Service, as: 'service' }, 'price', 'ASC']];
         break;
       case 'price_high_low':
-        orderClause = [[{ model: Service }, 'price', 'DESC']];
+        orderClause = [[{ model: Service, as: 'service' }, 'price', 'DESC']];
         break;
       case 'discount':
         orderClause = [['discount', 'DESC']];
@@ -47,9 +133,19 @@ exports.getOffers = async (req, res) => {
         break;
     }
 
+    // Build where clause for offers
     const whereClause = {};
+    if (status && status !== 'all') {
+      whereClause.status = status;
+    }
+
+    // Build where clause for services
+    const serviceWhere = {};
+    if (store_id) {
+      serviceWhere.store_id = store_id;
+    }
     if (category) {
-      whereClause['$Service.category$'] = category;
+      serviceWhere.category = category;
     }
 
     const { count, rows: offers } = await Offer.findAndCountAll({
@@ -57,11 +153,15 @@ exports.getOffers = async (req, res) => {
       include: [
         {
           model: Service,
-          attributes: ['id', 'name', 'image_url', 'price', 'duration', 'category', 'type', 'description'],
+          as: 'service',
+          where: serviceWhere,
+          attributes: ['id', 'name', 'image_url', 'price', 'duration', 'category', 'type', 'description', 'store_id'],
           include: [
             {
               model: Store,
-              attributes: ['id', 'name', 'logo_url', 'google_logo'],
+              as: 'store',
+              // Removed 'google_logo' from attributes
+              attributes: ['id', 'name', 'logo_url', 'location'],
             }
           ]
         }
@@ -71,34 +171,7 @@ exports.getOffers = async (req, res) => {
       offset: parseInt(offset),
     });
 
-    // Format offers for frontend
-    const formattedOffers = offers.map(offer => ({
-      id: offer.id,
-      title: offer.title || offer.Service?.name || 'Special Offer',
-      description: offer.description || 'Get exclusive offers with these amazing deals',
-      discount: `${offer.discount}% Off`,
-      category: offer.Service?.category || 'General',
-      image: offer.Service?.image_url || 'https://via.placeholder.com/300x200',
-      featured: offer.featured || false,
-      expiration_date: offer.expiration_date,
-      status: offer.status,
-      fee: offer.fee,
-      service: {
-        id: offer.Service?.id,
-        name: offer.Service?.name,
-        price: offer.Service?.price,
-        duration: offer.Service?.duration,
-        type: offer.Service?.type,
-        description: offer.Service?.description,
-      },
-      store: {
-        id: offer.Service?.Store?.id,
-        name: offer.Service?.Store?.name || 'Store Name',
-        logo_url: offer.Service?.Store?.logo_url,
-        googleLogo: offer.Service?.Store?.google_logo || '/api/placeholder/20/20',
-      }
-    }));
-
+    const formattedOffers = offers.map(formatOffer);
     const totalPages = Math.ceil(count / limit);
 
     return res.status(200).json({
@@ -113,7 +186,7 @@ exports.getOffers = async (req, res) => {
       }
     });
   } catch (err) {
-    console.error(err);
+    console.error('Error fetching offers:', err);
     return res.status(500).json({ message: 'Error fetching offers' });
   }
 };
@@ -123,48 +196,20 @@ exports.getRandomOffers = async (req, res) => {
     const { limit = 12 } = req.query;
 
     const offers = await Offer.findAll({
+      where: { status: 'active' },
       order: sequelize.fn('RAND'),
       limit: parseInt(limit),
-      include: [
-        {
-          model: Service,
-          attributes: ['id', 'name', 'image_url', 'price', 'duration', 'category', 'type', 'description'],
-          include: [
-            {
-              model: Store,
-              attributes: ['id', 'name', 'logo_url', 'google_logo'],
-            }
-          ]
-        }
-      ],
+      include: getOfferIncludes(),
     });
 
     if (!offers || offers.length === 0) {
-      return res.status(404).json({ message: 'No offers found' });
+      return res.status(200).json({ 
+        offers: [],
+        message: 'No offers available' 
+      });
     }
 
-    // Format offers for frontend
-    const formattedOffers = offers.map(offer => ({
-      id: offer.id,
-      title: offer.title || offer.Service?.name || 'Special Offer',
-      description: offer.description || 'Get exclusive offers with these amazing deals',
-      discount: `${offer.discount}% Off`,
-      category: offer.Service?.category || 'General',
-      image: offer.Service?.image_url || 'https://via.placeholder.com/300x200',
-      featured: offer.featured || false,
-      service: {
-        id: offer.Service?.id,
-        name: offer.Service?.name,
-        price: offer.Service?.price,
-        duration: offer.Service?.duration,
-      },
-      store: {
-        id: offer.Service?.Store?.id,
-        name: offer.Service?.Store?.name || 'Store Name',
-        logo_url: offer.Service?.Store?.logo_url,
-        googleLogo: offer.Service?.Store?.google_logo || '/api/placeholder/20/20',
-      }
-    }));
+    const formattedOffers = offers.map(formatOffer);
 
     res.status(200).json({ offers: formattedOffers });
   } catch (error) {
@@ -176,75 +221,69 @@ exports.getRandomOffers = async (req, res) => {
 exports.getOffersByStore = async (req, res) => {
   try {
     const { storeId } = req.params;
-    const { page = 1, limit = 12 } = req.query;
+    const { page = 1, limit = 12, status = 'active' } = req.query;
     const offset = (page - 1) * limit;
 
+    // Validate store exists
     const store = await Store.findByPk(storeId, {
-      include: {
-        model: Service,
-        include: {
-          model: Offer,
-          attributes: ['id', 'discount', 'expiration_date', 'description', 'status', 'fee', 'title', 'featured'],
-        },
-        attributes: ['id', 'name', 'image_url', 'price', 'duration', 'category', 'type', 'description'],
-      },
+      attributes: ['id', 'name', 'logo_url', 'location']
     });
-
+    
     if (!store) {
       return res.status(404).json({ message: 'Store not found' });
     }
 
-    const allOffers = store.Services.flatMap(service =>
-      service.Offers.map(offer => ({
-        id: offer.id,
-        title: offer.title || service.name || 'Special Offer',
-        description: offer.description || 'Get exclusive offers with these amazing deals',
-        discount: `${offer.discount}% Off`,
-        category: service.category || 'General',
-        image: service.image_url || 'https://via.placeholder.com/300x200',
-        featured: offer.featured || false,
-        expiration_date: offer.expiration_date,
-        status: offer.status,
-        fee: offer.fee,
-        service: {
-          id: service.id,
-          name: service.name,
-          price: service.price,
-          duration: service.duration,
-          type: service.type,
-          description: service.description,
-        },
-        store: {
-          id: store.id,
-          name: store.name,
-          logo_url: store.logo_url,
-          googleLogo: store.google_logo || '/api/placeholder/20/20',
-        }
-      }))
-    );
+    // Build where clause
+    const whereClause = {};
+    if (status && status !== 'all') {
+      whereClause.status = status;
+    }
 
-    const totalOffers = allOffers.length;
-    const paginatedOffers = allOffers.slice(offset, offset + parseInt(limit));
-    const totalPages = Math.ceil(totalOffers / limit);
+    const { count, rows: offers } = await Offer.findAndCountAll({
+      where: whereClause,
+      include: [
+        {
+          model: Service,
+          as: 'service',
+          where: { store_id: storeId },
+          attributes: ['id', 'name', 'image_url', 'price', 'duration', 'category', 'type', 'description', 'store_id'],
+          include: [
+            {
+              model: Store,
+              as: 'store',
+              // Removed 'google_logo' from attributes
+              attributes: ['id', 'name', 'logo_url', 'location'],
+            }
+          ]
+        }
+      ],
+      order: [['createdAt', 'DESC']],
+      limit: parseInt(limit),
+      offset: parseInt(offset),
+    });
+
+    const formattedOffers = offers.map(formatOffer);
+    const totalPages = Math.ceil(count / limit);
 
     return res.status(200).json({
-      offers: paginatedOffers,
+      offers: formattedOffers,
       store: {
         id: store.id,
         name: store.name,
         logo_url: store.logo_url,
+        location: store.location,
       },
       pagination: {
         currentPage: parseInt(page),
         totalPages,
-        totalItems: totalOffers,
+        totalItems: count,
         itemsPerPage: parseInt(limit),
         hasNextPage: page < totalPages,
         hasPrevPage: page > 1
       }
     });
   } catch (err) {
-    console.error(err);
+    console.error('Error fetching offers by store:', err);
     return res.status(500).json({ message: 'Error fetching offers by store' });
   }
 };
@@ -254,54 +293,16 @@ exports.getOfferById = async (req, res) => {
     const { id } = req.params;
 
     const offer = await Offer.findByPk(id, {
-      include: [
-        {
-          model: Service,
-          attributes: ['id', 'name', 'price', 'duration', 'image_url', 'category', 'description', 'type'],
-          include: [
-            {
-              model: Store,
-              attributes: ['id', 'name', 'logo_url', 'google_logo', 'address'],
-            }
-          ]
-        }
-      ],
+      include: getOfferIncludes(),
     });
 
     if (!offer) {
       return res.status(404).json({ message: 'Offer not found' });
     }
 
-    // Format offer for frontend
-    const formattedOffer = {
-      id: offer.id,
-      title: offer.title || offer.Service?.name || 'Special Offer',
-      description: offer.description || 'Get exclusive offers with these amazing deals',
-      discount: `${offer.discount}% Off`,
-      category: offer.Service?.category || 'General',
-      image: offer.Service?.image_url || 'https://via.placeholder.com/300x200',
-      featured: offer.featured || false,
-      expiration_date: offer.expiration_date,
-      status: offer.status,
-      fee: offer.fee,
-      service: {
-        id: offer.Service?.id,
-        name: offer.Service?.name,
-        price: offer.Service?.price,
-        duration: offer.Service?.duration,
-        type: offer.Service?.type,
-        description: offer.Service?.description,
-      },
-      store: {
-        id: offer.Service?.Store?.id,
-        name: offer.Service?.Store?.name || 'Store Name',
-        logo_url: offer.Service?.Store?.logo_url,
-        googleLogo: offer.Service?.Store?.google_logo || '/api/placeholder/20/20',
-        address: offer.Service?.Store?.address,
-      }
-    };
-
-    return res.status(200).json({ offer: formattedOffer });
+    return res.status(200).json({ 
+      offer: formatOffer(offer)
+    });
   } catch (err) {
     console.error('Error fetching offer:', err);
     return res.status(500).json({ message: 'Error fetching offer' });
@@ -311,33 +312,62 @@ exports.getOfferById = async (req, res) => {
 exports.updateOffer = async (req, res) => {
   try {
     const { id } = req.params;
-    const offer = await Offer.findByPk(id);
+    const { discount, expiration_date, service_id, description, status, title, featured } = req.body;
 
+    const offer = await Offer.findByPk(id);
     if (!offer) {
       return res.status(404).json({ message: 'Offer not found' });
     }
 
-    const { discount, expiration_date, service_id, description, status, title, featured } = req.body;
+    // Validation
+    if (discount && (discount < 1 || discount > 100)) {
+      return res.status(400).json({ 
+        message: 'Discount must be between 1 and 100' 
+      });
+    }
 
-    const fee = discount ? (discount * 0.05).toFixed(2) : offer.fee;
+    if (service_id) {
+      const service = await Service.findByPk(service_id);
+      if (!service) {
+        return res.status(404).json({ message: 'Service not found' });
+      }
+    }
+
+    if (expiration_date) {
+      const expirationDate = new Date(expiration_date);
+      if (expirationDate <= new Date()) {
+        return res.status(400).json({ 
+          message: 'Expiration date must be in the future' 
+        });
+      }
+    }
+
+    // Calculate new fee if discount is updated
+    const newDiscount = discount || offer.discount;
+    const fee = (newDiscount * 0.05).toFixed(2);
 
     const updatedOffer = await offer.update({
-      discount: discount || offer.discount,
+      discount: discount ? parseFloat(discount) : offer.discount,
       expiration_date: expiration_date || offer.expiration_date,
       service_id: service_id || offer.service_id,
-      description: description || offer.description,
+      description: description !== undefined ? description : offer.description,
       status: status || offer.status,
-      title: title || offer.title,
+      title: title !== undefined ? title : offer.title,
       featured: featured !== undefined ? featured : offer.featured,
-      fee,
+      fee: parseFloat(fee),
+    });
+
+    // Fetch updated offer with includes
+    const offerWithIncludes = await Offer.findByPk(updatedOffer.id, {
+      include: getOfferIncludes()
     });
 
     return res.status(200).json({
       message: 'Offer updated successfully',
-      offer: updatedOffer
+      offer: formatOffer(offerWithIncludes)
     });
   } catch (err) {
-    console.error(err);
+    console.error('Error updating offer:', err);
     return res.status(500).json({ message: 'Error updating offer' });
   }
 };
@@ -345,37 +375,42 @@ exports.updateOffer = async (req, res) => {
 exports.deleteOffer = async (req, res) => {
   try {
     const { id } = req.params;
+    
     const offer = await Offer.findByPk(id);
-
     if (!offer) {
       return res.status(404).json({ message: 'Offer not found' });
     }
 
     await offer.destroy();
-    return res.status(200).json({ message: 'Offer deleted successfully' });
+    return res.status(200).json({ 
+      message: 'Offer deleted successfully',
+      id: parseInt(id)
+    });
   } catch (err) {
-    console.error(err);
+    console.error('Error deleting offer:', err);
     return res.status(500).json({ message: 'Error deleting offer' });
   }
 };
 
-// New endpoint for categories with counts
+// Categories endpoint with counts
 exports.getCategories = async (req, res) => {
   try {
     const categories = await Service.findAll({
       attributes: [
         'category',
-        [sequelize.fn('COUNT', sequelize.col('Offers.id')), 'count']
+        [sequelize.fn('COUNT', sequelize.col('offers.id')), 'count']
       ],
       include: [
         {
           model: Offer,
+          as: 'offers',
           attributes: [],
+          where: { status: 'active' },
           required: true
         }
       ],
       group: ['category'],
-      order: [[sequelize.fn('COUNT', sequelize.col('Offers.id')), 'DESC']]
+      order: [[sequelize.fn('COUNT', sequelize.col('offers.id')), 'DESC']]
     });
 
     const formattedCategories = categories.map(cat => ({
@@ -390,77 +425,124 @@ exports.getCategories = async (req, res) => {
   }
 };
 
-// New endpoint for top deals
+// Top deals endpoint
 exports.getTopDeals = async (req, res) => {
   try {
     const { limit = 3 } = req.query;
 
     const topDeals = await Offer.findAll({
+      where: { status: 'active' },
       order: [['discount', 'DESC']],
       limit: parseInt(limit),
-      include: [
-        {
-          model: Service,
-          attributes: ['name', 'price', 'category'],
-        }
-      ],
+      include: getOfferIncludes(),
     });
 
-    const formattedDeals = topDeals.map(deal => ({
-      title: deal.title || deal.Service?.name || 'Special Deal',
-      price: `$${deal.Service?.price || '0'}`,
-      category: deal.Service?.category || 'General'
-    }));
+    const formattedDeals = topDeals.map(formatOffer);
 
-    return res.status(200).json({ topDeals: formattedDeals });
+    return res.status(200).json({ 
+      topDeals: formattedDeals 
+    });
   } catch (err) {
     console.error('Error fetching top deals:', err);
     return res.status(500).json({ message: 'Error fetching top deals' });
   }
 };
 
-// New endpoint for featured offers
+// Featured offers endpoint
 exports.getFeaturedOffers = async (req, res) => {
   try {
     const { limit = 6 } = req.query;
 
     const featuredOffers = await Offer.findAll({
-      where: { featured: true },
+      where: { 
+        featured: true,
+        status: 'active'
+      },
       order: [['createdAt', 'DESC']],
       limit: parseInt(limit),
-      include: [
-        {
-          model: Service,
-          attributes: ['id', 'name', 'image_url', 'price', 'duration', 'category', 'type'],
-          include: [
-            {
-              model: Store,
-              attributes: ['id', 'name', 'logo_url', 'google_logo'],
-            }
-          ]
-        }
-      ],
+      include: getOfferIncludes(),
     });
 
-    const formattedOffers = featuredOffers.map(offer => ({
-      id: offer.id,
-      title: offer.title || offer.Service?.name || 'Special Offer',
-      description: offer.description || 'Get exclusive offers with these amazing deals',
-      discount: `${offer.discount}% Off`,
-      category: offer.Service?.category || 'General',
-      image: offer.Service?.image_url || 'https://via.placeholder.com/300x200',
-      featured: true,
-      store: {
-        id: offer.Service?.Store?.id,
-        name: offer.Service?.Store?.name || 'Store Name',
-        logo_url: offer.Service?.Store?.logo_url,
-        googleLogo: offer.Service?.Store?.google_logo || '/api/placeholder/20/20',
-      }
-    }));
+    const formattedOffers = featuredOffers.map(formatOffer);
 
-    return res.status(200).json({ offers: formattedOffers });
+    return res.status(200).json({ 
+      offers: formattedOffers 
+    });
   } catch (err) {
     console.error('Error fetching featured offers:', err);
     return res.status(500).json({ message: 'Error fetching featured offers' });
+  }
+};
+
+// Get offers statistics
+exports.getOffersStats = async (req, res) => {
+  try {
+    const { storeId } = req.params;
+
+    const stats = await Offer.findAll({
+      attributes: [
+        'status',
+        [sequelize.fn('COUNT', sequelize.col('Offer.id')), 'count']
+      ],
+      include: [
+        {
+          model: Service,
+          as: 'service',
+          where: storeId ? { store_id: storeId } : {},
+          attributes: []
+        }
+      ],
+      group: ['status']
+    });
+
+    const formattedStats = stats.reduce((acc, stat) => {
+      acc[stat.status] = parseInt(stat.dataValues.count);
+      return acc;
+    }, {});
+
+    // Calculate totals
+    const total = Object.values(formattedStats).reduce((sum, count) => sum + count, 0);
+    
+    return res.status(200).json({
+      stats: {
+        ...formattedStats,
+        total
+      }
+    });
+  } catch (err) {
+    console.error('Error fetching offer stats:', err);
+    return res.status(500).json({ message: 'Error fetching offer statistics' });
+  }
+};
+
+// Bulk update offers status
+exports.bulkUpdateOffers = async (req, res) => {
+  try {
+    const { offerIds, status } = req.body;
+
+    if (!offerIds || !Array.isArray(offerIds) || offerIds.length === 0) {
+      return res.status(400).json({ message: 'Offer IDs array is required' });
+    }
+
+    if (!['active', 'inactive', 'paused'].includes(status)) {
+      return res.status(400).json({ message: 'Invalid status' });
+    }
+
+    const [affectedRows] = await Offer.update(
+      { status },
+      {
+        where: {
+          id: offerIds
+        }
+      }
+    );
+
+    return res.status(200).json({
+      message: `${affectedRows} offers updated successfully`,
+      affectedRows
+    });
+  } catch (err) {
+    console.error('Error bulk updating offers:', err);
+    return res.status(500).json({ message: 'Error updating offers' });
   }
 };
