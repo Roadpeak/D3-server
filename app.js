@@ -24,6 +24,7 @@ const categoryRoutes = require('./routes/categoryRoutes');
 const chatRoutes = require('./routes/chatRoutes');
 const branchRoutes = require('./routes/branchRoutes');
 const heroRoutes = require('./routes/heroRoutes');
+// const discountRoutes = require('./routes/discountRoutes');
 const { socketManager } = require('./socket/websocket');
 const homedealsstores = require('./routes/homedealsstoresRoutes');
 const serviceRequestRoutes = require('./routes/serviceRequestRoutes');
@@ -197,6 +198,7 @@ app.use('/api/v1/home-deals-stores', homedealsstores);
 app.use('/api/v1/chat', chatRoutes); // Chat routes - should now work with CORS fix
 app.use('/api/v1/likes', likeRoutes);
 app.use('/api/v1/forms', formRoutes);
+// app.use('/api/v1/discounts', discountRoutes);
 app.use('/api/v1/form-fields', formFieldRoutes);
 app.use('/api/v1/form-responses', formResponseRoutes);
 app.use('/api/v1/service-requests', serviceRequestRoutes);

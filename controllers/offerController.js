@@ -1,37 +1,39 @@
 const { Offer, Store, Service, sequelize } = require('../models');
 
 // Helper function to format offers consistently
-const formatOffer = (offer) => ({
-  id: offer.id,
-  title: offer.title || offer.service?.name || 'Special Offer',
-  description: offer.description || 'Get exclusive offers with these amazing deals',
-  discount: offer.discount, // Keep as number
-  expiration_date: offer.expiration_date,
-  status: offer.status,
-  fee: offer.fee,
-  featured: offer.featured || false,
-  createdAt: offer.createdAt,
-  updatedAt: offer.updatedAt,
-  service: offer.service ? {
-    id: offer.service.id,
-    name: offer.service.name,
-    price: offer.service.price,
-    duration: offer.service.duration,
-    type: offer.service.type,
-    category: offer.service.category,
-    description: offer.service.description,
-    image_url: offer.service.image_url,
-    store_id: offer.service.store_id,
-  } : null,
-  store: offer.service?.store ? {
-    id: offer.service.store.id,
-    name: offer.service.store.name,
-    logo_url: offer.service.store.logo_url,
-    // Removed google_logo reference - use logo_url instead
-    googleLogo: offer.service.store.logo_url || '/api/placeholder/20/20',
-    location: offer.service.store.location,
-  } : null
-});
+const formatOffer = (offer) => {
+  if (!offer) return null;
+  
+  return {
+    id: offer.id,
+    title: offer.title || offer.service?.name || 'Special Offer',
+    description: offer.description || offer.service?.description || 'Get exclusive offers with these amazing deals',
+    discount: offer.discount, // Keep as number
+    expiration_date: offer.expiration_date,
+    status: offer.status,
+    fee: offer.fee,
+    featured: offer.featured || false,
+    createdAt: offer.createdAt,
+    updatedAt: offer.updatedAt,
+    service: offer.service ? {
+      id: offer.service.id,
+      name: offer.service.name,
+      price: parseFloat(offer.service.price) || 0,
+      duration: offer.service.duration,
+      type: offer.service.type,
+      category: offer.service.category,
+      description: offer.service.description,
+      image_url: offer.service.image_url || '/api/placeholder/300/200',
+      store_id: offer.service.store_id,
+    } : null,
+    store: offer.service?.store ? {
+      id: offer.service.store.id,
+      name: offer.service.store.name,
+      logo_url: offer.service.store.logo_url || '/api/placeholder/20/20',
+      location: offer.service.store.location,
+    } : null
+  };
+};
 
 // Helper function to get standard includes with proper aliases
 const getOfferIncludes = () => [
@@ -43,12 +45,30 @@ const getOfferIncludes = () => [
       {
         model: Store,
         as: 'store',
-        // Removed 'google_logo' from attributes
         attributes: ['id', 'name', 'logo_url', 'location'],
       }
     ]
   }
 ];
+
+// Helper function for error responses
+const sendErrorResponse = (res, statusCode, message, error = null) => {
+  console.error(`Error ${statusCode}:`, message, error);
+  return res.status(statusCode).json({ 
+    success: false,
+    message,
+    ...(process.env.NODE_ENV === 'development' && error && { error: error.message })
+  });
+};
+
+// Helper function for success responses
+const sendSuccessResponse = (res, data, message = 'Success', statusCode = 200) => {
+  return res.status(statusCode).json({
+    success: true,
+    message,
+    ...data
+  });
+};
 
 exports.createOffer = async (req, res) => {
   try {
@@ -56,30 +76,26 @@ exports.createOffer = async (req, res) => {
 
     // Validation
     if (!discount || !expiration_date || !service_id) {
-      return res.status(400).json({ 
-        message: 'Discount, expiration date, and service ID are required' 
-      });
+      return sendErrorResponse(res, 400, 'Discount, expiration date, and service ID are required');
     }
 
     // Validate discount range
     if (discount < 1 || discount > 100) {
-      return res.status(400).json({ 
-        message: 'Discount must be between 1 and 100' 
-      });
+      return sendErrorResponse(res, 400, 'Discount must be between 1 and 100');
     }
 
     // Check if service exists
-    const service = await Service.findByPk(service_id);
+    const service = await Service.findByPk(service_id, {
+      include: [{ model: Store, as: 'store' }]
+    });
     if (!service) {
-      return res.status(404).json({ message: 'Service not found' });
+      return sendErrorResponse(res, 404, 'Service not found');
     }
 
     // Validate expiration date
     const expirationDate = new Date(expiration_date);
     if (expirationDate <= new Date()) {
-      return res.status(400).json({ 
-        message: 'Expiration date must be in the future' 
-      });
+      return sendErrorResponse(res, 400, 'Expiration date must be in the future');
     }
 
     const fee = (discount * 0.05).toFixed(2);
@@ -100,20 +116,25 @@ exports.createOffer = async (req, res) => {
       include: getOfferIncludes()
     });
 
-    return res.status(201).json({ 
-      message: 'Offer created successfully',
-      offer: formatOffer(createdOffer)
-    });
+    return sendSuccessResponse(res, { offer: formatOffer(createdOffer) }, 'Offer created successfully', 201);
   } catch (err) {
-    console.error('Error creating offer:', err);
-    return res.status(500).json({ message: 'Error creating offer' });
+    return sendErrorResponse(res, 500, 'Error creating offer', err);
   }
 };
 
 exports.getOffers = async (req, res) => {
   try {
-    const { page = 1, limit = 12, category, sortBy = 'latest', store_id, status = 'active' } = req.query;
-    const offset = (page - 1) * limit;
+    const { 
+      page = 1, 
+      limit = 12, 
+      category, 
+      sortBy = 'latest', 
+      store_id, 
+      status = 'active',
+      search 
+    } = req.query;
+    
+    const offset = (parseInt(page) - 1) * parseInt(limit);
 
     // Build order clause
     let orderClause = [['createdAt', 'DESC']];
@@ -147,6 +168,12 @@ exports.getOffers = async (req, res) => {
     if (category) {
       serviceWhere.category = category;
     }
+    if (search) {
+      serviceWhere[sequelize.Op.or] = [
+        { name: { [sequelize.Op.like]: `%${search}%` } },
+        { description: { [sequelize.Op.like]: `%${search}%` } }
+      ];
+    }
 
     const { count, rows: offers } = await Offer.findAndCountAll({
       where: whereClause,
@@ -154,13 +181,13 @@ exports.getOffers = async (req, res) => {
         {
           model: Service,
           as: 'service',
-          where: serviceWhere,
+          where: Object.keys(serviceWhere).length > 0 ? serviceWhere : undefined,
+          required: true, // Inner join to ensure service exists
           attributes: ['id', 'name', 'image_url', 'price', 'duration', 'category', 'type', 'description', 'store_id'],
           include: [
             {
               model: Store,
               as: 'store',
-              // Removed 'google_logo' from attributes
               attributes: ['id', 'name', 'logo_url', 'location'],
             }
           ]
@@ -169,25 +196,26 @@ exports.getOffers = async (req, res) => {
       order: orderClause,
       limit: parseInt(limit),
       offset: parseInt(offset),
+      distinct: true, // Important for accurate count with includes
     });
 
     const formattedOffers = offers.map(formatOffer);
     const totalPages = Math.ceil(count / limit);
+    const currentPageNum = parseInt(page);
 
-    return res.status(200).json({
+    return sendSuccessResponse(res, {
       offers: formattedOffers,
       pagination: {
-        currentPage: parseInt(page),
+        currentPage: currentPageNum,
         totalPages,
         totalItems: count,
         itemsPerPage: parseInt(limit),
-        hasNextPage: page < totalPages,
-        hasPrevPage: page > 1
+        hasNextPage: currentPageNum < totalPages,
+        hasPrevPage: currentPageNum > 1
       }
     });
   } catch (err) {
-    console.error('Error fetching offers:', err);
-    return res.status(500).json({ message: 'Error fetching offers' });
+    return sendErrorResponse(res, 500, 'Error fetching offers', err);
   }
 };
 
@@ -196,25 +224,28 @@ exports.getRandomOffers = async (req, res) => {
     const { limit = 12 } = req.query;
 
     const offers = await Offer.findAll({
-      where: { status: 'active' },
-      order: sequelize.fn('RAND'),
+      where: { 
+        status: 'active',
+        expiration_date: {
+          [sequelize.Op.gt]: new Date() // Only non-expired offers
+        }
+      },
+      order: sequelize.fn('RAND'), // Use RANDOM() for PostgreSQL
       limit: parseInt(limit),
       include: getOfferIncludes(),
     });
 
     if (!offers || offers.length === 0) {
-      return res.status(200).json({ 
+      return sendSuccessResponse(res, { 
         offers: [],
-        message: 'No offers available' 
-      });
+      }, 'No offers available');
     }
 
     const formattedOffers = offers.map(formatOffer);
 
-    res.status(200).json({ offers: formattedOffers });
+    return sendSuccessResponse(res, { offers: formattedOffers });
   } catch (error) {
-    console.error('Error fetching random offers:', error);
-    res.status(500).json({ message: 'Error fetching random offers' });
+    return sendErrorResponse(res, 500, 'Error fetching random offers', error);
   }
 };
 
@@ -222,7 +253,7 @@ exports.getOffersByStore = async (req, res) => {
   try {
     const { storeId } = req.params;
     const { page = 1, limit = 12, status = 'active' } = req.query;
-    const offset = (page - 1) * limit;
+    const offset = (parseInt(page) - 1) * parseInt(limit);
 
     // Validate store exists
     const store = await Store.findByPk(storeId, {
@@ -230,7 +261,7 @@ exports.getOffersByStore = async (req, res) => {
     });
     
     if (!store) {
-      return res.status(404).json({ message: 'Store not found' });
+      return sendErrorResponse(res, 404, 'Store not found');
     }
 
     // Build where clause
@@ -246,12 +277,12 @@ exports.getOffersByStore = async (req, res) => {
           model: Service,
           as: 'service',
           where: { store_id: storeId },
+          required: true,
           attributes: ['id', 'name', 'image_url', 'price', 'duration', 'category', 'type', 'description', 'store_id'],
           include: [
             {
               model: Store,
               as: 'store',
-              // Removed 'google_logo' from attributes
               attributes: ['id', 'name', 'logo_url', 'location'],
             }
           ]
@@ -260,12 +291,14 @@ exports.getOffersByStore = async (req, res) => {
       order: [['createdAt', 'DESC']],
       limit: parseInt(limit),
       offset: parseInt(offset),
+      distinct: true,
     });
 
     const formattedOffers = offers.map(formatOffer);
     const totalPages = Math.ceil(count / limit);
+    const currentPageNum = parseInt(page);
 
-    return res.status(200).json({
+    return sendSuccessResponse(res, {
       offers: formattedOffers,
       store: {
         id: store.id,
@@ -274,17 +307,16 @@ exports.getOffersByStore = async (req, res) => {
         location: store.location,
       },
       pagination: {
-        currentPage: parseInt(page),
+        currentPage: currentPageNum,
         totalPages,
         totalItems: count,
         itemsPerPage: parseInt(limit),
-        hasNextPage: page < totalPages,
-        hasPrevPage: page > 1
+        hasNextPage: currentPageNum < totalPages,
+        hasPrevPage: currentPageNum > 1
       }
     });
   } catch (err) {
-    console.error('Error fetching offers by store:', err);
-    return res.status(500).json({ message: 'Error fetching offers by store' });
+    return sendErrorResponse(res, 500, 'Error fetching offers by store', err);
   }
 };
 
@@ -292,20 +324,27 @@ exports.getOfferById = async (req, res) => {
   try {
     const { id } = req.params;
 
+    if (!id || isNaN(id)) {
+      return sendErrorResponse(res, 400, 'Valid offer ID is required');
+    }
+
     const offer = await Offer.findByPk(id, {
       include: getOfferIncludes(),
     });
 
     if (!offer) {
-      return res.status(404).json({ message: 'Offer not found' });
+      return sendErrorResponse(res, 404, 'Offer not found');
     }
 
-    return res.status(200).json({ 
-      offer: formatOffer(offer)
+    // Check if offer is expired
+    const isExpired = new Date(offer.expiration_date) < new Date();
+    
+    return sendSuccessResponse(res, { 
+      offer: formatOffer(offer),
+      isExpired
     });
   } catch (err) {
-    console.error('Error fetching offer:', err);
-    return res.status(500).json({ message: 'Error fetching offer' });
+    return sendErrorResponse(res, 500, 'Error fetching offer', err);
   }
 };
 
@@ -314,31 +353,31 @@ exports.updateOffer = async (req, res) => {
     const { id } = req.params;
     const { discount, expiration_date, service_id, description, status, title, featured } = req.body;
 
+    if (!id || isNaN(id)) {
+      return sendErrorResponse(res, 400, 'Valid offer ID is required');
+    }
+
     const offer = await Offer.findByPk(id);
     if (!offer) {
-      return res.status(404).json({ message: 'Offer not found' });
+      return sendErrorResponse(res, 404, 'Offer not found');
     }
 
     // Validation
     if (discount && (discount < 1 || discount > 100)) {
-      return res.status(400).json({ 
-        message: 'Discount must be between 1 and 100' 
-      });
+      return sendErrorResponse(res, 400, 'Discount must be between 1 and 100');
     }
 
     if (service_id) {
       const service = await Service.findByPk(service_id);
       if (!service) {
-        return res.status(404).json({ message: 'Service not found' });
+        return sendErrorResponse(res, 404, 'Service not found');
       }
     }
 
     if (expiration_date) {
       const expirationDate = new Date(expiration_date);
       if (expirationDate <= new Date()) {
-        return res.status(400).json({ 
-          message: 'Expiration date must be in the future' 
-        });
+        return sendErrorResponse(res, 400, 'Expiration date must be in the future');
       }
     }
 
@@ -362,13 +401,11 @@ exports.updateOffer = async (req, res) => {
       include: getOfferIncludes()
     });
 
-    return res.status(200).json({
-      message: 'Offer updated successfully',
+    return sendSuccessResponse(res, {
       offer: formatOffer(offerWithIncludes)
-    });
+    }, 'Offer updated successfully');
   } catch (err) {
-    console.error('Error updating offer:', err);
-    return res.status(500).json({ message: 'Error updating offer' });
+    return sendErrorResponse(res, 500, 'Error updating offer', err);
   }
 };
 
@@ -376,62 +413,85 @@ exports.deleteOffer = async (req, res) => {
   try {
     const { id } = req.params;
     
+    if (!id || isNaN(id)) {
+      return sendErrorResponse(res, 400, 'Valid offer ID is required');
+    }
+
     const offer = await Offer.findByPk(id);
     if (!offer) {
-      return res.status(404).json({ message: 'Offer not found' });
+      return sendErrorResponse(res, 404, 'Offer not found');
     }
 
     await offer.destroy();
-    return res.status(200).json({ 
-      message: 'Offer deleted successfully',
-      id: parseInt(id)
-    });
+    return sendSuccessResponse(res, { id: parseInt(id) }, 'Offer deleted successfully');
   } catch (err) {
-    console.error('Error deleting offer:', err);
-    return res.status(500).json({ message: 'Error deleting offer' });
+    return sendErrorResponse(res, 500, 'Error deleting offer', err);
   }
 };
 
 // Categories endpoint with counts
-exports.getCategories = async (req, res) => {
+exports.getCategoriesAlternative = async (req, res) => {
   try {
     const categories = await Service.findAll({
       attributes: [
         'category',
-        [sequelize.fn('COUNT', sequelize.col('offers.id')), 'count']
+        [sequelize.fn('COUNT', sequelize.fn('DISTINCT', sequelize.col('offers.id'))), 'count']
       ],
       include: [
         {
           model: Offer,
           as: 'offers',
           attributes: [],
-          where: { status: 'active' },
+          where: { 
+            status: 'active',
+            expiration_date: {
+              [sequelize.Op.gt]: new Date()
+            }
+          },
           required: true
         }
       ],
-      group: ['category'],
-      order: [[sequelize.fn('COUNT', sequelize.col('offers.id')), 'DESC']]
+      group: [sequelize.col('Service.category')],
+      having: sequelize.where(
+        sequelize.fn('COUNT', sequelize.fn('DISTINCT', sequelize.col('offers.id'))), 
+        '>', 
+        0
+      ),
+      order: [[sequelize.fn('COUNT', sequelize.fn('DISTINCT', sequelize.col('offers.id'))), 'DESC']],
+      raw: true
     });
 
     const formattedCategories = categories.map(cat => ({
       name: cat.category,
-      count: parseInt(cat.dataValues.count)
+      count: parseInt(cat.count)
     }));
 
-    return res.status(200).json({ categories: formattedCategories });
+    return res.status(200).json({
+      success: true,
+      message: 'Categories fetched successfully',
+      categories: formattedCategories
+    });
   } catch (err) {
     console.error('Error fetching categories:', err);
-    return res.status(500).json({ message: 'Error fetching categories' });
+    return res.status(500).json({
+      success: false,
+      message: 'Error fetching categories',
+      categories: []
+    });
   }
 };
-
 // Top deals endpoint
 exports.getTopDeals = async (req, res) => {
   try {
     const { limit = 3 } = req.query;
 
     const topDeals = await Offer.findAll({
-      where: { status: 'active' },
+      where: { 
+        status: 'active',
+        expiration_date: {
+          [sequelize.Op.gt]: new Date()
+        }
+      },
       order: [['discount', 'DESC']],
       limit: parseInt(limit),
       include: getOfferIncludes(),
@@ -439,12 +499,9 @@ exports.getTopDeals = async (req, res) => {
 
     const formattedDeals = topDeals.map(formatOffer);
 
-    return res.status(200).json({ 
-      topDeals: formattedDeals 
-    });
+    return sendSuccessResponse(res, { topDeals: formattedDeals });
   } catch (err) {
-    console.error('Error fetching top deals:', err);
-    return res.status(500).json({ message: 'Error fetching top deals' });
+    return sendErrorResponse(res, 500, 'Error fetching top deals', err);
   }
 };
 
@@ -456,7 +513,10 @@ exports.getFeaturedOffers = async (req, res) => {
     const featuredOffers = await Offer.findAll({
       where: { 
         featured: true,
-        status: 'active'
+        status: 'active',
+        expiration_date: {
+          [sequelize.Op.gt]: new Date()
+        }
       },
       order: [['createdAt', 'DESC']],
       limit: parseInt(limit),
@@ -465,12 +525,9 @@ exports.getFeaturedOffers = async (req, res) => {
 
     const formattedOffers = featuredOffers.map(formatOffer);
 
-    return res.status(200).json({ 
-      offers: formattedOffers 
-    });
+    return sendSuccessResponse(res, { offers: formattedOffers });
   } catch (err) {
-    console.error('Error fetching featured offers:', err);
-    return res.status(500).json({ message: 'Error fetching featured offers' });
+    return sendErrorResponse(res, 500, 'Error fetching featured offers', err);
   }
 };
 
@@ -478,6 +535,8 @@ exports.getFeaturedOffers = async (req, res) => {
 exports.getOffersStats = async (req, res) => {
   try {
     const { storeId } = req.params;
+
+    const whereClause = storeId ? { '$service.store_id$': storeId } : {};
 
     const stats = await Offer.findAll({
       attributes: [
@@ -488,10 +547,11 @@ exports.getOffersStats = async (req, res) => {
         {
           model: Service,
           as: 'service',
-          where: storeId ? { store_id: storeId } : {},
-          attributes: []
+          attributes: [],
+          ...(storeId && { where: { store_id: storeId } })
         }
       ],
+      where: whereClause,
       group: ['status']
     });
 
@@ -500,18 +560,25 @@ exports.getOffersStats = async (req, res) => {
       return acc;
     }, {});
 
+    // Add default values for missing statuses
+    const allStatuses = ['active', 'inactive', 'paused', 'expired'];
+    allStatuses.forEach(status => {
+      if (!formattedStats[status]) {
+        formattedStats[status] = 0;
+      }
+    });
+
     // Calculate totals
     const total = Object.values(formattedStats).reduce((sum, count) => sum + count, 0);
     
-    return res.status(200).json({
+    return sendSuccessResponse(res, {
       stats: {
         ...formattedStats,
         total
       }
     });
   } catch (err) {
-    console.error('Error fetching offer stats:', err);
-    return res.status(500).json({ message: 'Error fetching offer statistics' });
+    return sendErrorResponse(res, 500, 'Error fetching offer statistics', err);
   }
 };
 
@@ -521,11 +588,11 @@ exports.bulkUpdateOffers = async (req, res) => {
     const { offerIds, status } = req.body;
 
     if (!offerIds || !Array.isArray(offerIds) || offerIds.length === 0) {
-      return res.status(400).json({ message: 'Offer IDs array is required' });
+      return sendErrorResponse(res, 400, 'Offer IDs array is required');
     }
 
     if (!['active', 'inactive', 'paused'].includes(status)) {
-      return res.status(400).json({ message: 'Invalid status' });
+      return sendErrorResponse(res, 400, 'Invalid status');
     }
 
     const [affectedRows] = await Offer.update(
@@ -537,12 +604,10 @@ exports.bulkUpdateOffers = async (req, res) => {
       }
     );
 
-    return res.status(200).json({
-      message: `${affectedRows} offers updated successfully`,
+    return sendSuccessResponse(res, {
       affectedRows
-    });
+    }, `${affectedRows} offers updated successfully`);
   } catch (err) {
-    console.error('Error bulk updating offers:', err);
-    return res.status(500).json({ message: 'Error updating offers' });
+    return sendErrorResponse(res, 500, 'Error updating offers', err);
   }
 };

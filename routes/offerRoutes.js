@@ -6,7 +6,7 @@ const offerController = require('../controllers/offerController');
 // GET routes (public)
 router.get('/', offerController.getOffers);
 router.get('/random', offerController.getRandomOffers);
-router.get('/categories', offerController.getCategories);
+// router.get('/categories', offerController.getCategories);
 router.get('/top-deals', offerController.getTopDeals);
 router.get('/featured', offerController.getFeaturedOffers);
 router.get('/store/:storeId', offerController.getOffersByStore);
