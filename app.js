@@ -45,7 +45,7 @@ const corsOptions = {
   origin: function (origin, callback) {
     // Allow requests with no origin (like mobile apps or curl requests)
     if (!origin) return callback(null, true);
-    
+
     const allowedOrigins = process.env.CORS_ORIGINS?.split(',') || [
       'http://localhost:3000',
       'http://localhost:5173',
@@ -54,7 +54,7 @@ const corsOptions = {
       'https://merchants.discoun3ree.com',
       'https://admin.discoun3ree.com'
     ];
-    
+
     if (allowedOrigins.indexOf(origin) !== -1) {
       callback(null, true);
     } else {
@@ -65,8 +65,8 @@ const corsOptions = {
   credentials: true, // Allow cookies to be sent
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: [
-    'Content-Type', 
-    'Authorization', 
+    'Content-Type',
+    'Authorization',
     'X-Requested-With',
     'Accept',
     'Origin',
@@ -93,7 +93,7 @@ app.options('*', cors(corsOptions));
 app.use((req, res, next) => {
   // Get the origin from the request
   const origin = req.headers.origin;
-  
+
   // Check if origin is allowed
   const allowedOrigins = process.env.CORS_ORIGINS?.split(',') || [
     'http://localhost:3000',
@@ -103,17 +103,17 @@ app.use((req, res, next) => {
     'https://merchants.discoun3ree.com',
     'https://admin.discoun3ree.com'
   ];
-  
+
   if (allowedOrigins.includes(origin)) {
     res.header('Access-Control-Allow-Origin', origin);
   }
-  
+
   res.header('Access-Control-Allow-Credentials', 'true');
   res.header('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,PATCH,OPTIONS');
-  res.header('Access-Control-Allow-Headers', 
+  res.header('Access-Control-Allow-Headers',
     'Origin, X-Requested-With, Content-Type, Accept, Authorization, Cache-Control, Pragma, credentials, api-key, x-api-key, X-API-Key'
   );
-  
+
   // Handle preflight requests
   if (req.method === 'OPTIONS') {
     res.status(200).json({
@@ -216,17 +216,37 @@ if (fs.existsSync(swaggerFile)) {
   );
 }
 
+// Add this function before your database sync
+// async function dropProblematicTables() {
+//   try {
+//     console.log('🗑️ Dropping existing tables to fix foreign key issues...');
+
+//     await sequelize.query('SET FOREIGN_KEY_CHECKS = 0;');
+//     await sequelize.query('DROP TABLE IF EXISTS bookings;');
+//     await sequelize.query('DROP TABLE IF EXISTS payments;');
+//     await sequelize.query('SET FOREIGN_KEY_CHECKS = 1;');
+
+//     console.log('✅ Tables dropped successfully');
+//   } catch (error) {
+//     console.log('⚠️ Could not drop tables:', error.message);
+//   }
+// }
+
+
 // Database Sync - Clean production-ready version
 async function initializeDatabase() {
   try {
     const isDevelopment = process.env.NODE_ENV === 'development' || !process.env.NODE_ENV;
-    
+
     if (isDevelopment) {
       console.log('🔄 Development mode: Syncing database...');
       // Use alter in development to handle schema changes
+      // Add this line before sync
+      // await dropProblematicTables();
+
       await sequelize.sync({ alter: true });
       console.log('✅ Database synced successfully!');
-      
+
       // Add test data in development
       await seedTestData();
     } else {
@@ -235,7 +255,7 @@ async function initializeDatabase() {
       await sequelize.sync();
       console.log('✅ Database synced successfully!');
     }
-    
+
   } catch (err) {
     console.error('❌ Error syncing database:', err);
     process.exit(1);
@@ -246,14 +266,14 @@ async function initializeDatabase() {
 async function seedTestData() {
   try {
     const { User } = sequelize.models;
-    
+
     // Check if users already exist
     const userCount = await User.count();
     if (userCount > 0) {
       console.log('📊 Test data already exists, skipping seed...');
       return;
     }
-    
+
     // Create test users
     const testUsers = [
       {
@@ -281,13 +301,13 @@ async function seedTestData() {
         userType: 'admin'
       }
     ];
-    
+
     for (const userData of testUsers) {
       await User.create(userData);
     }
-    
+
     console.log('🌱 Test data seeded successfully!');
-    
+
   } catch (error) {
     console.error('❌ Error seeding test data:', error);
   }
@@ -296,7 +316,7 @@ async function seedTestData() {
 // Error handling middleware
 app.use((err, req, res, next) => {
   console.error('Unhandled error:', err);
-  
+
   // CORS error handling
   if (err.message === 'Not allowed by CORS') {
     return res.status(403).json({
@@ -304,11 +324,11 @@ app.use((err, req, res, next) => {
       errors: {}
     });
   }
-  
+
   // Default error response
   res.status(err.status || 500).json({
-    message: process.env.NODE_ENV === 'development' 
-      ? err.message 
+    message: process.env.NODE_ENV === 'development'
+      ? err.message
       : 'Internal server error',
     errors: {},
     ...(process.env.NODE_ENV === 'development' && { stack: err.stack })
@@ -329,7 +349,7 @@ initializeDatabase();
 // Temporary debug routes for testing
 if (process.env.NODE_ENV === 'development') {
   const jwt = require('jsonwebtoken');
-  
+
   app.get('/api/v1/users/test', (req, res) => {
     res.json({ message: 'User routes are working via app.js!', timestamp: new Date().toISOString() });
   });
@@ -337,14 +357,14 @@ if (process.env.NODE_ENV === 'development') {
   app.post('/api/v1/users/verify-otp', (req, res) => {
     console.log('OTP verification request:', req.body);
     const { phone, otp } = req.body;
-    
+
     if (['123456', '111111', '000000', '999999'].includes(otp)) {
       return res.status(200).json({
         message: 'Phone number verified successfully',
         success: true
       });
     }
-    
+
     return res.status(400).json({
       message: 'Invalid OTP',
       errors: { otp: 'Use 123456, 111111, 000000, or 999999 for testing' }
@@ -364,25 +384,25 @@ if (process.env.NODE_ENV === 'development') {
   app.post('/api/v1/users/login', (req, res) => {
     console.log('Login attempt:', req.body);
     const { email, password } = req.body;
-    
+
     if (!email || !password) {
       return res.status(400).json({
         message: 'Email and password required',
         errors: {}
       });
     }
-    
+
     // Simple test login - accept any email/password for now
     const token = jwt.sign(
-      { 
-        userId: 1, 
+      {
+        userId: 1,
         email: email,
         type: 'user' // Important: specify the type
       },
       process.env.JWT_SECRET || 'your-secret-key',
       { expiresIn: '30d' }
     );
-    
+
     return res.status(200).json({
       message: 'Login successful',
       user: {
@@ -403,17 +423,17 @@ if (process.env.NODE_ENV === 'development') {
   app.post('/api/v1/users/register', (req, res) => {
     console.log('Registration attempt:', req.body);
     const { firstName, lastName, email, phoneNumber, password } = req.body;
-    
+
     const token = jwt.sign(
-      { 
-        userId: 2, 
+      {
+        userId: 2,
         email: email,
         type: 'user'
       },
       process.env.JWT_SECRET || 'your-secret-key',
       { expiresIn: '30d' }
     );
-    
+
     return res.status(201).json({
       message: 'Registration successful',
       user: {
@@ -494,21 +514,21 @@ server.listen(PORT, () => {
 // Graceful shutdown
 const gracefulShutdown = async (signal) => {
   console.log(`\n🛑 Received ${signal}. Shutting down gracefully...`);
-  
+
   server.close(async () => {
     console.log('📡 HTTP server closed');
-    
+
     try {
       await sequelize.close();
       console.log('🗄️  Database connection closed');
     } catch (error) {
       console.error('❌ Error closing database connection:', error);
     }
-    
+
     console.log('✅ Process terminated');
     process.exit(0);
   });
-  
+
   // Force close after 10 seconds
   setTimeout(() => {
     console.error('⚠️  Forced shutdown after 10 seconds');
@@ -534,7 +554,7 @@ process.on('unhandledRejection', (reason, promise) => {
 // Route debugging middleware - add this AFTER your routes are defined
 if (process.env.NODE_ENV === 'development') {
   console.log('\n🔍 DEBUGGING ROUTES:');
-  
+
   // Function to extract routes from the app
   const printRoutes = (app) => {
     app._router.stack.forEach((middleware) => {
@@ -548,9 +568,9 @@ if (process.env.NODE_ENV === 'development') {
           .replace('(?:', '')
           .replace('\\', '')
           .replace('$', '');
-        
+
         console.log(`📁 Router found: ${routerPath}`);
-        
+
         if (middleware.handle && middleware.handle.stack) {
           middleware.handle.stack.forEach((handler) => {
             if (handler.route) {
@@ -562,7 +582,7 @@ if (process.env.NODE_ENV === 'development') {
       }
     });
   };
-  
+
   // Print routes after a short delay to ensure they're all loaded
   setTimeout(() => {
     console.log('\n📋 REGISTERED ROUTES:');
@@ -574,7 +594,7 @@ if (process.env.NODE_ENV === 'development') {
 // Simple route test endpoints for verification
 app.get('/debug/routes', (req, res) => {
   const routes = [];
-  
+
   app._router.stack.forEach((middleware) => {
     if (middleware.route) {
       routes.push({
@@ -586,7 +606,7 @@ app.get('/debug/routes', (req, res) => {
         .replace(/\\/g, '')
         .replace('(?:', '')
         .replace('$', '');
-      
+
       if (middleware.handle && middleware.handle.stack) {
         middleware.handle.stack.forEach((handler) => {
           if (handler.route) {
@@ -599,7 +619,7 @@ app.get('/debug/routes', (req, res) => {
       }
     }
   });
-  
+
   res.json({
     message: 'Registered routes',
     routes: routes,
@@ -610,7 +630,7 @@ app.get('/debug/routes', (req, res) => {
 // Test specific merchant endpoints
 app.get('/debug/test-merchant', async (req, res) => {
   const tests = {};
-  
+
   try {
     // Test 1: Basic merchant test endpoint
     try {
@@ -622,7 +642,7 @@ app.get('/debug/test-merchant', async (req, res) => {
     } catch (error) {
       tests.merchantTest = { error: error.message };
     }
-    
+
     res.json({
       message: 'Merchant endpoint tests',
       tests,

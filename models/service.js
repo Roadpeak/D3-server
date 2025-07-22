@@ -1,4 +1,4 @@
-// models/Service.js - Fixed version with correct association placement
+// models/Service.js - Updated with concurrent bookings capacity
 
 'use strict';
 
@@ -20,6 +20,7 @@ module.exports = (sequelize, DataTypes) => {
     duration: {
       type: DataTypes.INTEGER,
       allowNull: true,
+      comment: 'Duration in minutes'
     },
     image_url: {
       type: DataTypes.STRING,
@@ -46,6 +47,57 @@ module.exports = (sequelize, DataTypes) => {
       allowNull: false,
       defaultValue: 'fixed',
     },
+    // NEW FIELD: Maximum concurrent bookings per slot
+    max_concurrent_bookings: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      defaultValue: 1,
+      validate: {
+        min: 1,
+        max: 50 // Reasonable upper limit
+      },
+      comment: 'Maximum number of bookings that can be scheduled at the same time slot'
+    },
+    // NEW FIELD: Whether to allow overbooking
+    allow_overbooking: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: false,
+      comment: 'Whether to allow bookings beyond max_concurrent_bookings'
+    },
+    // NEW FIELD: Slot interval (optional - defaults to duration)
+    slot_interval: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      comment: 'Time between slots in minutes (defaults to duration if null)'
+    },
+    // NEW FIELD: Buffer time between bookings
+    buffer_time: {
+      type: DataTypes.INTEGER,
+      defaultValue: 0,
+      comment: 'Buffer time in minutes between consecutive bookings'
+    },
+    // NEW FIELD: Advance booking settings
+    min_advance_booking: {
+      type: DataTypes.INTEGER,
+      defaultValue: 30,
+      comment: 'Minimum minutes in advance that booking can be made'
+    },
+    max_advance_booking: {
+      type: DataTypes.INTEGER,
+      defaultValue: 10080, // 7 days in minutes
+      comment: 'Maximum minutes in advance that booking can be made'
+    },
+    // Service status
+    status: {
+      type: DataTypes.ENUM('active', 'inactive', 'suspended'),
+      defaultValue: 'active',
+    },
+    // Booking settings
+    booking_enabled: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: true,
+      comment: 'Whether booking is enabled for this service'
+    },
   }, {
     tableName: 'services',
     timestamps: true,
@@ -62,8 +114,24 @@ module.exports = (sequelize, DataTypes) => {
       {
         fields: ['type'],
         name: 'services_type_index'
+      },
+      {
+        fields: ['status'],
+        name: 'services_status_index'
+      },
+      {
+        fields: ['booking_enabled'],
+        name: 'services_booking_enabled_index'
       }
     ],
+    hooks: {
+      beforeValidate: (service) => {
+        // Set slot_interval to duration if not specified
+        if (!service.slot_interval && service.duration) {
+          service.slot_interval = service.duration;
+        }
+      }
+    }
   });
 
   // IMPORTANT: All associations must be inside this function
@@ -83,7 +151,6 @@ module.exports = (sequelize, DataTypes) => {
       onDelete: 'CASCADE',
     });
 
-    // ADD THIS INSIDE THE ASSOCIATE FUNCTION:
     // Service has many Offers (one-to-many)
     Service.hasMany(models.Offer, {
       foreignKey: 'service_id',
@@ -91,12 +158,28 @@ module.exports = (sequelize, DataTypes) => {
       onDelete: 'CASCADE',
     });
 
-    // If you have other associations, add them here too
-    // Service.hasMany(models.Booking, {
-    //   foreignKey: 'service_id',
-    //   as: 'bookings',
-    //   onDelete: 'CASCADE',
-    // });
+    // Service has many Bookings (one-to-many)
+    Service.hasMany(models.Booking, {
+      foreignKey: 'serviceId', // Note: using serviceId to match booking model
+      as: 'bookings',
+      onDelete: 'CASCADE',
+    });
+  };
+
+  // Instance methods
+  Service.prototype.getSlotInterval = function() {
+    return this.slot_interval || this.duration || 60; // Default to 60 minutes
+  };
+
+  Service.prototype.getMaxConcurrentBookings = function() {
+    return this.max_concurrent_bookings || 1;
+  };
+
+  Service.prototype.canAcceptBooking = function(advanceMinutes) {
+    if (!this.booking_enabled) return false;
+    if (advanceMinutes < this.min_advance_booking) return false;
+    if (advanceMinutes > this.max_advance_booking) return false;
+    return true;
   };
 
   return Service;

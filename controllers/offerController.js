@@ -222,18 +222,28 @@ exports.getOffers = async (req, res) => {
 exports.getRandomOffers = async (req, res) => {
   try {
     const { limit = 12 } = req.query;
+    
+    console.log('🎲 getRandomOffers called with limit:', limit);
+
+    // Validate limit
+    const parsedLimit = parseInt(limit);
+    if (isNaN(parsedLimit) || parsedLimit <= 0 || parsedLimit > 100) {
+      return sendErrorResponse(res, 400, 'Invalid limit parameter. Must be between 1 and 100');
+    }
 
     const offers = await Offer.findAll({
       where: { 
         status: 'active',
         expiration_date: {
-          [sequelize.Op.gt]: new Date() // Only non-expired offers
+          [sequelize.Op.gt]: new Date()
         }
       },
-      order: sequelize.fn('RAND'), // Use RANDOM() for PostgreSQL
-      limit: parseInt(limit),
+      order: sequelize.fn('RAND'), // Use RANDOM() for PostgreSQL, RAND() for MySQL
+      limit: parsedLimit,
       include: getOfferIncludes(),
     });
+
+    console.log(`✅ Found ${offers.length} random offers`);
 
     if (!offers || offers.length === 0) {
       return sendSuccessResponse(res, { 
@@ -245,10 +255,44 @@ exports.getRandomOffers = async (req, res) => {
 
     return sendSuccessResponse(res, { offers: formattedOffers });
   } catch (error) {
+    console.error('💥 Error in getRandomOffers:', error);
     return sendErrorResponse(res, 500, 'Error fetching random offers', error);
   }
 };
 
+// Add a health check endpoint
+exports.healthCheck = async (req, res) => {
+  try {
+    console.log('🏥 Health check called');
+    
+    // Test database connection
+    await sequelize.authenticate();
+    
+    // Get basic stats
+    const totalOffers = await Offer.count();
+    const activeOffers = await Offer.count({
+      where: { status: 'active' }
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: 'API is healthy',
+      timestamp: new Date().toISOString(),
+      database: 'connected',
+      stats: {
+        totalOffers,
+        activeOffers
+      }
+    });
+  } catch (error) {
+    console.error('💥 Health check failed:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'API health check failed',
+      error: error.message
+    });
+  }
+};
 exports.getOffersByStore = async (req, res) => {
   try {
     const { storeId } = req.params;
@@ -323,27 +367,66 @@ exports.getOffersByStore = async (req, res) => {
 exports.getOfferById = async (req, res) => {
   try {
     const { id } = req.params;
+    
+    // Enhanced logging
+    console.log('🔍 getOfferById called with:', {
+      rawId: id,
+      idType: typeof id,
+      parsedId: parseInt(id),
+      isNaN: isNaN(id),
+      url: req.originalUrl,
+      method: req.method
+    });
 
-    if (!id || isNaN(id)) {
-      return sendErrorResponse(res, 400, 'Valid offer ID is required');
+    // More flexible ID validation
+    if (!id) {
+      console.error('❌ No ID provided');
+      return sendErrorResponse(res, 400, 'Offer ID is required');
     }
 
-    const offer = await Offer.findByPk(id, {
+    // Check if ID can be parsed as integer
+    const parsedId = parseInt(id);
+    if (isNaN(parsedId) || parsedId <= 0) {
+      console.error('❌ Invalid ID format:', { id, parsedId });
+      return sendErrorResponse(res, 400, 'Valid numeric offer ID is required');
+    }
+
+    console.log('✅ ID validation passed, fetching offer with ID:', parsedId);
+
+    const offer = await Offer.findByPk(parsedId, {
       include: getOfferIncludes(),
     });
 
     if (!offer) {
+      console.log('❌ Offer not found for ID:', parsedId);
       return sendErrorResponse(res, 404, 'Offer not found');
     }
+
+    console.log('✅ Offer found:', {
+      id: offer.id,
+      title: offer.title,
+      status: offer.status,
+      hasService: !!offer.service,
+      hasStore: !!offer.service?.store
+    });
 
     // Check if offer is expired
     const isExpired = new Date(offer.expiration_date) < new Date();
     
+    const formattedOffer = formatOffer(offer);
+    
+    console.log('✅ Returning formatted offer');
+    
     return sendSuccessResponse(res, { 
-      offer: formatOffer(offer),
+      offer: formattedOffer,
       isExpired
     });
   } catch (err) {
+    console.error('💥 Error in getOfferById:', {
+      error: err.message,
+      stack: err.stack,
+      id: req.params.id
+    });
     return sendErrorResponse(res, 500, 'Error fetching offer', err);
   }
 };

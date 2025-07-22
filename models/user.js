@@ -27,7 +27,7 @@ module.exports = (sequelize, DataTypes) => {
     email: {
       type: DataTypes.STRING,
       allowNull: false,
-      unique: true,
+      unique: true, // This already creates a unique index - no need to duplicate in indexes array
       validate: {
         isEmail: true,
         len: [5, 100]
@@ -80,10 +80,7 @@ module.exports = (sequelize, DataTypes) => {
     tableName: 'users',
     timestamps: true,
     indexes: [
-      {
-        unique: true,
-        fields: ['email']
-      },
+      // Removed duplicate email index - it's already created by unique: true above
       {
         fields: ['phoneNumber']
       },
@@ -92,6 +89,15 @@ module.exports = (sequelize, DataTypes) => {
       },
       {
         fields: ['isActive']
+      },
+      // Add composite indexes if you frequently query these combinations
+      {
+        fields: ['userType', 'isActive'],
+        name: 'idx_user_type_active'
+      },
+      {
+        fields: ['createdAt'],
+        name: 'idx_created_at'
       }
     ],
     defaultScope: {
