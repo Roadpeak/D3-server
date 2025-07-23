@@ -4,11 +4,11 @@ const { socketManager } = require('../socket/websocket');
 const { Op } = require('sequelize');
 
 class ChatController {
-  // Get conversations for a user (customer view)
-  async getUserConversations(req, res) {
+  // Get chats for a user (customer view)
+  async getUserChats(req, res) {
     try {
       const userId = req.user.id;
-      const { Conversation, Store, Message, User } = sequelize.models;
+      const { Chat, Store, Message, User } = sequelize.models;
 
       if (!userId) {
         return res.status(400).json({
@@ -17,58 +17,67 @@ class ChatController {
         });
       }
 
-      const conversations = await Conversation.findAll({
-        where: { customerId: userId },
+      const chats = await Chat.findAll({
+        where: { userId },
         include: [
           {
             model: Store,
             as: 'store',
-            attributes: ['id', 'name', 'avatar', 'category', 'isOnline'],
+            attributes: ['id', 'name', 'logo_url', 'category', 'isOnline'],
             required: true
           },
           {
             model: Message,
-            as: 'lastMessage',
-            attributes: ['content', 'createdAt', 'senderType', 'status'],
+            as: 'messages',
+            limit: 1,
+            order: [['createdAt', 'DESC']],
+            attributes: ['content', 'createdAt', 'sender_type', 'status'],
             required: false
           }
         ],
-        order: [['updatedAt', 'DESC']]
+        order: [['lastMessageAt', 'DESC']]
       });
 
-      const formattedConversations = conversations.map(conv => ({
-        id: conv.id,
-        store: {
-          id: conv.store.id,
-          name: conv.store.name,
-          avatar: conv.store.avatar || null,
-          category: conv.store.category || 'General',
-          online: conv.store.isOnline || false
-        },
-        lastMessage: conv.lastMessage ? conv.lastMessage.content : '',
-        lastMessageTime: conv.lastMessage ? this.formatTime(conv.lastMessage.createdAt) : this.formatTime(conv.updatedAt),
-        unreadCount: conv.customerUnreadCount || 0
-      }));
+      const formattedChats = await Promise.all(
+        chats.map(async (chat) => {
+          const unreadCount = await Message.getUnreadCount(chat.id, userId);
+          const lastMessage = chat.messages && chat.messages.length > 0 ? chat.messages[0] : null;
+
+          return {
+            id: chat.id,
+            store: {
+              id: chat.store.id,
+              name: chat.store.name,
+              avatar: chat.store.logo_url || null,
+              category: chat.store.category || 'General',
+              online: chat.store.isOnline || false
+            },
+            lastMessage: lastMessage ? lastMessage.content : '',
+            lastMessageTime: lastMessage ? this.formatTime(lastMessage.createdAt) : this.formatTime(chat.updatedAt),
+            unreadCount: unreadCount || 0
+          };
+        })
+      );
 
       res.status(200).json({
         success: true,
-        data: formattedConversations
+        data: formattedChats
       });
     } catch (error) {
-      console.error('Error fetching user conversations:', error);
+      console.error('Error fetching user chats:', error);
       res.status(500).json({
         success: false,
-        message: 'Failed to fetch conversations',
+        message: 'Failed to fetch chats',
         error: process.env.NODE_ENV === 'development' ? error.message : undefined
       });
     }
   }
 
-  // Get conversations for a merchant (store view)
-  async getMerchantConversations(req, res) {
+  // Get chats for a merchant (store view)
+  async getMerchantChats(req, res) {
     try {
       const userId = req.user.id;
-      const { Conversation, User, Store, Message } = sequelize.models;
+      const { Chat, User, Store, Message } = sequelize.models;
 
       if (!userId) {
         return res.status(400).json({
@@ -77,29 +86,19 @@ class ChatController {
         });
       }
 
-      // Find the merchant's store - try different foreign key patterns
-      let store = null;
-      const storeSearchQueries = [
-        { ownerId: userId },
-        { owner_id: userId },
-        { merchantId: userId },
-        { merchant_id: userId },
-        { userId: userId },
-        { user_id: userId }
-      ];
-
-      for (const query of storeSearchQueries) {
-        try {
-          store = await Store.findOne({ where: query });
-          if (store) {
-            console.log(`Found store using query:`, query);
-            break;
-          }
-        } catch (err) {
-          // Continue to next query if this field doesn't exist
-          continue;
+      // Find the merchant's store
+      const store = await Store.findOne({ 
+        where: { 
+          [Op.or]: [
+            { ownerId: userId },
+            { owner_id: userId },
+            { merchantId: userId },
+            { merchant_id: userId },
+            { userId: userId },
+            { user_id: userId }
+          ]
         }
-      }
+      });
 
       if (!store) {
         return res.status(404).json({
@@ -108,33 +107,37 @@ class ChatController {
         });
       }
 
-      const conversations = await Conversation.findAll({
+      const chats = await Chat.findAll({
         where: { storeId: store.id },
         include: [
           {
             model: User,
-            as: 'customer',
+            as: 'user',
             attributes: ['id', 'firstName', 'lastName', 'avatar', 'email', 'createdAt', 'isOnline'],
             required: true
           },
           {
             model: Message,
-            as: 'lastMessage',
-            attributes: ['content', 'createdAt', 'senderType', 'status'],
+            as: 'messages',
+            limit: 1,
+            order: [['createdAt', 'DESC']],
+            attributes: ['content', 'createdAt', 'sender_type', 'status'],
             required: false
           }
         ],
-        order: [['updatedAt', 'DESC']]
+        order: [['lastMessageAt', 'DESC']]
       });
 
-      const formattedConversations = await Promise.all(
-        conversations.map(async (conv) => {
-          const customer = conv.customer;
+      const formattedChats = await Promise.all(
+        chats.map(async (chat) => {
+          const customer = chat.user;
           const orderCount = await this.getCustomerOrderCount(customer.id, store.id);
           const customerSince = new Date(customer.createdAt).getFullYear();
+          const unreadCount = await this.getUnreadCountForMerchant(chat.id, userId);
+          const lastMessage = chat.messages && chat.messages.length > 0 ? chat.messages[0] : null;
 
           return {
-            id: conv.id,
+            id: chat.id,
             customer: {
               id: customer.id,
               name: `${customer.firstName || ''} ${customer.lastName || ''}`.trim() || 'Unknown Customer',
@@ -143,9 +146,9 @@ class ChatController {
               orderCount,
               priority: orderCount > 20 ? 'vip' : 'regular'
             },
-            lastMessage: conv.lastMessage ? conv.lastMessage.content : '',
-            lastMessageTime: conv.lastMessage ? this.formatTime(conv.lastMessage.createdAt) : this.formatTime(conv.updatedAt),
-            unreadCount: conv.merchantUnreadCount || 0,
+            lastMessage: lastMessage ? lastMessage.content : '',
+            lastMessageTime: lastMessage ? this.formatTime(lastMessage.createdAt) : this.formatTime(chat.updatedAt),
+            unreadCount: unreadCount || 0,
             online: customer.isOnline || false
           };
         })
@@ -153,68 +156,63 @@ class ChatController {
 
       res.status(200).json({
         success: true,
-        data: formattedConversations
+        data: formattedChats
       });
     } catch (error) {
-      console.error('Error fetching merchant conversations:', error);
+      console.error('Error fetching merchant chats:', error);
       res.status(500).json({
         success: false,
-        message: 'Failed to fetch conversations',
+        message: 'Failed to fetch chats',
         error: process.env.NODE_ENV === 'development' ? error.message : undefined
       });
     }
   }
 
-  // Get messages for a specific conversation
+  // Get messages for a specific chat
   async getMessages(req, res) {
     try {
-      const { conversationId } = req.params;
+      const { conversationId: chatId } = req.params; // Keep the same param name for compatibility
       const { page = 1, limit = 50 } = req.query;
       const userId = req.user.id;
-      const { Conversation, Message, User, Store } = sequelize.models;
+      const { Chat, Message, User, Store } = sequelize.models;
 
-      if (!conversationId) {
+      if (!chatId) {
         return res.status(400).json({
           success: false,
-          message: 'Conversation ID is required'
+          message: 'Chat ID is required'
         });
       }
 
-      // Verify user has access to this conversation
-      const conversation = await Conversation.findByPk(conversationId);
-      if (!conversation) {
+      // Verify user has access to this chat
+      const chat = await Chat.findByPk(chatId, {
+        include: [
+          { model: User, as: 'user', attributes: ['id'] },
+          { model: Store, as: 'store', attributes: ['id', 'ownerId', 'owner_id', 'merchantId', 'merchant_id', 'userId', 'user_id'] }
+        ]
+      });
+
+      if (!chat) {
         return res.status(404).json({
           success: false,
-          message: 'Conversation not found'
+          message: 'Chat not found'
         });
       }
 
-      // Check if user is customer or merchant of this conversation
+      // Check if user has access (either customer or store owner)
       let hasAccess = false;
-      if (conversation.customerId === userId) {
+      if (chat.userId === userId) {
         hasAccess = true;
       } else {
-        // Check if user owns the store - try different foreign key patterns
-        const storeSearchQueries = [
-          { id: conversation.storeId, ownerId: userId },
-          { id: conversation.storeId, owner_id: userId },
-          { id: conversation.storeId, merchantId: userId },
-          { id: conversation.storeId, merchant_id: userId },
-          { id: conversation.storeId, userId: userId },
-          { id: conversation.storeId, user_id: userId }
-        ];
-
-        for (const query of storeSearchQueries) {
-          try {
-            const store = await Store.findOne({ where: query });
-            if (store) {
-              hasAccess = true;
-              break;
-            }
-          } catch (err) {
-            continue;
-          }
-        }
+        // Check if user owns the store
+        const store = chat.store;
+        hasAccess = store && (
+          store.ownerId === userId ||
+          store.owner_id === userId ||
+          store.merchantId === userId ||
+          store.merchant_id === userId ||
+          store.userId === userId ||
+          store.user_id === userId
+        );
       }
 
       if (!hasAccess) {
@@ -224,28 +222,15 @@ class ChatController {
         });
       }
 
-      const messages = await Message.findAll({
-        where: { conversationId },
-        include: [
-          {
-            model: User,
-            as: 'sender',
-            attributes: ['id', 'firstName', 'lastName', 'avatar'],
-            required: false
-          }
-        ],
-        order: [['createdAt', 'DESC']],
-        limit: parseInt(limit),
-        offset: (parseInt(page) - 1) * parseInt(limit)
-      });
+      const messages = await Message.getMessagesByChat(chatId, parseInt(page), parseInt(limit));
 
       // Mark messages as read
-      await this.markMessagesAsRead(conversationId, userId);
+      await this.markMessagesAsRead(chatId, userId);
 
       const formattedMessages = messages.reverse().map(msg => ({
         id: msg.id,
         text: msg.content,
-        sender: msg.senderType,
+        sender: msg.sender_type,
         senderInfo: msg.sender ? {
           id: msg.sender.id,
           name: `${msg.sender.firstName || ''} ${msg.sender.lastName || ''}`.trim() || 'Unknown',
@@ -277,55 +262,52 @@ class ChatController {
   // Send a message
   async sendMessage(req, res) {
     try {
-      const { conversationId, content, messageType = 'text' } = req.body;
+      const { conversationId: chatId, content, messageType = 'text' } = req.body;
       const senderId = req.user.id;
-      const { Conversation, Message, User, Store } = sequelize.models;
+      const { Chat, Message, User, Store } = sequelize.models;
 
-      if (!conversationId || !content) {
+      if (!chatId || !content) {
         return res.status(400).json({
           success: false,
-          message: 'Conversation ID and content are required'
+          message: 'Chat ID and content are required'
         });
       }
 
-      // Validate conversation access
-      const conversation = await Conversation.findByPk(conversationId);
-      if (!conversation) {
+      // Validate chat access
+      const chat = await Chat.findByPk(chatId, {
+        include: [
+          { model: User, as: 'user', attributes: ['id'] },
+          { model: Store, as: 'store', attributes: ['id', 'ownerId', 'owner_id', 'merchantId', 'merchant_id', 'userId', 'user_id'] }
+        ]
+      });
+
+      if (!chat) {
         return res.status(404).json({
           success: false,
-          message: 'Conversation not found'
+          message: 'Chat not found'
         });
       }
 
       // Determine sender type and verify access
-      let senderType = 'customer';
+      let senderType = 'user';
       let hasAccess = false;
 
-      if (conversation.customerId === senderId) {
+      if (chat.userId === senderId) {
         hasAccess = true;
-        senderType = 'customer';
+        senderType = 'user';
       } else {
-        // Check if user owns the store - try different foreign key patterns
-        const storeSearchQueries = [
-          { id: conversation.storeId, ownerId: senderId },
-          { id: conversation.storeId, owner_id: senderId },
-          { id: conversation.storeId, merchantId: senderId },
-          { id: conversation.storeId, merchant_id: senderId },
-          { id: conversation.storeId, userId: senderId },
-          { id: conversation.storeId, user_id: senderId }
-        ];
-
-        for (const query of storeSearchQueries) {
-          try {
-            const store = await Store.findOne({ where: query });
-            if (store) {
-              hasAccess = true;
-              senderType = 'merchant';
-              break;
-            }
-          } catch (err) {
-            continue;
-          }
+        // Check if user owns the store
+        const store = chat.store;
+        hasAccess = store && (
+          store.ownerId === senderId ||
+          store.owner_id === senderId ||
+          store.merchantId === senderId ||
+          store.merchant_id === senderId ||
+          store.userId === senderId ||
+          store.user_id === senderId
+        );
+        if (hasAccess) {
+          senderType = 'merchant';
         }
       }
 
@@ -338,21 +320,16 @@ class ChatController {
 
       // Create message
       const message = await Message.create({
-        conversationId,
-        senderId,
-        senderType,
+        chat_id: chatId,
+        sender_id: senderId,
+        sender_type: senderType,
         content,
         messageType,
         status: 'sent'
       });
 
-      // Update conversation
-      await conversation.update({
-        lastMessageId: message.id,
-        // Increment unread count for the other party
-        customerUnreadCount: senderType === 'merchant' ? (conversation.customerUnreadCount || 0) + 1 : conversation.customerUnreadCount || 0,
-        merchantUnreadCount: senderType === 'customer' ? (conversation.merchantUnreadCount || 0) + 1 : conversation.merchantUnreadCount || 0
-      });
+      // Update chat's last message time
+      await chat.updateLastMessage();
 
       // Get message with sender info for response
       const messageWithSender = await Message.findByPk(message.id, {
@@ -369,7 +346,7 @@ class ChatController {
       const formattedMessage = {
         id: messageWithSender.id,
         text: messageWithSender.content,
-        sender: messageWithSender.senderType,
+        sender: messageWithSender.sender_type,
         senderInfo: messageWithSender.sender ? {
           id: messageWithSender.sender.id,
           name: `${messageWithSender.sender.firstName || ''} ${messageWithSender.sender.lastName || ''}`.trim() || 'Unknown',
@@ -382,19 +359,12 @@ class ChatController {
         timestamp: this.formatTime(messageWithSender.createdAt),
         status: messageWithSender.status,
         messageType: messageWithSender.messageType,
-        conversationId: conversationId
+        conversationId: chatId
       };
 
       // Emit to real-time subscribers
       if (socketManager && socketManager.emitToConversation) {
-        socketManager.emitToConversation(conversationId, 'new_message', formattedMessage);
-      }
-
-      // Update message status to delivered if other party is online
-      const otherPartyId = senderType === 'customer' ? conversation.storeId : conversation.customerId;
-      if (socketManager && socketManager.isUserOnline && socketManager.isUserOnline(otherPartyId)) {
-        await message.update({ status: 'delivered' });
-        formattedMessage.status = 'delivered';
+        socketManager.emitToConversation(chatId, 'new_message', formattedMessage);
       }
 
       res.status(201).json({
@@ -411,12 +381,12 @@ class ChatController {
     }
   }
 
-  // Start a new conversation (customer to store)
+  // Start a new chat (customer to store)
   async startConversation(req, res) {
     try {
-      const { storeId, initialMessage } = req.body;
-      const customerId = req.user.id;
-      const { Conversation, Message, Store } = sequelize.models;
+      const { storeId, initialMessage = '' } = req.body;
+      const userId = req.user.id;
+      const { Chat, Message, Store } = sequelize.models;
 
       if (!storeId) {
         return res.status(400).json({
@@ -434,96 +404,66 @@ class ChatController {
         });
       }
 
-      // Check if conversation already exists
-      let conversation = await Conversation.findOne({
-        where: {
-          storeId,
-          customerId
-        }
-      });
-
-      if (!conversation) {
-        // Create new conversation
-        conversation = await Conversation.create({
-          storeId,
-          customerId,
-          customerUnreadCount: 0,
-          merchantUnreadCount: 0
-        });
-      }
+      // Find or create chat
+      const { chat, created } = await Chat.findOrCreateChat(userId, storeId);
 
       // Send initial message if provided
       if (initialMessage && initialMessage.trim()) {
         const message = await Message.create({
-          conversationId: conversation.id,
-          senderId: customerId,
-          senderType: 'customer',
+          chat_id: chat.id,
+          sender_id: userId,
+          sender_type: 'user',
           content: initialMessage.trim(),
           messageType: 'text',
           status: 'sent'
         });
 
-        await conversation.update({
-          lastMessageId: message.id,
-          merchantUnreadCount: (conversation.merchantUnreadCount || 0) + 1
-        });
+        await chat.updateLastMessage();
 
         // Notify store owner via socket
         if (socketManager && socketManager.notifyNewConversation) {
-          socketManager.notifyNewConversation(conversation.id, storeId, customerId);
+          socketManager.notifyNewConversation(chat.id, storeId, userId);
         }
       }
 
-      res.status(201).json({
+      res.status(created ? 201 : 200).json({
         success: true,
         data: {
-          conversationId: conversation.id,
-          message: 'Conversation started successfully'
+          conversationId: chat.id,
+          message: created ? 'Chat started successfully' : 'Chat already exists',
+          created
         }
       });
     } catch (error) {
-      console.error('Error starting conversation:', error);
+      console.error('Error starting chat:', error);
       res.status(500).json({
         success: false,
-        message: 'Failed to start conversation',
+        message: 'Failed to start chat',
         error: process.env.NODE_ENV === 'development' ? error.message : undefined
       });
     }
   }
 
   // Mark messages as read
-  async markMessagesAsRead(conversationId, userId) {
+  async markMessagesAsRead(chatId, userId) {
     try {
-      const { Conversation, Message } = sequelize.models;
+      const { Message } = sequelize.models;
 
-      const conversation = await Conversation.findByPk(conversationId);
-      if (!conversation) return;
-
-      // Determine if user is customer or merchant
-      const isCustomer = conversation.customerId === userId;
-      
-      // Update message status
+      // Update message status to read for messages not sent by this user
       await Message.update(
         { status: 'read' },
         {
           where: {
-            conversationId,
-            senderId: { [Op.ne]: userId },
+            chat_id: chatId,
+            sender_id: { [Op.ne]: userId },
             status: { [Op.ne]: 'read' }
           }
         }
       );
 
-      // Reset unread count for this user
-      const updateData = isCustomer 
-        ? { customerUnreadCount: 0 }
-        : { merchantUnreadCount: 0 };
-
-      await conversation.update(updateData);
-
       // Emit read receipt
       if (socketManager && socketManager.emitToConversation) {
-        socketManager.emitToConversation(conversationId, 'messages_read', {
+        socketManager.emitToConversation(chatId, 'messages_read', {
           readBy: userId,
           timestamp: new Date()
         });
@@ -557,7 +497,7 @@ class ChatController {
       }
 
       // Only recipient can update status
-      if (message.senderId === userId) {
+      if (message.sender_id === userId) {
         return res.status(403).json({
           success: false,
           message: 'Cannot update status of own message'
@@ -568,7 +508,7 @@ class ChatController {
 
       // Emit status update
       if (socketManager && socketManager.emitToUser) {
-        socketManager.emitToUser(message.senderId, 'message_status_update', {
+        socketManager.emitToUser(message.sender_id, 'message_status_update', {
           messageId,
           status,
           timestamp: new Date()
@@ -589,12 +529,12 @@ class ChatController {
     }
   }
 
-  // Search conversations and messages
+  // Search chats and messages
   async searchConversations(req, res) {
     try {
       const { query, type = 'all' } = req.query;
       const userId = req.user.id;
-      const { Conversation, Message, User, Store } = sequelize.models;
+      const { Chat, Message, User, Store } = sequelize.models;
 
       if (!query || query.trim().length < 2) {
         return res.status(400).json({
@@ -605,74 +545,79 @@ class ChatController {
 
       // Determine if user is customer or merchant
       let store = null;
-      const storeSearchQueries = [
-        { ownerId: userId },
-        { owner_id: userId },
-        { merchantId: userId },
-        { merchant_id: userId },
-        { userId: userId },
-        { user_id: userId }
-      ];
-
-      for (const searchQuery of storeSearchQueries) {
-        try {
-          store = await Store.findOne({ where: searchQuery });
-          if (store) break;
-        } catch (err) {
-          continue;
-        }
+      try {
+        store = await Store.findOne({ 
+          where: { 
+            [Op.or]: [
+              { ownerId: userId },
+              { owner_id: userId },
+              { merchantId: userId },
+              { merchant_id: userId },
+              { userId: userId },
+              { user_id: userId }
+            ]
+          }
+        });
+      } catch (err) {
+        // User is likely a customer
       }
 
       const isCustomer = !store;
-
       let searchFilter = {};
+      
       if (isCustomer) {
-        searchFilter.customerId = userId;
+        searchFilter.userId = userId;
       } else {
         searchFilter.storeId = store.id;
       }
 
       // Search in messages
-      const messagesWithConversations = await Message.findAll({
+      const messagesWithChats = await Message.findAll({
         where: {
           content: { [Op.iLike]: `%${query.trim()}%` }
         },
         include: [
           {
-            model: Conversation,
-            as: 'conversation',
+            model: Chat,
+            as: 'chat',
             where: searchFilter,
             include: [
-              { model: User, as: 'customer', required: false },
+              { model: User, as: 'user', required: false },
               { model: Store, as: 'store', required: false }
             ]
           }
         ]
       });
 
-      const conversationIds = [...new Set(messagesWithConversations.map(msg => msg.conversation.id))];
+      const chatIds = [...new Set(messagesWithChats.map(msg => msg.chat.id))];
 
-      // Get matching conversations
-      const conversations = await Conversation.findAll({
+      // Get matching chats
+      const chats = await Chat.findAll({
         where: {
           [Op.or]: [
-            { id: { [Op.in]: conversationIds } },
+            { id: { [Op.in]: chatIds } },
             searchFilter
           ]
         },
         include: [
-          { model: User, as: 'customer', required: false },
+          { model: User, as: 'user', required: false },
           { model: Store, as: 'store', required: false },
-          { model: Message, as: 'lastMessage', required: false }
+          { 
+            model: Message, 
+            as: 'messages',
+            limit: 1,
+            order: [['createdAt', 'DESC']],
+            required: false 
+          }
         ]
       });
 
       res.status(200).json({
         success: true,
-        data: conversations
+        data: chats
       });
     } catch (error) {
-      console.error('Error searching conversations:', error);
+      console.error('Error searching chats:', error);
       res.status(500).json({
         success: false,
         message: 'Search failed',
@@ -681,32 +626,26 @@ class ChatController {
     }
   }
 
-  // Get conversation analytics (for merchants)
+  // Get chat analytics (for merchants)
   async getConversationAnalytics(req, res) {
     try {
       const userId = req.user.id;
       const { period = '7d' } = req.query;
-      const { Store } = sequelize.models;
+      const { Store, Chat, Message } = sequelize.models;
 
-      // Get merchant's store - try different foreign key patterns
-      let store = null;
-      const storeSearchQueries = [
-        { ownerId: userId },
-        { owner_id: userId },
-        { merchantId: userId },
-        { merchant_id: userId },
-        { userId: userId },
-        { user_id: userId }
-      ];
-
-      for (const query of storeSearchQueries) {
-        try {
-          store = await Store.findOne({ where: query });
-          if (store) break;
-        } catch (err) {
-          continue;
+      // Get merchant's store
+      const store = await Store.findOne({ 
+        where: { 
+          [Op.or]: [
+            { ownerId: userId },
+            { owner_id: userId },
+            { merchantId: userId },
+            { merchant_id: userId },
+            { userId: userId },
+            { user_id: userId }
+          ]
         }
-      }
+      });
 
       if (!store) {
         return res.status(404).json({
@@ -715,20 +654,47 @@ class ChatController {
         });
       }
 
-      let analytics = {
-        totalConversations: 0,
-        newConversations: 0,
-        totalMessages: 0,
-        unreadMessages: 0
-      };
+      const startDate = this.getDateByPeriod(period);
 
-      if (socketManager && socketManager.getConversationAnalytics) {
-        analytics = await socketManager.getConversationAnalytics(store.id, period);
-      }
+      const analytics = await Promise.all([
+        // Total chats
+        Chat.count({ where: { storeId: store.id } }),
+
+        // New chats in period
+        Chat.count({
+          where: {
+            storeId: store.id,
+            createdAt: { [Op.gte]: startDate }
+          }
+        }),
+
+        // Total messages in period
+        Message.count({
+          include: [{
+            model: Chat,
+            as: 'chat',
+            where: { storeId: store.id },
+            attributes: []
+          }],
+          where: {
+            createdAt: { [Op.gte]: startDate }
+          }
+        }),
+
+        // Unread messages count
+        this.getUnreadMessagesCountForStore(store.id)
+      ]);
+
+      const result = {
+        totalConversations: analytics[0],
+        newConversations: analytics[1],
+        totalMessages: analytics[2],
+        unreadMessages: analytics[3]
+      };
 
       res.status(200).json({
         success: true,
-        data: analytics
+        data: result
       });
     } catch (error) {
       console.error('Error fetching analytics:', error);
@@ -742,22 +708,72 @@ class ChatController {
 
   // Helper methods
   async getCustomerOrderCount(customerId, storeId) {
-    // This would integrate with your order system
-    // For now, returning a mock value based on existing data
     try {
       const { Message } = sequelize.models;
       const messageCount = await Message.count({
         include: [{
-          model: sequelize.models.Conversation,
-          as: 'conversation',
-          where: { customerId, storeId }
+          model: sequelize.models.Chat,
+          as: 'chat',
+          where: { userId: customerId, storeId }
         }]
       });
       
-      // Rough estimate: every 10 messages = 1 order
       return Math.floor(messageCount / 10) + Math.floor(Math.random() * 5) + 1;
     } catch (error) {
       return Math.floor(Math.random() * 30) + 1;
+    }
+  }
+
+  async getUnreadCountForMerchant(chatId, merchantId) {
+    try {
+      const { Message } = sequelize.models;
+      return await Message.count({
+        where: {
+          chat_id: chatId,
+          sender_type: 'user', // Messages from customers
+          status: { [Op.ne]: 'read' }
+        }
+      });
+    } catch (error) {
+      return 0;
+    }
+  }
+
+  async getUnreadMessagesCountForStore(storeId) {
+    try {
+      const { Chat, Message } = sequelize.models;
+      
+      const chats = await Chat.findAll({
+        where: { storeId },
+        attributes: ['id']
+      });
+
+      const chatIds = chats.map(chat => chat.id);
+      
+      return await Message.count({
+        where: {
+          chat_id: { [Op.in]: chatIds },
+          sender_type: 'user',
+          status: { [Op.ne]: 'read' }
+        }
+      });
+    } catch (error) {
+      console.error('Error getting unread messages count:', error);
+      return 0;
+    }
+  }
+
+  getDateByPeriod(period) {
+    const now = new Date();
+    switch (period) {
+      case '1d':
+        return new Date(now.setDate(now.getDate() - 1));
+      case '7d':
+        return new Date(now.setDate(now.getDate() - 7));
+      case '30d':
+        return new Date(now.setDate(now.getDate() - 30));
+      default:
+        return new Date(now.setDate(now.getDate() - 7));
     }
   }
 
@@ -792,8 +808,8 @@ module.exports = {
   sendMessage: chatController.sendMessage.bind(chatController),
   getMessages: chatController.getMessages.bind(chatController),
   updateMessageStatus: chatController.updateMessageStatus.bind(chatController),
-  getUserConversations: chatController.getUserConversations.bind(chatController),
-  getMerchantConversations: chatController.getMerchantConversations.bind(chatController),
+  getUserConversations: chatController.getUserChats.bind(chatController),
+  getMerchantConversations: chatController.getMerchantChats.bind(chatController),
   searchConversations: chatController.searchConversations.bind(chatController),
   getConversationAnalytics: chatController.getConversationAnalytics.bind(chatController),
   markMessagesAsRead: chatController.markMessagesAsRead.bind(chatController)

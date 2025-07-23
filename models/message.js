@@ -1,11 +1,10 @@
 'use strict';
-
 module.exports = (sequelize, DataTypes) => {
   const Message = sequelize.define('Message', {
     id: {
       type: DataTypes.UUID,
       defaultValue: DataTypes.UUIDV4,
-      primaryKey: true,
+      primaryKey: true
     },
     chat_id: {
       type: DataTypes.UUID,
@@ -23,182 +22,105 @@ module.exports = (sequelize, DataTypes) => {
         key: 'id'
       }
     },
-    senderType: {
-      type: DataTypes.ENUM('customer', 'merchant'),
+    sender_type: {
+      type: DataTypes.ENUM('user', 'merchant', 'system'),
       allowNull: false,
+      defaultValue: 'user'
     },
     content: {
       type: DataTypes.TEXT,
-      allowNull: false,
-      validate: {
-        len: [1, 5000]
-      }
+      allowNull: false
     },
     messageType: {
-      type: DataTypes.ENUM('text', 'image', 'file', 'order', 'product', 'system'),
+      type: DataTypes.ENUM('text', 'image', 'file', 'system'),
       defaultValue: 'text'
     },
     status: {
-      type: DataTypes.ENUM('sent', 'delivered', 'read', 'failed'),
+      type: DataTypes.ENUM('sent', 'delivered', 'read'),
       defaultValue: 'sent'
+    },
+    attachments: {
+      type: DataTypes.JSON,
+      defaultValue: []
     },
     metadata: {
       type: DataTypes.JSON,
       defaultValue: {}
     },
-    reactions: {
-      type: DataTypes.JSON,
-      defaultValue: []
-    },
-    replyTo: {
-      type: DataTypes.UUID,
-      allowNull: true,
-      references: {
-        model: 'messages',
-        key: 'id'
-      }
-    },
-    editHistory: {
-      type: DataTypes.JSON,
-      defaultValue: []
-    },
-    isDeleted: {
-      type: DataTypes.BOOLEAN,
-      defaultValue: false
-    },
-    deletedAt: {
+    edited_at: {
       type: DataTypes.DATE,
       allowNull: true
     },
-    deletedBy: {
-      type: DataTypes.UUID,
-      allowNull: true,
-      references: {
-        model: 'users',
-        key: 'id'
-      }
+    deleted_at: {
+      type: DataTypes.DATE,
+      allowNull: true
     }
   }, {
     tableName: 'messages',
     timestamps: true,
+    paranoid: true,
     indexes: [
       {
+        fields: ['chat_id']
+      },
+      {
+        fields: ['sender_id']
+      },
+      {
+        fields: ['status']
+      },
+      {
+        fields: ['createdAt']
+      },
+      {
         fields: ['chat_id', 'createdAt']
-      },
-      {
-        fields: ['sender_id', 'createdAt']
-      },
-      {
-        fields: ['chat_id', 'status']
-      },
-      {
-        fields: ['chat_id', 'messageType']
       }
-    ],
-    defaultScope: {
-      where: {
-        isDeleted: false
-      }
-    },
-    scopes: {
-      withDeleted: {
-        where: {}
-      }
-    }
+    ]
   });
 
-  // ADD THIS ASSOCIATION METHOD
-  Message.associate = function(models) {
-    // Message belongs to User (sender)
-    Message.belongsTo(models.User, {
-      foreignKey: 'sender_id',
-      as: 'sender'
-    });
-
-    // Message belongs to Chat
+  // Associations
+  Message.associate = (models) => {
     Message.belongsTo(models.Chat, {
       foreignKey: 'chat_id',
-      as: 'chat'
+      as: 'chat',
+      onDelete: 'CASCADE',
     });
 
-    // Message belongs to User (who deleted it)
     Message.belongsTo(models.User, {
-      foreignKey: 'deletedBy',
-      as: 'deletedByUser'
-    });
-
-    // Self-referencing association for replies
-    Message.belongsTo(models.Message, {
-      foreignKey: 'replyTo',
-      as: 'replyToMessage'
-    });
-
-    Message.hasMany(models.Message, {
-      foreignKey: 'replyTo',
-      as: 'replies'
+      foreignKey: 'sender_id',
+      as: 'sender',
+      onDelete: 'CASCADE',
     });
   };
 
   // Instance methods
-  Message.prototype.markAsRead = function() {
+  Message.prototype.markAsRead = function () {
     this.status = 'read';
     return this.save();
   };
 
-  Message.prototype.markAsDelivered = function() {
+  Message.prototype.markAsDelivered = function () {
     this.status = 'delivered';
     return this.save();
   };
 
-  Message.prototype.addReaction = function(userId, reaction) {
-    let reactions = this.reactions || [];
-    reactions = reactions.filter(r => r.userId !== userId);
-    reactions.push({ userId, reaction, timestamp: new Date() });
-    this.reactions = reactions;
-    return this.save();
-  };
-
-  Message.prototype.removeReaction = function(userId) {
-    let reactions = this.reactions || [];
-    this.reactions = reactions.filter(r => r.userId !== userId);
-    return this.save();
-  };
-
-  Message.prototype.softDelete = function(deletedBy) {
-    this.isDeleted = true;
-    this.deletedAt = new Date();
-    this.deletedBy = deletedBy;
+  Message.prototype.softDelete = function () {
+    this.deleted_at = new Date();
     return this.save();
   };
 
   // Class methods
-  Message.getUnreadCount = function(chatId, userId) {
-    return this.count({
-      where: {
-        chat_id: chatId,
-        sender_id: { [sequelize.Sequelize.Op.ne]: userId },
-        status: { [sequelize.Sequelize.Op.ne]: 'read' },
-        isDeleted: false
-      }
-    });
-  };
-
-  Message.getConversationMessages = function(chatId, page = 1, limit = 50) {
+  Message.getMessagesByChat = function (chatId, page = 1, limit = 50) {
     return this.findAll({
       where: { 
         chat_id: chatId,
-        isDeleted: false 
+        deleted_at: null
       },
       include: [
         {
-          model: sequelize.models.User, // Use model instead of association
+          model: sequelize.models.User,
           as: 'sender',
-          attributes: ['id', 'firstName', 'lastName'] // Updated to match your User model
-        },
-        {
-          model: sequelize.models.Message, // Use model instead of association
-          as: 'replyToMessage',
-          attributes: ['id', 'content', 'sender_id']
+          attributes: ['id', 'firstName', 'lastName', 'avatar']
         }
       ],
       order: [['createdAt', 'DESC']],
@@ -207,9 +129,15 @@ module.exports = (sequelize, DataTypes) => {
     });
   };
 
-  // Virtual for checking if message is edited
-  Message.prototype.getIsEdited = function() {
-    return this.editHistory && this.editHistory.length > 0;
+  Message.getUnreadCount = function (chatId, userId) {
+    return this.count({
+      where: {
+        chat_id: chatId,
+        sender_id: { [sequelize.Op.ne]: userId },
+        status: { [sequelize.Op.ne]: 'read' },
+        deleted_at: null
+      }
+    });
   };
 
   return Message;

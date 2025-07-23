@@ -56,7 +56,7 @@ const { Booking, Offer, Service, Store, User, Payment, Staff } = models;
 
 let enhancedBookingController = {};
 try {
-  const controllerModule = require('../controllers/enhancedBookingController');
+  const controllerModule = require('../controllers/bookingController');
   enhancedBookingController = controllerModule.default || controllerModule;
   console.log('✅ Enhanced booking controller imported');
 } catch (error) {
