@@ -1,33 +1,33 @@
 module.exports = (sequelize, DataTypes) => {
   const ServiceOffer = sequelize.define('ServiceOffer', {
     id: {
-      type: DataTypes.UUID,           // Change from INTEGER to UUID
-      defaultValue: DataTypes.UUIDV4, // Add UUID generation
+      type: DataTypes.UUID,
+      defaultValue: DataTypes.UUIDV4,
       primaryKey: true,
     },
     requestId: {
-      type: DataTypes.UUID,           // Change to UUID
+      type: DataTypes.UUID,
       allowNull: false,
       references: {
-        model: 'ServiceRequests',
+        model: 'service_requests', // ✅ Fixed: Use actual table name
         key: 'id',
       },
       onDelete: 'CASCADE',
     },
     providerId: {
-      type: DataTypes.UUID,           // Change to UUID
+      type: DataTypes.UUID,
       allowNull: false,
       references: {
-        model: 'Users',
+        model: 'users', // ✅ Also check this matches your Users table name
         key: 'id',
       },
       onDelete: 'CASCADE',
     },
     storeId: {
-      type: DataTypes.UUID,           // Change to UUID (matching your Store model)
+      type: DataTypes.UUID,
       allowNull: false,
       references: {
-        model: 'Stores',
+        model: 'stores', // ✅ Also check this matches your Stores table name
         key: 'id',
       },
       onDelete: 'CASCADE',
@@ -105,10 +105,10 @@ module.exports = (sequelize, DataTypes) => {
       defaultValue: 0,
     },
     originalOfferId: {
-      type: DataTypes.UUID,           // Change to UUID
+      type: DataTypes.UUID,
       defaultValue: null,
       references: {
-        model: 'ServiceOffers',
+        model: 'service_offers', // ✅ Self-reference to same table
         key: 'id',
       },
       onDelete: 'SET NULL',

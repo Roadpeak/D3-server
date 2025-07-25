@@ -6,11 +6,11 @@ const chatController = require('../controllers/chatController');
 // Import your existing auth middleware
 const { verifyToken, authenticateUser, authenticateMerchant, optionalAuth } = require('../middleware/auth');
 
-// Customer routes - Users can start conversations and view their conversations
+// Customer routes - Users can start conversations and view their chats
 router.get('/conversations', verifyToken, chatController.getUserConversations);
 router.post('/conversations', verifyToken, chatController.startConversation);
 
-// Merchant routes - Merchants can view their store conversations and analytics
+// Merchant routes - Merchants can view their store chats and analytics
 router.get('/merchant/conversations', verifyToken, chatController.getMerchantConversations);
 router.get('/analytics', verifyToken, chatController.getConversationAnalytics);
 
@@ -68,7 +68,7 @@ router.get('/users/online', verifyToken, (req, res) => {
     });
   }
 
-  const userIdArray = userIds.split(',').map(id => parseInt(id));
+  const userIdArray = userIds.split(',').map(id => id.toString());
   const onlineStatus = {};
   
   userIdArray.forEach(userId => {
@@ -126,45 +126,51 @@ router.post('/system/broadcast', verifyToken, (req, res) => {
   });
 });
 
-// Get conversation participants
+// Get chat participants
 router.get('/conversations/:conversationId/participants', verifyToken, async (req, res) => {
   try {
     const { conversationId } = req.params;
     const { sequelize } = require('../models/index');
-    const { Conversation, User, Store } = sequelize.models;
+    const { Chat, User, Store } = sequelize.models;
 
-    const conversation = await Conversation.findByPk(conversationId, {
+    const chat = await Chat.findByPk(conversationId, {
       include: [
         {
           model: User,
-          as: 'customer',
+          as: 'user',
           attributes: ['id', 'firstName', 'lastName', 'avatar', 'isOnline']
         },
         {
           model: Store,
           as: 'store',
-          attributes: ['id', 'name', 'avatar', 'isOnline'],
+          attributes: ['id', 'name', 'logo_url', 'isOnline'],
           include: [
             {
               model: User,
               as: 'owner',
-              attributes: ['id', 'firstName', 'lastName', 'avatar', 'isOnline']
+              attributes: ['id', 'firstName', 'lastName', 'avatar', 'isOnline'],
+              required: false
             }
           ]
         }
       ]
     });
 
-    if (!conversation) {
+    if (!chat) {
       return res.status(404).json({
         success: false,
-        message: 'Conversation not found'
+        message: 'Chat not found'
       });
     }
 
     // Verify access - user must be customer or store owner
-    const hasAccess = conversation.customerId === req.user.id || 
-                     (conversation.store.owner && conversation.store.owner.id === req.user.id);
+    let hasAccess = chat.userId === req.user.id;
+    
+    if (!hasAccess && chat.store) {
+      // Check if user owns the store
+      const store = chat.store;
+      hasAccess = store.owner && store.owner.id === req.user.id;
+    }
 
     if (!hasAccess) {
       return res.status(403).json({
@@ -176,13 +182,13 @@ router.get('/conversations/:conversationId/participants', verifyToken, async (re
     res.status(200).json({
       success: true,
       data: {
-        customer: conversation.customer,
-        store: conversation.store,
-        merchant: conversation.store.owner
+        customer: chat.user,
+        store: chat.store,
+        merchant: chat.store ? chat.store.owner : null
       }
     });
   } catch (error) {
-    console.error('Error fetching conversation participants:', error);
+    console.error('Error fetching chat participants:', error);
     res.status(500).json({
       success: false,
       message: 'Failed to fetch participants'
@@ -190,51 +196,68 @@ router.get('/conversations/:conversationId/participants', verifyToken, async (re
   }
 });
 
-// Update conversation settings (merchants only)
+// Update chat settings (merchants only)
 router.put('/conversations/:conversationId/settings', verifyToken, async (req, res) => {
   try {
     const { conversationId } = req.params;
     const { priority, tags, notes } = req.body;
     const { sequelize } = require('../models/index');
-    const { Conversation, Store } = sequelize.models;
+    const { Chat, Store } = sequelize.models;
 
-    const conversation = await Conversation.findByPk(conversationId);
-    if (!conversation) {
+    const chat = await Chat.findByPk(conversationId);
+    if (!chat) {
       return res.status(404).json({
         success: false,
-        message: 'Conversation not found'
+        message: 'Chat not found'
       });
     }
 
     // Check if user is the merchant (only merchants can update settings)
     const store = await Store.findOne({ 
-      where: { id: conversation.storeId, ownerId: req.user.id } 
+      where: { 
+        id: chat.storeId,
+        [sequelize.Op.or]: [
+          { ownerId: req.user.id },
+          { owner_id: req.user.id },
+          { merchantId: req.user.id },
+          { merchant_id: req.user.id },
+          { userId: req.user.id },
+          { user_id: req.user.id }
+        ]
+      }
     });
     
     if (!store) {
       return res.status(403).json({
         success: false,
-        message: 'Only store owners can update conversation settings'
+        message: 'Only store owners can update chat settings'
       });
     }
 
     const updateData = {};
-    if (priority) updateData.customerPriority = priority;
+    if (priority) updateData.priority = priority;
     if (tags) updateData.tags = tags;
     if (notes !== undefined) updateData.notes = notes;
 
-    await conversation.update(updateData);
+    // Update metadata
+    const currentMetadata = chat.metadata || {};
+    await chat.update({
+      metadata: {
+        ...currentMetadata,
+        ...updateData
+      }
+    });
 
     res.status(200).json({
       success: true,
-      message: 'Conversation settings updated',
-      data: conversation
+      message: 'Chat settings updated',
+      data: chat
     });
   } catch (error) {
-    console.error('Error updating conversation settings:', error);
+    console.error('Error updating chat settings:', error);
     res.status(500).json({
       success: false,
-      message: 'Failed to update conversation settings'
+      message: 'Failed to update chat settings'
     });
   }
 });
@@ -245,21 +268,31 @@ router.get('/conversations/:conversationId/messages/history', verifyToken, async
     const { conversationId } = req.params;
     const { page = 1, limit = 50, before } = req.query;
     const { sequelize } = require('../models/index');
-    const { Conversation, Message, User, Store } = sequelize.models;
+    const { Chat, Message, User, Store } = sequelize.models;
 
-    // Verify access to conversation
-    const conversation = await Conversation.findByPk(conversationId);
-    if (!conversation) {
+    // Verify access to chat
+    const chat = await Chat.findByPk(conversationId);
+    if (!chat) {
       return res.status(404).json({
         success: false,
-        message: 'Conversation not found'
+        message: 'Chat not found'
       });
     }
 
-    let hasAccess = conversation.customerId === req.user.id;
+    let hasAccess = chat.userId === req.user.id;
     if (!hasAccess) {
       const store = await Store.findOne({ 
-        where: { id: conversation.storeId, ownerId: req.user.id } 
+        where: { 
+          id: chat.storeId,
+          [sequelize.Op.or]: [
+            { ownerId: req.user.id },
+            { owner_id: req.user.id },
+            { merchantId: req.user.id },
+            { merchant_id: req.user.id },
+            { userId: req.user.id },
+            { user_id: req.user.id }
+          ]
+        }
       });
       hasAccess = !!store;
     }
@@ -271,7 +304,7 @@ router.get('/conversations/:conversationId/messages/history', verifyToken, async
       });
     }
 
-    let whereCondition = { conversationId };
+    let whereCondition = { chat_id: conversationId };
     if (before) {
       whereCondition.createdAt = { [sequelize.Op.lt]: new Date(before) };
     }
@@ -293,7 +326,7 @@ router.get('/conversations/:conversationId/messages/history', verifyToken, async
     const formattedMessages = messages.reverse().map(msg => ({
       id: msg.id,
       text: msg.content,
-      sender: msg.senderType,
+      sender: msg.sender_type,
       senderInfo: {
         id: msg.sender.id,
         name: `${msg.sender.firstName} ${msg.sender.lastName}`,
@@ -318,6 +351,122 @@ router.get('/conversations/:conversationId/messages/history', verifyToken, async
     res.status(500).json({
       success: false,
       message: 'Failed to fetch message history'
+    });
+  }
+});
+
+// Archive chat
+router.post('/conversations/:conversationId/archive', verifyToken, async (req, res) => {
+  try {
+    const { conversationId } = req.params;
+    const { sequelize } = require('../models/index');
+    const { Chat } = sequelize.models;
+
+    const chat = await Chat.findByPk(conversationId);
+    if (!chat) {
+      return res.status(404).json({
+        success: false,
+        message: 'Chat not found'
+      });
+    }
+
+    // Verify user has access to archive this chat
+    let hasAccess = chat.userId === req.user.id;
+    
+    if (!hasAccess) {
+      const { Store } = sequelize.models;
+      const store = await Store.findOne({ 
+        where: { 
+          id: chat.storeId,
+          [sequelize.Op.or]: [
+            { ownerId: req.user.id },
+            { owner_id: req.user.id },
+            { merchantId: req.user.id },
+            { merchant_id: req.user.id },
+            { userId: req.user.id },
+            { user_id: req.user.id }
+          ]
+        }
+      });
+      hasAccess = !!store;
+    }
+
+    if (!hasAccess) {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied'
+      });
+    }
+
+    await chat.archive();
+
+    res.status(200).json({
+      success: true,
+      message: 'Chat archived successfully'
+    });
+  } catch (error) {
+    console.error('Error archiving chat:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to archive chat'
+    });
+  }
+});
+
+// Block chat
+router.post('/conversations/:conversationId/block', verifyToken, async (req, res) => {
+  try {
+    const { conversationId } = req.params;
+    const { sequelize } = require('../models/index');
+    const { Chat } = sequelize.models;
+
+    const chat = await Chat.findByPk(conversationId);
+    if (!chat) {
+      return res.status(404).json({
+        success: false,
+        message: 'Chat not found'
+      });
+    }
+
+    // Verify user has access to block this chat
+    let hasAccess = chat.userId === req.user.id;
+    
+    if (!hasAccess) {
+      const { Store } = sequelize.models;
+      const store = await Store.findOne({ 
+        where: { 
+          id: chat.storeId,
+          [sequelize.Op.or]: [
+            { ownerId: req.user.id },
+            { owner_id: req.user.id },
+            { merchantId: req.user.id },
+            { merchant_id: req.user.id },
+            { userId: req.user.id },
+            { user_id: req.user.id }
+          ]
+        }
+      });
+      hasAccess = !!store;
+    }
+
+    if (!hasAccess) {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied'
+      });
+    }
+
+    await chat.block();
+
+    res.status(200).json({
+      success: true,
+      message: 'Chat blocked successfully'
+    });
+  } catch (error) {
+    console.error('Error blocking chat:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to block chat'
     });
   }
 });

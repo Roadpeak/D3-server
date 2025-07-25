@@ -45,7 +45,7 @@ const Branch = require('./Branch')(sequelize, DataTypes);
 // Import NEW service marketplace models
 // const ServiceRequest = require('./serviceRequest')(sequelize, DataTypes);
 // const ServiceOffer = require('./ServiceOffer')(sequelize, DataTypes);
-// const Notification = require('./notification')(sequelize, DataTypes);
+const Notification = require('./notification')(sequelize, DataTypes);
 
 // EXISTING ASSOCIATIONS (keep all your current associations)
 // Service-Store
@@ -240,7 +240,7 @@ Merchant.hasMany(Branch, {
 //   constraints: false  // This tells Sequelize not to create the foreign key constraint
 // });
 
-// // ServiceOffer self-reference for revisions
+// // // ServiceOffer self-reference for revisions
 // ServiceOffer.belongsTo(ServiceOffer, { 
 //   foreignKey: 'originalOfferId', 
 //   as: 'originalOffer', 
@@ -253,12 +253,12 @@ Merchant.hasMany(Branch, {
 // });
 
 // // Notification-User (recipient)
-// Notification.belongsTo(User, { foreignKey: 'recipientId', as: 'recipient', onDelete: 'CASCADE' });
-// User.hasMany(Notification, { foreignKey: 'recipientId', as: 'notifications' });
+Notification.belongsTo(User, { foreignKey: 'recipientId', as: 'recipient', onDelete: 'CASCADE' });
+User.hasMany(Notification, { foreignKey: 'recipientId', as: 'notifications' });
 
-// // Notification-User (sender)
-// Notification.belongsTo(User, { foreignKey: 'senderId', as: 'sender', onDelete: 'SET NULL' });
-// User.hasMany(Notification, { foreignKey: 'senderId', as: 'sentNotifications' });
+// Notification-User (sender)
+Notification.belongsTo(User, { foreignKey: 'senderId', as: 'sender', onDelete: 'SET NULL' });
+User.hasMany(Notification, { foreignKey: 'senderId', as: 'sentNotifications' });
 
 module.exports = {
   User,
@@ -287,6 +287,6 @@ module.exports = {
   // NEW MODELS
   // ServiceRequest,
   // ServiceOffer,
-  // Notification,
+  Notification,
   sequelize,
 };
