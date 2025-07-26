@@ -1,4 +1,4 @@
-// models/Store.js - Updated with Staff association
+// models/Store.js - Updated with Chat System integration and your existing structure
 'use strict';
 module.exports = (sequelize, DataTypes) => {
   const Store = sequelize.define(
@@ -96,6 +96,27 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.BOOLEAN,
         defaultValue: true,
       },
+      // NEW FIELDS FOR CHAT SYSTEM
+      isOnline: {
+        type: DataTypes.BOOLEAN,
+        defaultValue: false,
+        comment: 'Real-time online status for chat system'
+      },
+      lastSeen: {
+        type: DataTypes.DATE,
+        allowNull: true,
+        comment: 'Last time the merchant was active for this store'
+      },
+      latitude: {
+        type: DataTypes.DECIMAL(10, 8),
+        allowNull: true,
+        comment: 'Geographic latitude for mapping'
+      },
+      longitude: {
+        type: DataTypes.DECIMAL(11, 8),
+        allowNull: true,
+        comment: 'Geographic longitude for mapping'
+      },
     },
     {
       timestamps: true,
@@ -105,6 +126,8 @@ module.exports = (sequelize, DataTypes) => {
         { fields: ['location'] },
         { fields: ['rating'] },
         { fields: ['category', 'location'] },
+        { fields: ['merchant_id'] }, // Added for chat system
+        { fields: ['isOnline'] }, // Added for chat system
         {
           fields: ['cashback'],
           where: {
@@ -117,8 +140,9 @@ module.exports = (sequelize, DataTypes) => {
     }
   );
 
-  // ASSOCIATIONS
+  // ENHANCED ASSOCIATIONS (keeping your existing ones + chat system)
   Store.associate = (models) => {
+    // Your existing Merchant associations
     Store.belongsTo(models.Merchant, {
       foreignKey: 'merchant_id',
       as: 'storeMerchant',
@@ -138,13 +162,29 @@ module.exports = (sequelize, DataTypes) => {
       onDelete: 'SET NULL',
     });
 
+    // ENHANCED: Additional associations for chat system compatibility
+    // If your Merchant model has a User association, this provides backward compatibility
+    Store.belongsTo(models.Merchant, {
+      foreignKey: 'merchant_id',
+      as: 'merchant', // Alternative alias for chat system
+      onDelete: 'CASCADE',
+      onUpdate: 'CASCADE',
+    });
+
+    Store.belongsTo(models.Merchant, {
+      foreignKey: 'merchant_id',
+      as: 'owner', // Alternative alias for chat system
+      onDelete: 'CASCADE',
+      onUpdate: 'CASCADE',
+    });
+
+    // Your existing associations
     Store.hasMany(models.Service, {
       foreignKey: 'store_id',
       as: 'services',
       onDelete: 'CASCADE',
     });
 
-    // Add Staff association - Store has many Staff
     Store.hasMany(models.Staff, {
       foreignKey: 'storeId',
       as: 'staff',
@@ -187,15 +227,33 @@ module.exports = (sequelize, DataTypes) => {
       onDelete: 'CASCADE',
     });
 
-    // Add Chat association
+    // NEW: Chat system associations
     Store.hasMany(models.Chat, {
       foreignKey: 'storeId',
       as: 'chats',
       onDelete: 'CASCADE',
     });
+
+    // NEW: Branch/Outlet association for enhanced mapping
+    if (models.Branch) {
+      Store.hasMany(models.Branch, {
+        foreignKey: 'store_id',
+        as: 'branches',
+        onDelete: 'CASCADE',
+      });
+    }
+
+    // NEW: Offer association if exists
+    if (models.Offer) {
+      Store.hasMany(models.Offer, {
+        foreignKey: 'store_id',
+        as: 'offers',
+        onDelete: 'CASCADE',
+      });
+    }
   };
 
-  // INSTANCE METHODS
+  // ENHANCED INSTANCE METHODS (keeping your existing + chat system)
   Store.prototype.toJSON = function () {
     const values = Object.assign({}, this.get());
     values.logo = values.logo_url;
@@ -203,7 +261,63 @@ module.exports = (sequelize, DataTypes) => {
     return values;
   };
 
-  // CLASS METHODS (keeping your existing methods)
+  // NEW: Chat system instance methods
+  Store.prototype.updateOnlineStatus = function(isOnline) {
+    this.isOnline = isOnline;
+    this.lastSeen = isOnline ? null : new Date();
+    return this.save();
+  };
+
+  Store.prototype.getActiveChatsCount = async function() {
+    const { Chat } = sequelize.models;
+    return await Chat.count({
+      where: { 
+        storeId: this.id,
+        status: 'active'
+      }
+    });
+  };
+
+  Store.prototype.getUnreadMessagesCount = async function() {
+    const { Chat, Message } = sequelize.models;
+    
+    const chats = await Chat.findAll({
+      where: { storeId: this.id },
+      attributes: ['id']
+    });
+
+    const chatIds = chats.map(chat => chat.id);
+
+    if (chatIds.length === 0) return 0;
+
+    return await Message.count({
+      where: {
+        chat_id: { [sequelize.Op.in]: chatIds },
+        sender_type: 'user', // Messages from customers
+        status: { [sequelize.Op.ne]: 'read' }
+      }
+    });
+  };
+
+  Store.prototype.getTotalCustomers = async function() {
+    const { Chat } = sequelize.models;
+    
+    const uniqueCustomers = await Chat.findAll({
+      where: { storeId: this.id },
+      attributes: [[sequelize.fn('COUNT', sequelize.fn('DISTINCT', sequelize.col('userId'))), 'count']],
+      raw: true
+    });
+
+    return uniqueCustomers[0]?.count || 0;
+  };
+
+  Store.prototype.getAverageResponseTime = async function() {
+    // This would require more complex logic to track response times
+    // For now, return a mock value - implement based on your needs
+    return Math.floor(Math.random() * 30) + 5; // 5-35 minutes
+  };
+
+  // ENHANCED CLASS METHODS (keeping your existing + new ones)
   Store.getCategories = async function () {
     const categories = await this.findAll({
       attributes: [[sequelize.fn('DISTINCT', sequelize.col('category')), 'category']],
@@ -282,6 +396,86 @@ module.exports = (sequelize, DataTypes) => {
       limit: parseInt(limit),
       offset: parseInt(offset),
     });
+  };
+
+  // NEW: Chat system specific methods
+  Store.getOnlineStores = async function() {
+    return await this.findAll({
+      where: {
+        isOnline: true,
+        is_active: true
+      },
+      attributes: ['id', 'name', 'category', 'location', 'logo_url'],
+      order: [['name', 'ASC']]
+    });
+  };
+
+  Store.findByMerchantId = async function(merchantId) {
+    return await this.findAll({
+      where: { 
+        merchant_id: merchantId,
+        is_active: true 
+      },
+      order: [['created_at', 'DESC']]
+    });
+  };
+
+  Store.getStoreAnalytics = async function(storeId, period = '7d') {
+    const store = await this.findByPk(storeId);
+    if (!store) return null;
+
+    const startDate = this.getDateByPeriod(period);
+    const { Chat, Message } = sequelize.models;
+
+    const analytics = await Promise.all([
+      store.getActiveChatsCount(),
+      store.getUnreadMessagesCount(),
+      store.getTotalCustomers(),
+      
+      // New chats in period
+      Chat.count({
+        where: {
+          storeId,
+          createdAt: { [sequelize.Op.gte]: startDate }
+        }
+      }),
+
+      // Total messages in period
+      Message.count({
+        include: [{
+          model: Chat,
+          as: 'chat',
+          where: { storeId },
+          attributes: []
+        }],
+        where: {
+          createdAt: { [sequelize.Op.gte]: startDate }
+        }
+      })
+    ]);
+
+    return {
+      totalChats: analytics[0],
+      unreadMessages: analytics[1],
+      totalCustomers: analytics[2],
+      newChats: analytics[3],
+      totalMessages: analytics[4],
+      averageResponseTime: await store.getAverageResponseTime()
+    };
+  };
+
+  Store.getDateByPeriod = function(period) {
+    const now = new Date();
+    switch (period) {
+      case '1d':
+        return new Date(now.setDate(now.getDate() - 1));
+      case '7d':
+        return new Date(now.setDate(now.getDate() - 7));
+      case '30d':
+        return new Date(now.setDate(now.getDate() - 30));
+      default:
+        return new Date(now.setDate(now.getDate() - 7));
+    }
   };
 
   return Store;

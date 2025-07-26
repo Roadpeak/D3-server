@@ -1,4 +1,4 @@
-// controllers/chatController.js - Fixed version matching your Store controller pattern
+// controllers/chatController.js - COMPLETELY FIXED VERSION
 const { sequelize } = require('../models/index');
 const { socketManager } = require('../socket/websocket');
 const { Op } = require('sequelize');
@@ -84,7 +84,7 @@ class ChatController {
     }
   }
 
-  // Get chats for a merchant (store view) - FIXED to match your Store controller pattern
+  // Get chats for a merchant (store view) - FIXED
   async getMerchantChats(req, res) {
     try {
       const merchantId = req.user.id;
@@ -98,12 +98,6 @@ class ChatController {
       }
 
       console.log('🏪 Loading chats for merchant:', merchantId);
-      console.log('🔍 Auth user object:', {
-        id: req.user.id,
-        type: req.user.type,
-        userType: req.user.userType,
-        email: req.user.email
-      });
 
       // Use the exact same pattern as your working getMerchantStores function
       const stores = await Store.findAll({
@@ -111,51 +105,20 @@ class ChatController {
         order: [['createdAt', 'DESC']]
       });
 
-      console.log(`🏬 Found ${stores.length} store(s) for merchant using same pattern as store controller`);
+      console.log(`🏬 Found ${stores.length} store(s) for merchant`);
       
       if (stores.length === 0) {
-        // Let's debug further - check if stores exist with different queries
-        console.log('🔍 Debugging: No stores found, trying different approaches...');
-        
-        // Try to find ANY store to see if the table has data
-        const anyStore = await Store.findOne({ limit: 1 });
-        console.log('🔍 Any store exists in database:', !!anyStore);
-        
-        if (anyStore) {
-          console.log('🔍 Sample store merchant_id:', anyStore.merchant_id);
-          console.log('🔍 Looking for merchant_id:', merchantId);
-          console.log('🔍 Types match:', typeof anyStore.merchant_id === typeof merchantId);
-          
-          // Check if it's a type mismatch issue
-          const storeWithStringId = await Store.findOne({
-            where: { merchant_id: String(merchantId) }
-          });
-          const storeWithUuidId = await Store.findOne({
-            where: { merchant_id: merchantId }
-          });
-          
-          console.log('🔍 Store found with string ID:', !!storeWithStringId);
-          console.log('🔍 Store found with original ID:', !!storeWithUuidId);
-        }
-
         return res.status(200).json({
           success: true,
           data: [],
-          message: 'No stores found for this merchant. Please check if you have created a store.',
-          debug: {
-            merchantId,
-            storesTableHasData: !!anyStore,
-            searchedWith: 'merchant_id'
-          }
+          message: 'No stores found for this merchant.'
         });
       }
 
-      console.log('✅ Found stores:', stores.map(s => ({ id: s.id, name: s.name })));
-
-      // Get chats for all merchant's stores
       const storeIds = stores.map(store => store.id);
       console.log('🏬 Store IDs for chat lookup:', storeIds);
 
+      // FIXED: Get chats without problematic nested includes
       const chats = await Chat.findAll({
         where: { 
           storeId: { [Op.in]: storeIds }
@@ -163,13 +126,13 @@ class ChatController {
         include: [
           {
             model: User,
-            as: 'user',
+            as: 'user', // ✅ This matches your Chat model definition
             attributes: ['id', 'firstName', 'lastName', 'avatar', 'email', 'createdAt'],
             required: true
           },
           {
             model: Store,
-            as: 'store',
+            as: 'store', // ✅ This matches your Chat model definition  
             attributes: ['id', 'name'],
             required: true
           },
@@ -239,13 +202,13 @@ class ChatController {
     }
   }
 
-  // Get messages for a specific chat
+  // FIXED: Get messages with proper error handling
   async getMessages(req, res) {
     try {
       const { conversationId: chatId } = req.params;
       const { page = 1, limit = 50 } = req.query;
       const userId = req.user.id;
-      const userType = req.user.type;
+      const userType = req.user.type || req.user.userType;
       const { Chat, Message, User, Store } = sequelize.models;
   
       console.log('📨 Getting messages for chat:', {
@@ -261,7 +224,7 @@ class ChatController {
         });
       }
   
-      // First, let's find the chat without includes to avoid alias issues
+      // FIXED: Find chat and validate access without problematic includes
       console.log('🔍 Finding chat by ID...');
       const chat = await Chat.findByPk(chatId);
   
@@ -279,10 +242,10 @@ class ChatController {
         storeId: chat.storeId
       });
   
-      // Check access permissions without associations first
+      // Validate access permissions
       let hasAccess = false;
       
-      if (userType === 'user' && chat.userId === userId) {
+      if ((userType === 'user' || userType === 'customer') && chat.userId === userId) {
         hasAccess = true;
         console.log('✅ User access granted - customer owns chat');
       } else if (userType === 'merchant') {
@@ -304,70 +267,24 @@ class ChatController {
         });
       }
   
-      // Get messages - try different association aliases
+      // FIXED: Get messages with correct association
       console.log('📋 Fetching messages...');
-      let messages = [];
-      
-      // Try multiple alias possibilities
-      const includeOptions = [
-        // Option 1: Try 'sender' alias
-        {
-          model: User,
-          as: 'sender',
-          attributes: ['id', 'firstName', 'lastName', 'avatar'],
-          required: false
-        },
-        // Option 2: Try 'user' alias  
-        {
-          model: User,
-          as: 'user',
-          attributes: ['id', 'firstName', 'lastName', 'avatar'],
-          required: false
-        },
-        // Option 3: Try 'chatUser' alias (from error message)
-        {
-          model: User,
-          as: 'chatUser',
-          attributes: ['id', 'firstName', 'lastName', 'avatar'],
-          required: false
-        }
-      ];
+      const messages = await Message.findAll({
+        where: { chat_id: chatId },
+        include: [
+          {
+            model: User,
+            as: 'sender', // ✅ This matches your Message model definition
+            attributes: ['id', 'firstName', 'lastName', 'avatar'],
+            required: false
+          }
+        ],
+        order: [['createdAt', 'DESC']],
+        limit: parseInt(limit),
+        offset: (parseInt(page) - 1) * parseInt(limit)
+      });
   
-      // Try each include option until one works
-      for (const includeOption of includeOptions) {
-        try {
-          console.log(`🔄 Trying messages with alias: ${includeOption.as}`);
-          messages = await Message.findAll({
-            where: { chat_id: chatId },
-            include: [includeOption],
-            order: [['createdAt', 'DESC']],
-            limit: parseInt(limit),
-            offset: (parseInt(page) - 1) * parseInt(limit)
-          });
-          console.log(`✅ Success with alias: ${includeOption.as}, found ${messages.length} messages`);
-          break;
-        } catch (aliasError) {
-          console.log(`❌ Failed with alias ${includeOption.as}:`, aliasError.message);
-          continue;
-        }
-      }
-  
-      // If all includes failed, try without any includes
-      if (messages.length === 0) {
-        try {
-          console.log('🔄 Trying without includes...');
-          messages = await Message.findAll({
-            where: { chat_id: chatId },
-            order: [['createdAt', 'DESC']],
-            limit: parseInt(limit),
-            offset: (parseInt(page) - 1) * parseInt(limit)
-          });
-          console.log(`✅ Success without includes, found ${messages.length} messages`);
-        } catch (noIncludeError) {
-          console.error('❌ Even query without includes failed:', noIncludeError);
-          throw noIncludeError;
-        }
-      }
+      console.log(`✅ Found ${messages.length} messages`);
   
       // Mark messages as read
       try {
@@ -376,52 +293,33 @@ class ChatController {
         console.error('⚠️ Failed to mark messages as read:', markReadError);
       }
   
-      // Format messages with safe property access
-      const formattedMessages = await Promise.all(
-        messages.reverse().map(async (msg) => {
-          let senderInfo = {
-            id: msg.sender_id || 'unknown',
-            name: 'Unknown',
-            avatar: null
-          };
+      // Format messages
+      const formattedMessages = messages.reverse().map((msg) => {
+        let senderInfo = {
+          id: msg.sender_id || 'unknown',
+          name: 'Unknown',
+          avatar: null
+        };
   
-          // Try to get sender info from the included association
-          if (msg.sender || msg.user || msg.chatUser) {
-            const senderData = msg.sender || msg.user || msg.chatUser;
-            senderInfo = {
-              id: senderData.id,
-              name: `${senderData.firstName || ''} ${senderData.lastName || ''}`.trim() || 'Unknown',
-              avatar: senderData.avatar || null
-            };
-          } else if (msg.sender_id) {
-            // Fallback: fetch sender info separately
-            try {
-              const sender = await User.findByPk(msg.sender_id, {
-                attributes: ['id', 'firstName', 'lastName', 'avatar']
-              });
-              if (sender) {
-                senderInfo = {
-                  id: sender.id,
-                  name: `${sender.firstName || ''} ${sender.lastName || ''}`.trim() || 'Unknown',
-                  avatar: sender.avatar || null
-                };
-              }
-            } catch (senderError) {
-              console.log('⚠️ Could not fetch sender info for message:', msg.id);
-            }
-          }
-  
-          return {
-            id: msg.id,
-            text: msg.content,
-            sender: msg.sender_type,
-            senderInfo: senderInfo,
-            timestamp: this.formatTime(msg.createdAt),
-            status: msg.status,
-            messageType: msg.messageType
+        // Get sender info from the included association
+        if (msg.sender) {
+          senderInfo = {
+            id: msg.sender.id,
+            name: `${msg.sender.firstName || ''} ${msg.sender.lastName || ''}`.trim() || 'Unknown',
+            avatar: msg.sender.avatar || null
           };
-        })
-      );
+        }
+  
+        return {
+          id: msg.id,
+          text: msg.content,
+          sender: msg.sender_type,
+          senderInfo: senderInfo,
+          timestamp: this.formatTime(msg.createdAt),
+          status: msg.status,
+          messageType: msg.messageType
+        };
+      });
   
       console.log(`✅ Returning ${formattedMessages.length} formatted messages`);
   
@@ -439,13 +337,13 @@ class ChatController {
     }
   }
 
-  // Send a message
+  // FIXED: Send message with proper validation and association handling
   async sendMessage(req, res) {
     try {
       const { conversationId: chatId, content, messageType = 'text' } = req.body;
       const senderId = req.user.id;
-      const userType = req.user.type;
-      const { Chat, Message, User, Store } = sequelize.models;
+      const userType = req.user.type || req.user.userType;
+      const { Chat, Message, User, Store, Merchant } = sequelize.models;
   
       console.log('📤 Sending message:', {
         chatId,
@@ -461,30 +359,9 @@ class ChatController {
         });
       }
   
-      // Find chat with complete information
+      // FIXED: Find chat without problematic nested includes
       console.log('🔍 Validating chat access...');
-      const chat = await Chat.findByPk(chatId, {
-        include: [
-          {
-            model: User,
-            as: 'user',
-            attributes: ['id', 'firstName', 'lastName', 'avatar', 'email']
-          },
-          {
-            model: Store,
-            as: 'store',
-            attributes: ['id', 'name', 'logo_url', 'merchant_id'],
-            include: [
-              {
-                model: User,
-                as: 'merchant', // Make sure this association exists in your Store model
-                attributes: ['id', 'firstName', 'lastName', 'avatar', 'email'],
-                required: false
-              }
-            ]
-          }
-        ]
-      });
+      const chat = await Chat.findByPk(chatId);
   
       if (!chat) {
         console.log('❌ Chat not found:', chatId);
@@ -494,28 +371,63 @@ class ChatController {
         });
       }
   
+      // Get related data separately to avoid association issues
+      console.log('🔍 Getting chat participants...');
+      const [customer, store] = await Promise.all([
+        User.findByPk(chat.userId, {
+          attributes: ['id', 'firstName', 'lastName', 'email', 'userType']
+        }),
+        Store.findByPk(chat.storeId, {
+          attributes: ['id', 'name', 'logo_url', 'merchant_id']
+        })
+      ]);
+
+      // Get merchant info (store owner)
+      let merchant = null;
+      if (store && store.merchant_id) {
+        // Try Merchant model first, then User model with merchant userType
+        if (Merchant) {
+          merchant = await Merchant.findByPk(store.merchant_id, {
+            attributes: ['id', 'firstName', 'lastName', 'email']
+          });
+        }
+        
+        // If no Merchant model or merchant not found, try User model
+        if (!merchant) {
+          merchant = await User.findOne({
+            where: { 
+              id: store.merchant_id,
+              userType: 'merchant'
+            },
+            attributes: ['id', 'firstName', 'lastName', 'email', 'userType']
+          });
+        }
+      }
+
       console.log('✅ Chat found with participants:', {
-        customer: chat.user ? `${chat.user.firstName} ${chat.user.lastName}` : 'Unknown',
-        store: chat.store ? chat.store.name : 'Unknown',
-        merchant: chat.store?.merchant_id ? `Merchant ${chat.store.merchant_id}` : 'Unknown'
+        customer: customer ? `${customer.firstName} ${customer.lastName}` : 'Unknown',
+        store: store ? store.name : 'Unknown',
+        merchant: merchant ? `${merchant.firstName} ${merchant.lastName}` : 'Unknown',
+        merchantId: store?.merchant_id
       });
   
       // Determine sender type and verify access
       let senderType = 'user';
       let hasAccess = false;
   
-      if (userType === 'user' && chat.userId === senderId) {
+      if ((userType === 'user' || userType === 'customer') && chat.userId === senderId) {
         hasAccess = true;
         senderType = 'user';
         console.log('✅ Customer access granted for sending');
       } else if (userType === 'merchant') {
         // Check if user is the merchant who owns the store
-        hasAccess = chat.store && chat.store.merchant_id === senderId;
+        hasAccess = store && store.merchant_id === senderId;
         if (hasAccess) {
           senderType = 'merchant';
           console.log('✅ Merchant access granted for sending');
         } else {
           console.log('❌ Merchant access denied for sending');
+          console.log('Debug - Store merchant_id:', store?.merchant_id, 'Sender ID:', senderId);
         }
       }
   
@@ -582,19 +494,21 @@ class ChatController {
         conversationId: chatId,
         // Additional info for socket events
         chatInfo: {
-          customer: chat.user ? {
-            id: chat.user.id,
-            name: `${chat.user.firstName} ${chat.user.lastName}`,
-            avatar: chat.user.avatar
+          customer: customer ? {
+            id: customer.id,
+            name: `${customer.firstName} ${customer.lastName}`,
+            avatar: customer.avatar
           } : null,
-          store: chat.store ? {
-            id: chat.store.id,
-            name: chat.store.name,
-            logo: chat.store.logo_url
+          store: store ? {
+            id: store.id,
+            name: store.name,
+            logo: store.logo_url
           } : null,
-          merchant: chat.store ? {
-            id: chat.store.merchant_id
-          } : null
+          merchant: merchant ? {
+            id: merchant.id,
+            name: `${merchant.firstName} ${merchant.lastName}`,
+            avatar: merchant.avatar
+          } : { id: store?.merchant_id }
         }
       };
   
@@ -605,39 +519,39 @@ class ChatController {
         if (socketManager && socketManager.isInitialized()) {
           console.log('🔊 Emitting socket events...');
           
-          // 1. Emit to all participants in the chat room (real-time for those currently in chat)
+          // 1. Emit to all participants in the chat room
           socketManager.emitToConversation(chatId, 'new_message', formattedMessage);
           
           // 2. Emit specific notifications based on sender type
           if (senderType === 'user') {
-            // Customer sent message - notify merchant
-            if (chat.store && chat.store.merchant_id) {
-              console.log(`📧 Notifying merchant ${chat.store.merchant_id} of new customer message`);
+            // Customer sent message - notify merchant (store owner)
+            if (store && store.merchant_id) {
+              console.log(`📧 Notifying merchant ${store.merchant_id} of new customer message`);
               
-              socketManager.emitToUser(chat.store.merchant_id, 'new_customer_message', {
+              socketManager.emitToUser(store.merchant_id, 'new_customer_message', {
                 ...formattedMessage,
                 type: 'customer_message',
                 priority: 'high',
                 chatId,
                 customer: {
-                  id: chat.user.id,
-                  name: `${chat.user.firstName} ${chat.user.lastName}`,
-                  avatar: chat.user.avatar
+                  id: customer.id,
+                  name: `${customer.firstName} ${customer.lastName}`,
+                  avatar: customer.avatar
                 },
                 store: {
-                  id: chat.store.id,
-                  name: chat.store.name
+                  id: store.id,
+                  name: store.name
                 }
               });
               
               // Emit merchant-specific chat update event
-              socketManager.emitToUser(chat.store.merchant_id, 'merchant_chat_update', {
+              socketManager.emitToUser(store.merchant_id, 'merchant_chat_update', {
                 action: 'new_message',
                 chatId,
                 customerId: chat.userId,
-                storeId: chat.store.id,
+                storeId: store.id,
                 message: formattedMessage,
-                unreadCount: await this.getUnreadCountForMerchant(chatId, chat.store.merchant_id)
+                unreadCount: await this.getUnreadCountForMerchant(chatId, store.merchant_id)
               });
             }
           } else if (senderType === 'merchant') {
@@ -650,9 +564,9 @@ class ChatController {
               priority: 'normal',
               chatId,
               store: {
-                id: chat.store.id,
-                name: chat.store.name,
-                logo: chat.store.logo_url
+                id: store.id,
+                name: store.name,
+                logo: store.logo_url
               },
               merchant: {
                 id: senderId,
@@ -664,7 +578,7 @@ class ChatController {
             socketManager.emitToUser(chat.userId, 'customer_chat_update', {
               action: 'new_message',
               chatId,
-              storeId: chat.store.id,
+              storeId: store.id,
               merchantId: senderId,
               message: formattedMessage,
               unreadCount: await this.getUnreadCountForCustomer(chatId, chat.userId)
@@ -673,8 +587,8 @@ class ChatController {
           
           // 3. Emit general notification for chat list updates
           const participants = [chat.userId];
-          if (chat.store && chat.store.merchant_id) {
-            participants.push(chat.store.merchant_id);
+          if (store && store.merchant_id) {
+            participants.push(store.merchant_id);
           }
           
           participants.forEach(participantId => {
@@ -709,226 +623,13 @@ class ChatController {
       });
     }
   }
-  
-  // Also fix the getMerchantChats method
-  async getMerchantChats(req, res) {
-    try {
-      const merchantId = req.user.id;
-      const { Chat, User, Store, Message } = sequelize.models;
-  
-      if (!merchantId) {
-        return res.status(400).json({
-          success: false,
-          message: 'Merchant ID is required'
-        });
-      }
-  
-      console.log('🏪 Loading chats for merchant:', merchantId);
-  
-      // Get merchant's stores
-      const stores = await Store.findAll({
-        where: { merchant_id: merchantId },
-        order: [['createdAt', 'DESC']]
-      });
-  
-      console.log(`🏬 Found ${stores.length} store(s) for merchant`);
-      
-      if (stores.length === 0) {
-        return res.status(200).json({
-          success: true,
-          data: [],
-          message: 'No stores found for this merchant. Please create a store first.'
-        });
-      }
-  
-      const storeIds = stores.map(store => store.id);
-      console.log('🏬 Store IDs for chat lookup:', storeIds);
-  
-      // Get chats without problematic associations first
-      const chats = await Chat.findAll({
-        where: { 
-          storeId: { [Op.in]: storeIds }
-        },
-        order: [['lastMessageAt', 'DESC']]
-      });
-  
-      console.log('💬 Found merchant chats:', chats.length);
-  
-      // Process each chat and get related data separately
-      const formattedChats = await Promise.all(
-        chats.map(async (chat) => {
-          // Get customer info
-          let customer = {
-            id: chat.userId,
-            name: 'Unknown Customer',
-            avatar: null,
-            customerSince: new Date().getFullYear(),
-            orderCount: 0,
-            priority: 'regular'
-          };
-  
-          try {
-            const user = await User.findByPk(chat.userId, {
-              attributes: ['id', 'firstName', 'lastName', 'avatar', 'email', 'createdAt']
-            });
-            if (user) {
-              customer = {
-                id: user.id,
-                name: `${user.firstName || ''} ${user.lastName || ''}`.trim() || 'Unknown Customer',
-                avatar: user.avatar || null,
-                customerSince: new Date(user.createdAt).getFullYear(),
-                orderCount: await this.getCustomerOrderCount(user.id, chat.storeId),
-                priority: customer.orderCount > 20 ? 'vip' : 'regular'
-              };
-            }
-          } catch (userError) {
-            console.log('⚠️ Could not fetch user info for chat:', chat.id);
-          }
-  
-          // Get store info
-          let store = { id: chat.storeId, name: 'Unknown Store' };
-          try {
-            const storeData = await Store.findByPk(chat.storeId, {
-              attributes: ['id', 'name']
-            });
-            if (storeData) {
-              store = {
-                id: storeData.id,
-                name: storeData.name
-              };
-            }
-          } catch (storeError) {
-            console.log('⚠️ Could not fetch store info for chat:', chat.id);
-          }
-  
-          // Get last message
-          let lastMessage = '';
-          let lastMessageTime = this.formatTime(chat.updatedAt);
-          try {
-            const recentMessage = await Message.findOne({
-              where: { chat_id: chat.id },
-              order: [['createdAt', 'DESC']],
-              attributes: ['content', 'createdAt']
-            });
-            if (recentMessage) {
-              lastMessage = recentMessage.content;
-              lastMessageTime = this.formatTime(recentMessage.createdAt);
-            }
-          } catch (messageError) {
-            console.log('⚠️ Could not fetch last message for chat:', chat.id);
-          }
-  
-          // Get unread count
-          let unreadCount = 0;
-          try {
-            unreadCount = await Message.count({
-              where: {
-                chat_id: chat.id,
-                sender_type: 'user',
-                status: { [Op.ne]: 'read' }
-              }
-            });
-          } catch (unreadError) {
-            console.log('⚠️ Could not fetch unread count for chat:', chat.id);
-          }
-  
-          return {
-            id: chat.id,
-            customer,
-            store,
-            lastMessage,
-            lastMessageTime,
-            unreadCount: unreadCount || 0,
-            online: false
-          };
-        })
-      );
-  
-      res.status(200).json({
-        success: true,
-        data: formattedChats
-      });
-    } catch (error) {
-      console.error('Error fetching merchant chats:', error);
-      res.status(500).json({
-        success: false,
-        message: 'Failed to fetch merchant chats',
-        error: process.env.NODE_ENV === 'development' ? error.message : undefined
-      });
-    }
-  }
-  
-  // Enhanced markMessagesAsRead method with better error handling
-  async markMessagesAsRead(chatId, userId, userType) {
-    try {
-      const { Message } = sequelize.models;
-  
-      console.log('📖 Marking messages as read:', {
-        chatId,
-        userId,
-        userType
-      });
-  
-      const updateCondition = {
-        chat_id: chatId,
-        sender_id: { [Op.ne]: userId },
-        status: { [Op.ne]: 'read' }
-      };
-  
-      // Additional filtering based on user type
-      if (userType === 'user') {
-        updateCondition.sender_type = 'merchant';
-      } else if (userType === 'merchant') {
-        updateCondition.sender_type = 'user';
-      }
-  
-      const updatedCount = await Message.update(
-        { status: 'read' },
-        { where: updateCondition }
-      );
-  
-      console.log(`📖 Marked ${updatedCount[0]} messages as read for ${userType} ${userId} in chat ${chatId}`);
-  
-      // Emit read receipt (with error handling)
-      try {
-        if (socketManager && socketManager.emitToConversation) {
-          socketManager.emitToConversation(chatId, 'messages_read', {
-            readBy: userId,
-            userType: userType,
-            timestamp: new Date()
-          });
-        }
-      } catch (socketError) {
-        console.error('⚠️ Socket read receipt failed:', socketError);
-      }
-    } catch (error) {
-      console.error('❌ Error marking messages as read:', error);
-      // Don't throw error - this is not critical
-    }
-  }
 
-  async getUnreadCountForCustomer(chatId, customerId) {
-    try {
-      const { Message } = sequelize.models;
-      return await Message.count({
-        where: {
-          chat_id: chatId,
-          sender_type: 'merchant', // Messages from merchants
-          status: { [Op.ne]: 'read' }
-        }
-      });
-    } catch (error) {
-      console.error('Error getting unread count for customer:', error);
-      return 0;
-    }
-  }
-
-  // Start a new chat (customer to store)
+  // Start a new chat (customer to store) - FIXED
   async startConversation(req, res) {
     try {
       const { storeId, initialMessage = '' } = req.body;
       const userId = req.user.id;
-      const userType = req.user.type;
+      const userType = req.user.type || req.user.userType;
       const { Chat, Message, Store, User } = sequelize.models;
   
       console.log('🆕 Starting conversation request:', {
@@ -939,7 +640,7 @@ class ChatController {
       });
   
       // Only allow users (customers) to start conversations
-      if (userType !== 'user') {
+      if (userType !== 'user' && userType !== 'customer') {
         console.log('❌ Non-user trying to start conversation:', userType);
         return res.status(403).json({
           success: false,
@@ -954,16 +655,9 @@ class ChatController {
         });
       }
   
-      // Get store with merchant info
+      // FIXED: Get store info without problematic includes
       const store = await Store.findByPk(storeId, {
-        include: [
-          {
-            model: User,
-            as: 'merchant',
-            attributes: ['id', 'firstName', 'lastName', 'email'],
-            required: false
-          }
-        ]
+        attributes: ['id', 'name', 'logo_url', 'merchant_id']
       });
       
       if (!store) {
@@ -1076,29 +770,6 @@ class ChatController {
         } catch (messageError) {
           console.error('⚠️ Failed to send initial message:', messageError);
         }
-      } else if (created) {
-        // If no initial message but chat was created, still notify merchant
-        if (socketManager && store.merchant_id) {
-          const customer = await User.findByPk(userId, {
-            attributes: ['id', 'firstName', 'lastName', 'avatar', 'email']
-          });
-          
-          socketManager.emitToUser(store.merchant_id, 'new_conversation', {
-            conversationId: chat.id,
-            customer: {
-              id: customer.id,
-              name: `${customer.firstName} ${customer.lastName}`,
-              email: customer.email,
-              avatar: customer.avatar
-            },
-            store: {
-              id: store.id,
-              name: store.name,
-              logo: store.logo_url
-            },
-            created: true
-          });
-        }
       }
   
       const response = {
@@ -1127,10 +798,17 @@ class ChatController {
       });
     }
   }
-  // Mark messages as read
+
+  // Mark messages as read - FIXED
   async markMessagesAsRead(chatId, userId, userType) {
     try {
       const { Message } = sequelize.models;
+
+      console.log('📖 Marking messages as read:', {
+        chatId,
+        userId,
+        userType
+      });
 
       const updateCondition = {
         chat_id: chatId,
@@ -1139,7 +817,7 @@ class ChatController {
       };
 
       // Additional filtering based on user type
-      if (userType === 'user') {
+      if (userType === 'user' || userType === 'customer') {
         updateCondition.sender_type = 'merchant';
       } else if (userType === 'merchant') {
         updateCondition.sender_type = 'user';
@@ -1152,16 +830,55 @@ class ChatController {
 
       console.log(`📖 Marked ${updatedCount[0]} messages as read for ${userType} ${userId} in chat ${chatId}`);
 
-      // Emit read receipt
-      if (socketManager && socketManager.emitToConversation) {
-        socketManager.emitToConversation(chatId, 'messages_read', {
-          readBy: userId,
-          userType: userType,
-          timestamp: new Date()
-        });
+      // Emit read receipt (with error handling)
+      try {
+        if (socketManager && socketManager.emitToConversation) {
+          socketManager.emitToConversation(chatId, 'messages_read', {
+            readBy: userId,
+            userType: userType,
+            timestamp: new Date()
+          });
+        }
+      } catch (socketError) {
+        console.error('⚠️ Socket read receipt failed:', socketError);
       }
     } catch (error) {
-      console.error('Error marking messages as read:', error);
+      console.error('❌ Error marking messages as read:', error);
+      // Don't throw error - this is not critical
+    }
+  }
+
+  // Helper method to get unread count for merchant
+  async getUnreadCountForMerchant(chatId, merchantId) {
+    try {
+      const { Message } = sequelize.models;
+      return await Message.count({
+        where: {
+          chat_id: chatId,
+          sender_type: 'user', // Messages from customers
+          status: { [Op.ne]: 'read' }
+        }
+      });
+    } catch (error) {
+      console.error('Error getting unread count for merchant:', error);
+      return 0;
+    }
+  }
+
+  // Helper method to get unread count for customer  
+  async getUnreadCountForCustomer(chatId, customerId) {
+    try {
+      const { Message } = sequelize.models;
+      return await Message.count({
+        where: {
+          chat_id: chatId,
+          sender_type: 'merchant', // Messages from merchants
+          status: { [Op.ne]: 'read' }
+        }
+      });
+    } catch (error) {
+      console.error('Error getting unread count for customer:', error);
+      return 0;
     }
   }
 
@@ -1221,11 +938,11 @@ class ChatController {
     }
   }
 
-  // Get conversation analytics (for merchants) - Fixed to use same pattern as store controller
+  // Get conversation analytics (for merchants)
   async getConversationAnalytics(req, res) {
     try {
       const userId = req.user.id;
-      const userType = req.user.type;
+      const userType = req.user.type || req.user.userType;
       const { Chat, Message, Store } = sequelize.models;
 
       console.log('📊 Getting analytics for user:', userId, 'type:', userType);
@@ -1271,7 +988,8 @@ class ChatController {
           include: [{
             model: Chat,
             as: 'chat',
-            where: { storeId: { [Op.in]: storeIds } }
+            where: { storeId: { [Op.in]: storeIds } },
+            attributes: []
           }]
         }),
         Message.count({
@@ -1282,7 +1000,8 @@ class ChatController {
           include: [{
             model: Chat,
             as: 'chat',
-            where: { storeId: { [Op.in]: storeIds } }
+            where: { storeId: { [Op.in]: storeIds } },
+            attributes: []
           }]
         })
       ]);
@@ -1335,12 +1054,12 @@ class ChatController {
     }
   }
 
-  // Search conversations - Fixed to use same pattern as store controller
+  // Search conversations
   async searchConversations(req, res) {
     try {
       const { query, type = 'all' } = req.query;
       const userId = req.user.id;
-      const userType = req.user.type;
+      const userType = req.user.type || req.user.userType;
       const { Chat, Message, User, Store } = sequelize.models;
 
       if (!query || query.trim().length < 2) {
@@ -1355,7 +1074,7 @@ class ChatController {
       let whereCondition = {};
       let includeConditions = [];
 
-      if (userType === 'user') {
+      if (userType === 'user' || userType === 'customer') {
         // Customer searching their chats
         whereCondition.userId = userId;
         includeConditions = [
@@ -1446,7 +1165,7 @@ class ChatController {
       const formattedResults = chats.map(chat => {
         const lastMessage = chat.messages && chat.messages.length > 0 ? chat.messages[0] : null;
         
-        if (userType === 'user') {
+        if (userType === 'user' || userType === 'customer') {
           return {
             id: chat.id,
             type: 'conversation',
@@ -1506,7 +1225,8 @@ class ChatController {
         include: [{
           model: sequelize.models.Chat,
           as: 'chat',
-          where: { userId: customerId, storeId }
+          where: { userId: customerId, storeId },
+          attributes: []
         }]
       });
       

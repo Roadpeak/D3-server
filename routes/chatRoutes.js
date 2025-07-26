@@ -9,6 +9,7 @@ const { verifyToken, authenticateUser, authenticateMerchant, optionalAuth } = re
 // Customer routes - Users can start conversations and view their chats
 router.get('/conversations', verifyToken, chatController.getUserConversations);
 router.post('/conversations', verifyToken, chatController.startConversation);
+router.get('/user/conversations', verifyToken, chatController.getUserConversations);
 
 // Merchant routes - Merchants can view their store chats and analytics
 router.get('/merchant/conversations', verifyToken, chatController.getMerchantConversations);

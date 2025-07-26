@@ -656,4 +656,322 @@ app.get('/debug/test-merchant', async (req, res) => {
   }
 });
 
+
+// ADD THESE ROUTES TO YOUR app.js in the development section (around line 350)
+
+if (process.env.NODE_ENV === 'development') {
+  const jwt = require('jsonwebtoken');
+
+  // ✅ FIXED: Add merchant login test route
+  app.post('/api/v1/merchants/login', (req, res) => {
+    console.log('🏪 Merchant login attempt:', req.body);
+    const { email, password } = req.body;
+
+    if (!email || !password) {
+      return res.status(400).json({
+        message: 'Email and password required',
+        errors: {}
+      });
+    }
+
+    // Create test merchant token
+    const token = jwt.sign(
+      {
+        userId: 'merchant-test-123',
+        id: 'merchant-test-123',
+        email: email,
+        type: 'merchant',        // ✅ Important: type = merchant
+        userType: 'merchant'     // ✅ Important: userType = merchant
+      },
+      process.env.JWT_SECRET || 'your-secret-key',
+      { expiresIn: '30d' }
+    );
+
+    return res.status(200).json({
+      message: 'Merchant login successful',
+      user: {
+        id: 'merchant-test-123',
+        firstName: 'Test',
+        lastName: 'Merchant',
+        email: email,
+        phoneNumber: '+1234567890',
+        userType: 'merchant',      // ✅ Important: merchant type
+        isEmailVerified: true,
+        isPhoneVerified: true,
+      },
+      access_token: token,
+    });
+  });
+
+  // ✅ Add merchant profile route
+  app.get('/api/v1/merchants/profile', (req, res) => {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({
+        success: false,
+        message: 'No token provided'
+      });
+    }
+
+    const token = authHeader.substring(7);
+    try {
+      const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key');
+      return res.status(200).json({
+        success: true,
+        user: {
+          id: decoded.userId || decoded.id,
+          firstName: 'Test',
+          lastName: 'Merchant',
+          email: decoded.email,
+          phoneNumber: '+1234567890',
+          userType: 'merchant'
+        }
+      });
+    } catch (error) {
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid token'
+      });
+    }
+  });
+
+  // ✅ Create test store for merchant
+  app.post('/api/v1/stores/test-create', (req, res) => {
+    console.log('🏬 Creating test store...');
+    
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({
+        success: false,
+        message: 'No token provided'
+      });
+    }
+
+    const token = authHeader.substring(7);
+    try {
+      const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key');
+      
+      // Simulate store creation
+      const testStore = {
+        id: 'store-test-123',
+        name: 'Test Merchant Store',
+        merchant_id: decoded.userId || decoded.id,
+        location: 'Test Location',
+        primary_email: decoded.email,
+        description: 'A test store for merchant chat testing',
+        category: 'General',
+        logo_url: 'https://via.placeholder.com/150',
+        opening_time: '09:00',
+        closing_time: '18:00',
+        working_days: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'],
+        status: 'open',
+        is_active: true
+      };
+
+      return res.status(201).json({
+        success: true,
+        message: 'Test store created',
+        store: testStore
+      });
+    } catch (error) {
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid token'
+      });
+    }
+  });
+
+  // ✅ DEBUG: Check chat system status
+  app.get('/api/v1/debug/chat-status', async (req, res) => {
+    try {
+      const { Store, Chat, Message, User } = require('./models/index').sequelize.models;
+      
+      const stats = {
+        totalStores: await Store.count(),
+        totalChats: await Chat.count(),
+        totalMessages: await Message.count(),
+        totalUsers: await User.count(),
+        sampleStores: await Store.findAll({ 
+          limit: 3, 
+          attributes: ['id', 'name', 'merchant_id'] 
+        }),
+        sampleChats: await Chat.findAll({ 
+          limit: 3, 
+          attributes: ['id', 'userId', 'storeId'] 
+        })
+      };
+
+      res.json({
+        success: true,
+        message: 'Chat system status',
+        data: stats,
+        timestamp: new Date().toISOString()
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: error.message,
+        stack: error.stack
+      });
+    }
+  });
+
+  // ✅ DEBUG: Test merchant chat endpoint directly
+  app.get('/api/v1/debug/test-merchant-chat', async (req, res) => {
+    try {
+      const authHeader = req.headers.authorization;
+      if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        return res.status(401).json({
+          success: false,
+          message: 'No token provided'
+        });
+      }
+
+      const token = authHeader.substring(7);
+      const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key');
+      
+      console.log('🧪 Test merchant chat debug:', {
+        decodedToken: decoded,
+        merchantId: decoded.userId || decoded.id,
+        userType: decoded.type || decoded.userType
+      });
+
+      const { Store, Chat } = require('./models/index').sequelize.models;
+      
+      // Check stores for this merchant
+      const stores = await Store.findAll({
+        where: { merchant_id: decoded.userId || decoded.id },
+        attributes: ['id', 'name', 'merchant_id']
+      });
+
+      // Check chats for these stores
+      const storeIds = stores.map(s => s.id);
+      const chats = await Chat.findAll({
+        where: { storeId: { [require('sequelize').Op.in]: storeIds } },
+        attributes: ['id', 'userId', 'storeId']
+      });
+
+      res.json({
+        success: true,
+        debug: {
+          merchantId: decoded.userId || decoded.id,
+          userType: decoded.type || decoded.userType,
+          storesFound: stores.length,
+          stores: stores,
+          chatsFound: chats.length,
+          chats: chats
+        }
+      });
+
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: error.message,
+        stack: error.stack
+      });
+    }
+  });
+
+  // ✅ Create test data for merchant chat
+  app.post('/api/v1/debug/create-test-data', async (req, res) => {
+    try {
+      const { Store, Chat, Message, User } = require('./models/index').sequelize.models;
+      
+      // Create test merchant
+      const [testMerchant, created] = await User.findOrCreate({
+        where: { email: 'merchant@test.com' },
+        defaults: {
+          firstName: 'Test',
+          lastName: 'Merchant',
+          email: 'merchant@test.com',
+          phoneNumber: '+1234567890',
+          password: 'password123',
+          userType: 'merchant'
+        }
+      });
+
+      // Create test store
+      const [testStore, storeCreated] = await Store.findOrCreate({
+        where: { merchant_id: testMerchant.id },
+        defaults: {
+          name: 'Test Store',
+          merchant_id: testMerchant.id,
+          location: 'Test Location',
+          primary_email: 'store@test.com',
+          description: 'Test store for chat',
+          opening_time: '09:00',
+          closing_time: '18:00',
+          working_days: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'],
+          status: 'open',
+          is_active: true
+        }
+      });
+
+      // Create test customer
+      const [testCustomer, customerCreated] = await User.findOrCreate({
+        where: { email: 'customer@test.com' },
+        defaults: {
+          firstName: 'Test',
+          lastName: 'Customer',
+          email: 'customer@test.com',
+          phoneNumber: '+0987654321',
+          password: 'password123',
+          userType: 'customer'
+        }
+      });
+
+      // Create test chat
+      const [testChat, chatCreated] = await Chat.findOrCreate({
+        where: { 
+          userId: testCustomer.id,
+          storeId: testStore.id 
+        },
+        defaults: {
+          userId: testCustomer.id,
+          storeId: testStore.id,
+          status: 'active',
+          lastMessageAt: new Date()
+        }
+      });
+
+      // Create test message
+      if (chatCreated) {
+        await Message.create({
+          chat_id: testChat.id,
+          sender_id: testCustomer.id,
+          sender_type: 'user',
+          content: 'Hello! I would like to know more about your products.',
+          messageType: 'text',
+          status: 'sent'
+        });
+      }
+
+      res.json({
+        success: true,
+        message: 'Test data created successfully',
+        data: {
+          merchant: { id: testMerchant.id, email: testMerchant.email },
+          store: { id: testStore.id, name: testStore.name },
+          customer: { id: testCustomer.id, email: testCustomer.email },
+          chat: { id: testChat.id },
+          newRecords: {
+            merchant: created,
+            store: storeCreated,
+            customer: customerCreated,
+            chat: chatCreated
+          }
+        }
+      });
+
+    } catch (error) {
+      console.error('Error creating test data:', error);
+      res.status(500).json({
+        success: false,
+        error: error.message,
+        stack: error.stack
+      });
+    }
+  });
+}
+
 module.exports = app;
