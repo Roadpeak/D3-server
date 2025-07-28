@@ -1,4 +1,4 @@
-// socket/websocket.js - Fixed authentication with comprehensive error handling
+// socket/websocket.js - FIXED: Proper message routing between customers and merchants
 const socketIo = require('socket.io');
 const jwt = require('jsonwebtoken');
 const { sequelize } = require('../models/index');
@@ -23,12 +23,11 @@ class SocketManager {
       }
     });
 
-    // Enhanced authentication middleware with comprehensive error handling
+    // Enhanced authentication middleware
     this.io.use(async (socket, next) => {
       try {
         console.log('🔐 Socket authentication attempt...');
         
-        // Get token from multiple possible locations
         const token = socket.handshake.auth.token || 
                      socket.handshake.headers.authorization?.replace('Bearer ', '') ||
                      socket.handshake.query.token;
@@ -45,7 +44,6 @@ class SocketManager {
           return next(new Error('Authentication error: No token provided'));
         }
 
-        // Verify JWT token with detailed error handling
         let decoded;
         try {
           decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key');
@@ -68,7 +66,6 @@ class SocketManager {
           }
         }
 
-        // Extract user ID from different possible token structures
         let userId = decoded.userId || decoded.id;
         
         if (!userId) {
@@ -82,10 +79,9 @@ class SocketManager {
         let userType = null;
         let foundInModel = null;
 
-        // Try different approaches to find the user
         const { User, Merchant } = sequelize.models;
 
-        // Method 1: Try based on token type
+        // Try different approaches to find the user
         if (decoded.type === 'user' || decoded.userType === 'customer') {
           if (User) {
             try {
@@ -118,11 +114,10 @@ class SocketManager {
           }
         }
 
-        // Method 2: Fallback - try both models
+        // Fallback - try both models
         if (!user) {
           console.log('🔄 Trying fallback user lookup in both models...');
           
-          // Try User model first
           if (User) {
             try {
               user = await User.findByPk(userId, {
@@ -138,7 +133,6 @@ class SocketManager {
             }
           }
           
-          // Try Merchant model if User not found
           if (!user && Merchant) {
             try {
               user = await Merchant.findByPk(userId, {
@@ -155,13 +149,10 @@ class SocketManager {
           }
         }
 
-        // Method 3: Check if models exist
+        // Check available models if user not found
         if (!user) {
           console.log('🔍 Available models:', Object.keys(sequelize.models));
-          console.log('🔍 User model exists:', !!User);
-          console.log('🔍 Merchant model exists:', !!Merchant);
           
-          // Try with exact model names from your database
           const modelNames = Object.keys(sequelize.models);
           for (const modelName of modelNames) {
             if (modelName.toLowerCase().includes('user') || modelName.toLowerCase().includes('merchant')) {
@@ -235,7 +226,7 @@ class SocketManager {
       }
     });
 
-    // Connection handler with better error handling
+    // Connection handler
     this.io.on('connection', (socket) => {
       console.log(`✅ User ${socket.userId} (${socket.userRole}) connected with socket ${socket.id}`);
       
@@ -339,13 +330,11 @@ class SocketManager {
         this.broadcastUserOnlineStatus(socket.userId, userRole, false);
       });
 
-      // Handle errors
       socket.on('error', (error) => {
         console.error(`Socket error for user ${socket.userId}:`, error);
       });
     });
 
-    // Global error handling
     this.io.on('error', (error) => {
       console.error('Socket.IO server error:', error);
     });
@@ -354,24 +343,23 @@ class SocketManager {
     console.log('🚀 Socket.IO server initialized with enhanced authentication');
   }
 
-  // ... (rest of the methods remain the same as before)
-  
-  // Enhanced method to emit new messages with proper routing
+  // FIXED: Enhanced method to emit new messages with proper routing
   emitNewMessage(chatId, messageData) {
     console.log(`💬 Emitting new message to chat ${chatId}:`, {
       sender: messageData.sender,
-      messageId: messageData.id
+      messageId: messageData.id,
+      senderType: messageData.sender_type || messageData.sender
     });
 
-    this.io.to(`chat_${chatId}`).emit('new_message', {
-      ...messageData,
-      conversationId: chatId
-    });
+    // CRITICAL FIX: Do NOT emit to chat room (this causes messages to appear in sender's interface)
+    // Instead, use targeted notifications based on message routing
+    console.log('🚫 Skipping chat room broadcast to prevent duplicate messages');
 
+    // The controller will handle targeted notifications via notifyRelevantUsersForChat
     this.notifyRelevantUsersForChat(chatId, 'new_message', messageData);
   }
 
-  // Notify relevant users for a chat
+  // FIXED: Notify relevant users for a chat - targeted notifications only
   async notifyRelevantUsersForChat(chatId, event, data) {
     try {
       const { Chat, Store } = sequelize.models;
@@ -388,19 +376,27 @@ class SocketManager {
 
       if (!chat) return;
 
-      if (chat.userId) {
-        this.emitToUser(chat.userId, event, data);
-      }
+      console.log('🎯 Notifying relevant users for chat:', {
+        chatId,
+        customerId: chat.userId,
+        merchantId: chat.store?.merchant_id,
+        event,
+        messageSender: data.sender || data.sender_type
+      });
 
-      if (chat.store && chat.store.merchant_id) {
-        this.emitToUser(chat.store.merchant_id, event, data);
-        
-        this.emitToUser(chat.store.merchant_id, `merchant_${event}`, {
-          ...data,
-          chatId,
-          customerId: chat.userId,
-          storeId: chat.store.id
-        });
+      // FIXED: Only notify the RECIPIENT of the message, not the sender
+      if (data.sender === 'user' || data.sender_type === 'user') {
+        // Customer sent message - notify ONLY merchant
+        if (chat.store && chat.store.merchant_id) {
+          console.log(`📧 Notifying ONLY merchant ${chat.store.merchant_id} of customer message`);
+          this.emitToUser(chat.store.merchant_id, event, data);
+        }
+      } else if (data.sender === 'merchant' || data.sender_type === 'merchant') {
+        // Merchant sent message - notify ONLY customer
+        if (chat.userId) {
+          console.log(`📧 Notifying ONLY customer ${chat.userId} of merchant message`);
+          this.emitToUser(chat.userId, event, data);
+        }
       }
 
     } catch (error) {
@@ -408,24 +404,29 @@ class SocketManager {
     }
   }
 
-  // Emit message to specific user
+  // FIXED: Emit message to specific user with better logging
   emitToUser(userId, event, data) {
     const socketId = this.onlineUsers.get(userId.toString());
     if (socketId && this.io) {
-      console.log(`📤 Emitting ${event} to user ${userId}`);
+      console.log(`📤 Emitting ${event} to user ${userId} (socket: ${socketId})`);
       this.io.to(socketId).emit(event, data);
+      return true;
     } else {
       console.log(`⚠️ User ${userId} not connected, cannot emit ${event}`);
+      return false;
     }
   }
 
-  // Enhanced method to emit message to specific chat
+  // FIXED: Enhanced method to emit message to specific chat - use sparingly
   emitToConversation(chatId, event, data) {
     if (this.io) {
-      console.log(`📡 Emitting ${event} to chat ${chatId}`);
-      this.io.to(`chat_${chatId}`).emit(event, data);
+      console.log(`📡 Emitting ${event} to chat room ${chatId}`);
       
-      if (['new_message', 'message_status_update'].includes(event)) {
+      // CRITICAL: Only use for non-message events like typing, read receipts, etc.
+      if (!['new_message', 'new_customer_message', 'new_merchant_message'].includes(event)) {
+        this.io.to(`chat_${chatId}`).emit(event, data);
+      } else {
+        console.log('🚫 Blocked chat room emission for message event - using targeted routing instead');
         this.notifyRelevantUsersForChat(chatId, event, data);
       }
     }
@@ -492,7 +493,8 @@ class SocketManager {
       if (updatedCount[0] > 0) {
         console.log(`📬 Marked ${updatedCount[0]} messages as delivered`);
         
-        this.emitToConversation(chatId, 'messages_delivered', {
+        // FIXED: Only emit to chat room for delivery status (not new messages)
+        this.io.to(`chat_${chatId}`).emit('messages_delivered', {
           chatId,
           deliveredBy: userId,
           timestamp: new Date(),
@@ -517,7 +519,7 @@ class SocketManager {
     }
   }
 
-  // Broadcast user online/offline status
+  // FIXED: Broadcast user online/offline status with targeted notifications
   async broadcastUserOnlineStatus(userId, userRole, isOnline) {
     try {
       if (userRole === 'merchant') {
@@ -573,6 +575,32 @@ class SocketManager {
     }
   }
 
+  // FIXED: Broadcast system message with proper targeting
+  broadcastSystemMessage(message, targetRole = null) {
+    if (!this.io) return;
+
+    console.log('📢 Broadcasting system message:', { message, targetRole });
+
+    if (targetRole) {
+      // Send to specific user role
+      this.userRoles.forEach((role, userId) => {
+        if (role === targetRole) {
+          this.emitToUser(userId, 'system_message', {
+            message,
+            timestamp: new Date(),
+            targetRole
+          });
+        }
+      });
+    } else {
+      // Send to all connected users
+      this.io.emit('system_message', {
+        message,
+        timestamp: new Date()
+      });
+    }
+  }
+
   // Check if user is online
   isUserOnline(userId) {
     return this.onlineUsers.has(userId.toString());
@@ -583,9 +611,34 @@ class SocketManager {
     return this.onlineUsers.size;
   }
 
+  // Get online users by role
+  getOnlineUsersByRole(role) {
+    const onlineUsersOfRole = [];
+    this.userRoles.forEach((userRole, userId) => {
+      if (userRole === role && this.isUserOnline(userId)) {
+        onlineUsersOfRole.push(userId);
+      }
+    });
+    return onlineUsersOfRole;
+  }
+
   // Check if socket manager is initialized
   isInitialized() {
     return this.initialized;
+  }
+
+  // FIXED: Get socket statistics for debugging
+  getStats() {
+    return {
+      isInitialized: this.initialized,
+      onlineUsers: this.onlineUsers.size,
+      chatRooms: this.chatRooms.size,
+      userRoles: Object.fromEntries(this.userRoles),
+      onlineUsersByRole: {
+        customers: this.getOnlineUsersByRole('user').length,
+        merchants: this.getOnlineUsersByRole('merchant').length
+      }
+    };
   }
 
   // Close socket connections
