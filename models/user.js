@@ -75,6 +75,82 @@ module.exports = (sequelize, DataTypes) => {
     phoneVerifiedAt: {
       type: DataTypes.DATE,
       allowNull: true
+    },
+    // NEW: Chat system related fields
+    isOnline: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: false,
+      comment: 'Real-time online status for chat system'
+    },
+    lastSeenAt: {
+      type: DataTypes.DATE,
+      allowNull: true,
+      comment: 'Last seen timestamp for chat system'
+    },
+    // NEW: Notification preferences for customer↔store communication
+    chatNotifications: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: true,
+      comment: 'Whether to receive chat notifications'
+    },
+    emailNotifications: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: true,
+      comment: 'Whether to receive email notifications'
+    },
+    smsNotifications: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: true,
+      comment: 'Whether to receive SMS notifications'
+    },
+    pushNotifications: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: true,
+      comment: 'Whether to receive push notifications'
+    },
+    // NEW: Marketing preferences
+    marketingEmails: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: false,
+      comment: 'Whether to receive marketing emails'
+    },
+    // NEW: Additional customer fields for enhanced store communication
+    dateOfBirth: {
+      type: DataTypes.DATE,
+      allowNull: true,
+      comment: 'Customer date of birth'
+    },
+    gender: {
+      type: DataTypes.ENUM('male', 'female', 'other', 'prefer_not_to_say'),
+      allowNull: true,
+      comment: 'Customer gender'
+    },
+    address: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+      comment: 'Customer address'
+    },
+    city: {
+      type: DataTypes.STRING,
+      allowNull: true,
+      comment: 'Customer city'
+    },
+    country: {
+      type: DataTypes.STRING,
+      allowNull: true,
+      defaultValue: 'Kenya',
+      comment: 'Customer country'
+    },
+    postalCode: {
+      type: DataTypes.STRING,
+      allowNull: true,
+      comment: 'Customer postal code'
+    },
+    // NEW: Privacy settings
+    profileVisibility: {
+      type: DataTypes.ENUM('public', 'private', 'friends_only'),
+      defaultValue: 'public',
+      comment: 'Profile visibility setting'
     }
   }, {
     tableName: 'users',
@@ -98,6 +174,23 @@ module.exports = (sequelize, DataTypes) => {
       {
         fields: ['createdAt'],
         name: 'idx_created_at'
+      },
+      // NEW: Chat system indexes
+      {
+        fields: ['isOnline'],
+        name: 'idx_is_online'
+      },
+      {
+        fields: ['userType', 'isOnline'],
+        name: 'idx_user_type_online'
+      },
+      {
+        fields: ['city'],
+        name: 'idx_city'
+      },
+      {
+        fields: ['country'],
+        name: 'idx_country'
       }
     ],
     defaultScope: {
@@ -108,6 +201,21 @@ module.exports = (sequelize, DataTypes) => {
     scopes: {
       withPassword: {
         attributes: {} // Include all attributes including password
+      },
+      customersOnly: {
+        where: {
+          userType: 'customer'
+        }
+      },
+      merchantsOnly: {
+        where: {
+          userType: 'merchant'
+        }
+      },
+      onlineUsers: {
+        where: {
+          isOnline: true
+        }
       }
     }
   });
@@ -147,6 +255,7 @@ module.exports = (sequelize, DataTypes) => {
 
   User.prototype.updateLastLogin = function() {
     this.lastLoginAt = new Date();
+    this.isOnline = true; // Set online when logging in
     return this.save();
   };
 
@@ -158,6 +267,196 @@ module.exports = (sequelize, DataTypes) => {
   User.prototype.verifyPhone = function() {
     this.phoneVerifiedAt = new Date();
     return this.save();
+  };
+
+  // NEW: Chat system methods
+  
+  // Update online status for chat system
+  User.prototype.updateOnlineStatus = async function(isOnline) {
+    this.isOnline = isOnline;
+    this.lastSeenAt = isOnline ? null : new Date();
+    return await this.save();
+  };
+
+  // Get customer's store conversations (for customers)
+  User.prototype.getStoreConversations = async function(options = {}) {
+    if (this.userType !== 'customer') return [];
+    
+    const { Chat } = sequelize.models;
+    return await Chat.findAll({
+      where: { 
+        userId: this.id,
+        status: options.status || 'active'
+      },
+      include: [
+        {
+          model: sequelize.models.Store,
+          as: 'store',
+          attributes: ['id', 'name', 'logo_url', 'category', 'location', 'merchant_id', 'isOnline'],
+          where: { is_active: true }
+        }
+      ],
+      order: [['lastMessageAt', 'DESC']],
+      limit: options.limit || 50
+    });
+  };
+
+  // Get merchant's customer conversations (for merchants)
+  User.prototype.getCustomerConversations = async function(options = {}) {
+    if (this.userType !== 'merchant') return [];
+    
+    const { Chat, Store } = sequelize.models;
+    
+    // Get merchant's stores
+    const merchantStores = await Store.findAll({
+      where: { merchant_id: this.id, is_active: true },
+      attributes: ['id']
+    });
+    
+    const storeIds = merchantStores.map(store => store.id);
+    if (storeIds.length === 0) return [];
+    
+    return await Chat.findAll({
+      where: { 
+        storeId: { [sequelize.Sequelize.Op.in]: storeIds },
+        status: options.status || 'active'
+      },
+      include: [
+        {
+          model: User.scope('defaultScope'),
+          as: 'user',
+          attributes: ['id', 'firstName', 'lastName', 'avatar', 'email', 'createdAt']
+        },
+        {
+          model: Store,
+          as: 'store',
+          attributes: ['id', 'name', 'logo_url', 'merchant_id']
+        }
+      ],
+      order: [['lastMessageAt', 'DESC']],
+      limit: options.limit || 50
+    });
+  };
+
+  // Get unread messages count
+  User.prototype.getUnreadMessagesCount = async function() {
+    const { Message, Chat, Store } = sequelize.models;
+    
+    if (this.userType === 'customer') {
+      // Count unread messages from stores to this customer
+      const customerChats = await Chat.findAll({
+        where: { userId: this.id },
+        attributes: ['id']
+      });
+      const chatIds = customerChats.map(chat => chat.id);
+      
+      if (chatIds.length === 0) return 0;
+      
+      return await Message.count({
+        where: {
+          chat_id: { [sequelize.Sequelize.Op.in]: chatIds },
+          sender_type: 'store', // Messages from stores
+          status: { [sequelize.Sequelize.Op.ne]: 'read' }
+        }
+      });
+    } else if (this.userType === 'merchant') {
+      // Count unread messages from customers to this merchant's stores
+      const merchantStores = await Store.findAll({
+        where: { merchant_id: this.id },
+        attributes: ['id']
+      });
+      const storeIds = merchantStores.map(store => store.id);
+      
+      if (storeIds.length === 0) return 0;
+      
+      const storeChats = await Chat.findAll({
+        where: { storeId: { [sequelize.Sequelize.Op.in]: storeIds } },
+        attributes: ['id']
+      });
+      const chatIds = storeChats.map(chat => chat.id);
+      
+      if (chatIds.length === 0) return 0;
+      
+      return await Message.count({
+        where: {
+          chat_id: { [sequelize.Sequelize.Op.in]: chatIds },
+          sender_type: 'user', // Messages from customers
+          status: { [sequelize.Sequelize.Op.ne]: 'read' }
+        }
+      });
+    }
+    
+    return 0;
+  };
+
+  // Get total conversations count
+  User.prototype.getConversationsCount = async function() {
+    const { Chat, Store } = sequelize.models;
+    
+    if (this.userType === 'customer') {
+      return await Chat.count({
+        where: { 
+          userId: this.id,
+          status: 'active'
+        }
+      });
+    } else if (this.userType === 'merchant') {
+      const merchantStores = await Store.findAll({
+        where: { merchant_id: this.id },
+        attributes: ['id']
+      });
+      const storeIds = merchantStores.map(store => store.id);
+      
+      if (storeIds.length === 0) return 0;
+      
+      return await Chat.count({
+        where: { 
+          storeId: { [sequelize.Sequelize.Op.in]: storeIds },
+          status: 'active'
+        }
+      });
+    }
+    
+    return 0;
+  };
+
+  // Update notification preferences
+  User.prototype.updateNotificationPreferences = async function(preferences) {
+    const allowedFields = [
+      'chatNotifications', 
+      'emailNotifications', 
+      'smsNotifications', 
+      'pushNotifications',
+      'marketingEmails'
+    ];
+    
+    allowedFields.forEach(field => {
+      if (preferences.hasOwnProperty(field)) {
+        this[field] = preferences[field];
+      }
+    });
+    
+    return await this.save();
+  };
+
+  // Start conversation with store (customers only)
+  User.prototype.startConversationWithStore = async function(storeId, initialMessage = '') {
+    if (this.userType !== 'customer') {
+      throw new Error('Only customers can start conversations with stores');
+    }
+    
+    const { Chat } = sequelize.models;
+    return await Chat.findOrCreate({
+      where: {
+        userId: this.id,
+        storeId: storeId
+      },
+      defaults: {
+        userId: this.id,
+        storeId: storeId,
+        lastMessageAt: new Date()
+      }
+    });
   };
 
   // Class methods
@@ -173,14 +472,81 @@ module.exports = (sequelize, DataTypes) => {
     });
   };
 
+  // NEW: Find by email or phone
+  User.findByEmailOrPhone = async function(identifier) {
+    return await this.findOne({
+      where: {
+        [sequelize.Sequelize.Op.or]: [
+          { email: identifier.toLowerCase() },
+          { phoneNumber: identifier }
+        ]
+      }
+    });
+  };
+
+  // NEW: Get online users by type
+  User.getOnlineUsers = async function(userType = null) {
+    let whereCondition = {
+      isOnline: true,
+      isActive: true
+    };
+    
+    if (userType) {
+      whereCondition.userType = userType;
+    }
+    
+    return await this.findAll({
+      where: whereCondition,
+      attributes: ['id', 'firstName', 'lastName', 'avatar', 'userType', 'lastSeenAt']
+    });
+  };
+
+  // NEW: Search users
+  User.searchUsers = async function(query, options = {}) {
+    const { limit = 50, userType = null, includeInactive = false } = options;
+    
+    let whereCondition = {
+      [sequelize.Sequelize.Op.or]: [
+        { firstName: { [sequelize.Sequelize.Op.iLike]: `%${query}%` } },
+        { lastName: { [sequelize.Sequelize.Op.iLike]: `%${query}%` } },
+        { email: { [sequelize.Sequelize.Op.iLike]: `%${query}%` } }
+      ]
+    };
+    
+    if (!includeInactive) {
+      whereCondition.isActive = true;
+    }
+    
+    if (userType) {
+      whereCondition.userType = userType;
+    }
+    
+    return await this.findAll({
+      where: whereCondition,
+      attributes: ['id', 'firstName', 'lastName', 'email', 'avatar', 'userType', 'isActive'],
+      limit
+    });
+  };
+
   // Virtual attributes
   User.prototype.getIsVerified = function() {
     return this.isEmailVerified() && this.isPhoneVerified();
   };
 
-  // Associations
+  // NEW: Get user's age
+  User.prototype.getAge = function() {
+    if (!this.dateOfBirth) return null;
+    return Math.floor((new Date() - new Date(this.dateOfBirth)) / (365.25 * 24 * 60 * 60 * 1000));
+  };
+
+  // NEW: Get display name
+  User.prototype.getDisplayName = function() {
+    return this.getFullName() || this.email.split('@')[0];
+  };
+
+  // Enhanced Associations for Customer↔Store Communication
   User.associate = function(models) {
-    // User has many chats
+    // User has many chats (customers chatting with stores)
     User.hasMany(models.Chat, {
       foreignKey: 'userId',
       as: 'chats',
@@ -194,35 +560,53 @@ module.exports = (sequelize, DataTypes) => {
       onDelete: 'CASCADE'
     });
 
-    // User has many deleted messages (messages they deleted)
-    User.hasMany(models.Message, {
-      foreignKey: 'deletedBy',
-      as: 'deletedMessages',
-      onDelete: 'SET NULL'
+    // Merchants have many stores
+    User.hasMany(models.Store, {
+      foreignKey: 'merchant_id',
+      as: 'stores',
+      scope: {
+        userType: 'merchant'
+      },
+      onDelete: 'CASCADE'
     });
 
     // If you have other models, add them here:
     
     // User has many orders (if you have an Order model)
-    // User.hasMany(models.Order, {
-    //   foreignKey: 'userId',
-    //   as: 'orders',
-    //   onDelete: 'CASCADE'
-    // });
-
-    // User has many stores (if merchants can have stores)
-    // User.hasMany(models.Store, {
-    //   foreignKey: 'ownerId',
-    //   as: 'stores',
-    //   onDelete: 'CASCADE'
-    // });
+    if (models.Order) {
+      User.hasMany(models.Order, {
+        foreignKey: 'userId',
+        as: 'orders',
+        onDelete: 'CASCADE'
+      });
+    }
 
     // User has many reviews (if you have a Review model)
-    // User.hasMany(models.Review, {
-    //   foreignKey: 'userId',
-    //   as: 'reviews',
-    //   onDelete: 'CASCADE'
-    // });
+    if (models.Review) {
+      User.hasMany(models.Review, {
+        foreignKey: 'userId',
+        as: 'reviews',
+        onDelete: 'CASCADE'
+      });
+    }
+
+    // User has many follows (if you have a Follow model)
+    if (models.Follow) {
+      User.hasMany(models.Follow, {
+        foreignKey: 'userId',
+        as: 'following',
+        onDelete: 'CASCADE'
+      });
+    }
+
+    // User has many wishlists (if you have a Wishlist model)
+    if (models.Wishlist) {
+      User.hasMany(models.Wishlist, {
+        foreignKey: 'userId',
+        as: 'wishlists',
+        onDelete: 'CASCADE'
+      });
+    }
   };
 
   // Hook to normalize email before saving

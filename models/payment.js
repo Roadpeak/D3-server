@@ -47,7 +47,7 @@ module.exports = (sequelize) => {
       unique_code: {
         type: DataTypes.STRING,
         allowNull: false,
-        unique: true,
+        unique: 'unique_code',
         defaultValue: () => 'PAY_' + Date.now() + '_' + Math.random().toString(36).substring(2, 8).toUpperCase(),
         comment: 'Unique payment identifier for tracking'
       },

@@ -69,6 +69,8 @@ const corsOptions = {
     'Authorization',
     'X-Requested-With',
     'Accept',
+    'User-Type',
+    'user-type', 
     'Origin',
     'api-key',
     'x-api-key',
@@ -111,7 +113,7 @@ app.use((req, res, next) => {
   res.header('Access-Control-Allow-Credentials', 'true');
   res.header('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,PATCH,OPTIONS');
   res.header('Access-Control-Allow-Headers',
-    'Origin, X-Requested-With, Content-Type, Accept, Authorization, Cache-Control, Pragma, credentials, api-key, x-api-key, X-API-Key'
+    'Origin, X-Requested-With, Content-Type, Accept, Authorization, Cache-Control, Pragma, credentials, api-key, x-api-key, X-API-Key, User-Type, user-type'
   );
 
   // Handle preflight requests

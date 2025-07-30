@@ -138,7 +138,7 @@ router.get('/conversations/:conversationId/participants', verifyToken, async (re
       include: [
         {
           model: User,
-          as: 'user',
+          as: 'chatUser',
           attributes: ['id', 'firstName', 'lastName', 'avatar', 'isOnline']
         },
         {
@@ -183,7 +183,7 @@ router.get('/conversations/:conversationId/participants', verifyToken, async (re
     res.status(200).json({
       success: true,
       data: {
-        customer: chat.user,
+        customer: chat.chatUser,
         store: chat.store,
         merchant: chat.store ? chat.store.owner : null
       }
