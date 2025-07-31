@@ -1,4 +1,4 @@
-// models/Message.js - Customer↔Store Message Model
+// models/Message.js - FIXED: Customer↔Store Message Model with Polymorphic Sender
 'use strict';
 
 module.exports = (sequelize, DataTypes) => {
@@ -20,7 +20,8 @@ module.exports = (sequelize, DataTypes) => {
     sender_id: {
       type: DataTypes.UUID,
       allowNull: false,
-      comment: 'ID of the actual sender (customer ID or merchant ID)'
+      // REMOVED: Foreign key constraint - now polymorphic
+      comment: 'ID of sender: customer ID (users.id) OR merchant ID (merchants.id) based on sender_type'
     },
     sender_type: {
       type: DataTypes.ENUM('user', 'store'),
@@ -103,6 +104,10 @@ module.exports = (sequelize, DataTypes) => {
         name: 'messages_sender_type_index'
       },
       {
+        fields: ['sender_type', 'sender_id'],
+        name: 'messages_sender_type_id_index'
+      },
+      {
         fields: ['status'],
         name: 'messages_status_index'
       },
@@ -122,10 +127,21 @@ module.exports = (sequelize, DataTypes) => {
         fields: ['chat_id', 'sender_type', 'status'],
         name: 'messages_chat_sender_status_index'
       }
-    ]
+    ],
+    // ADDED: Model validation to ensure sender_id exists in correct table
+    validate: {
+      validSender() {
+        if (this.sender_type === 'user' && !this.sender_id) {
+          throw new Error('sender_id is required for user messages');
+        }
+        if (this.sender_type === 'store' && !this.sender_id) {
+          throw new Error('sender_id is required for store messages');
+        }
+      }
+    }
   });
 
-  // Associations for Customer↔Store communication
+  // FIXED: Polymorphic associations for Customer↔Store communication
   Message.associate = (models) => {
     // Message belongs to a Chat
     Message.belongsTo(models.Chat, {
@@ -134,13 +150,24 @@ module.exports = (sequelize, DataTypes) => {
       onDelete: 'CASCADE'
     });
 
-    // Message has a sender (polymorphic - can be User or handled via sender_type)
+    // POLYMORPHIC: Message sender can be User OR Merchant
+    // User sender (customers)
     Message.belongsTo(models.User, {
       foreignKey: 'sender_id',
-      as: 'sender',
-      constraints: false,
+      as: 'userSender',
+      constraints: false, // No FK constraint - handled in validation
       scope: {
         sender_type: 'user'
+      }
+    });
+
+    // Merchant sender (store messages)
+    Message.belongsTo(models.Merchant, {
+      foreignKey: 'sender_id',
+      as: 'merchantSender',
+      constraints: false, // No FK constraint - handled in validation
+      scope: {
+        sender_type: 'store'
       }
     });
 
@@ -167,7 +194,7 @@ module.exports = (sequelize, DataTypes) => {
     }
   };
 
-  // Instance Methods
+  // ENHANCED: Instance Methods with sender validation
   Message.prototype.toJSON = function() {
     const values = Object.assign({}, this.get());
     
@@ -183,6 +210,80 @@ module.exports = (sequelize, DataTypes) => {
     }
     
     return values;
+  };
+
+  // ENHANCED: Get message with proper sender info (polymorphic)
+  Message.prototype.getWithSenderInfo = async function() {
+    const { User, Merchant, Store, Chat } = sequelize.models;
+    
+    let senderInfo = null;
+    
+    if (this.sender_type === 'user') {
+      // Customer message - get user info
+      senderInfo = await User.findByPk(this.sender_id, {
+        attributes: ['id', 'firstName', 'lastName', 'avatar', 'email']
+      });
+      
+      if (senderInfo) {
+        senderInfo = {
+          id: senderInfo.id,
+          name: `${senderInfo.firstName || ''} ${senderInfo.lastName || ''}`.trim(),
+          avatar: senderInfo.avatar,
+          email: senderInfo.email,
+          type: 'customer'
+        };
+      }
+    } else if (this.sender_type === 'store') {
+      // Store message - get merchant info and store context
+      const merchant = await Merchant.findByPk(this.sender_id);
+      const chat = await Chat.findByPk(this.chat_id, {
+        include: [
+          {
+            model: Store,
+            as: 'store',
+            attributes: ['id', 'name', 'logo_url', 'merchant_id']
+          }
+        ]
+      });
+      
+      if (merchant && chat && chat.store) {
+        senderInfo = {
+          id: chat.store.id,
+          name: chat.store.name,
+          avatar: chat.store.logo_url,
+          isStore: true,
+          merchantId: merchant.id,
+          merchantName: `${merchant.firstName || ''} ${merchant.lastName || ''}`.trim(),
+          type: 'store'
+        };
+      }
+    }
+    
+    return {
+      ...this.toJSON(),
+      senderInfo
+    };
+  };
+
+  // VALIDATION: Check if sender exists in correct table
+  Message.prototype.validateSender = async function() {
+    const { User, Merchant } = sequelize.models;
+    
+    if (this.sender_type === 'user') {
+      const user = await User.findByPk(this.sender_id);
+      if (!user) {
+        throw new Error(`Customer with ID ${this.sender_id} not found`);
+      }
+      return user;
+    } else if (this.sender_type === 'store') {
+      const merchant = await Merchant.findByPk(this.sender_id);
+      if (!merchant) {
+        throw new Error(`Merchant with ID ${this.sender_id} not found`);
+      }
+      return merchant;
+    }
+    
+    throw new Error(`Invalid sender_type: ${this.sender_type}`);
   };
 
   // Mark message as read
@@ -210,7 +311,6 @@ module.exports = (sequelize, DataTypes) => {
       throw new Error('Only the sender can edit this message');
     }
     
-    // Can't edit deleted messages
     if (this.isDeleted) {
       throw new Error('Cannot edit deleted message');
     }
@@ -222,66 +322,21 @@ module.exports = (sequelize, DataTypes) => {
     return await this.save();
   };
 
-  // Soft delete message
-  Message.prototype.softDelete = async function(deleterId) {
-    // Only sender can delete their own message
-    if (this.sender_id !== deleterId) {
-      throw new Error('Only the sender can delete this message');
-    }
-    
-    this.isDeleted = true;
-    this.deletedAt = new Date();
-    
-    return await this.save();
-  };
+  // ENHANCED: Class Methods with proper validation
 
-  // Get message with sender info (handles customer↔store context)
-  Message.prototype.getWithSenderInfo = async function() {
-    const { User, Store, Chat } = sequelize.models;
-    
-    let senderInfo = null;
-    
-    if (this.sender_type === 'user') {
-      // Customer message - get user info
-      senderInfo = await User.findByPk(this.sender_id, {
-        attributes: ['id', 'firstName', 'lastName', 'avatar', 'email']
-      });
-    } else if (this.sender_type === 'store') {
-      // Store message - get store info (merchant responding as store)
-      const chat = await Chat.findByPk(this.chat_id, {
-        include: [
-          {
-            model: Store,
-            as: 'store',
-            attributes: ['id', 'name', 'logo_url', 'merchant_id']
-          }
-        ]
-      });
-      
-      if (chat && chat.store) {
-        senderInfo = {
-          id: chat.store.id,
-          name: chat.store.name,
-          avatar: chat.store.logo_url,
-          isStore: true,
-          merchantId: chat.store.merchant_id
-        };
-      }
-    }
-    
-    return {
-      ...this.toJSON(),
-      senderInfo
-    };
-  };
-
-  // Class Methods
-
-  // Create customer message to store
+  // Create customer message to store (sender_id = customer ID from users table)
   Message.createCustomerMessage = async function(chatId, customerId, content, messageType = 'text') {
-    // Verify this is a valid customer↔store chat
-    const { Chat, Store } = sequelize.models;
+    const { Chat, Store, User } = sequelize.models;
     
+    // Validate customer exists
+    const customer = await User.findByPk(customerId, {
+      where: { userType: 'customer' } // Ensure it's a customer
+    });
+    if (!customer) {
+      throw new Error(`Customer with ID ${customerId} not found`);
+    }
+    
+    // Verify this is a valid customer↔store chat
     const chat = await Chat.findByPk(chatId, {
       include: [
         {
@@ -302,19 +357,25 @@ module.exports = (sequelize, DataTypes) => {
     
     return await this.create({
       chat_id: chatId,
-      sender_id: customerId,
-      sender_type: 'user', // Customer message
+      sender_id: customerId, // Customer ID (from users table)
+      sender_type: 'user',
       content: content.trim(),
       messageType,
       status: 'sent'
     });
   };
 
-  // Create store message to customer (merchant responding as store)
+  // Create store message to customer (sender_id = merchant ID from merchants table)
   Message.createStoreMessage = async function(chatId, merchantId, content, messageType = 'text') {
-    // Verify merchant owns the store in this chat
-    const { Chat, Store } = sequelize.models;
+    const { Chat, Store, Merchant } = sequelize.models;
     
+    // Validate merchant exists
+    const merchant = await Merchant.findByPk(merchantId);
+    if (!merchant) {
+      throw new Error(`Merchant with ID ${merchantId} not found`);
+    }
+    
+    // Verify merchant owns the store in this chat
     const chat = await Chat.findByPk(chatId, {
       include: [
         {
@@ -334,15 +395,15 @@ module.exports = (sequelize, DataTypes) => {
     
     return await this.create({
       chat_id: chatId,
-      sender_id: merchantId, // Merchant ID (but message type is 'store')
-      sender_type: 'store', // Message sent as store
+      sender_id: merchantId, // Merchant ID (from merchants table)
+      sender_type: 'store',
       content: content.trim(),
       messageType,
       status: 'sent'
     });
   };
 
-  // Get messages for customer↔store chat
+  // Get messages with proper sender info
   Message.getMessagesForChat = async function(chatId, options = {}) {
     const { 
       limit = 50, 
@@ -363,37 +424,40 @@ module.exports = (sequelize, DataTypes) => {
       };
     }
     
-    return await this.findAll({
+    const messages = await this.findAll({
       where: whereCondition,
-      include: [
-        {
-          model: sequelize.models.User,
-          as: 'sender',
-          attributes: ['id', 'firstName', 'lastName', 'avatar'],
-          required: false
-        }
-      ],
       order: [['createdAt', 'DESC']],
       limit,
       offset
     });
+
+    // Manually populate sender info for each message
+    const messagesWithSenders = await Promise.all(
+      messages.map(async (message) => {
+        const messageWithSender = await message.getWithSenderInfo();
+        return messageWithSender;
+      })
+    );
+
+    return messagesWithSenders;
   };
 
-  // Mark messages as read for customer↔store chat
+  // Mark messages as read with polymorphic validation
   Message.markAsReadForChat = async function(chatId, readerId, readerType) {
     let whereCondition = {
       chat_id: chatId,
-      sender_id: { [sequelize.Sequelize.Op.ne]: readerId },
       status: { [sequelize.Sequelize.Op.ne]: 'read' }
     };
     
     // Mark messages based on reader type
-    if (readerType === 'customer') {
+    if (readerType === 'customer' || readerType === 'user') {
       // Customer reading store messages
       whereCondition.sender_type = 'store';
+      whereCondition.sender_id = { [sequelize.Sequelize.Op.ne]: readerId };
     } else if (readerType === 'merchant') {
       // Merchant reading customer messages
       whereCondition.sender_type = 'user';
+      // Don't exclude merchant's own messages since merchant can't send 'user' type messages
     }
     
     return await this.update(
@@ -402,30 +466,7 @@ module.exports = (sequelize, DataTypes) => {
     );
   };
 
-  // Mark messages as delivered for customer↔store chat
-  Message.markAsDeliveredForChat = async function(chatId, deliveredToId, deliveredToType) {
-    let whereCondition = {
-      chat_id: chatId,
-      sender_id: { [sequelize.Sequelize.Op.ne]: deliveredToId },
-      status: 'sent'
-    };
-    
-    // Mark messages based on delivery target
-    if (deliveredToType === 'customer') {
-      // Delivering store messages to customer
-      whereCondition.sender_type = 'store';
-    } else if (deliveredToType === 'merchant') {
-      // Delivering customer messages to merchant
-      whereCondition.sender_type = 'user';
-    }
-    
-    return await this.update(
-      { status: 'delivered' },
-      { where: whereCondition }
-    );
-  };
-
-  // Get unread count for customer
+  // Get unread count for customer (messages FROM stores)
   Message.getUnreadCountForCustomer = async function(customerId, chatId = null) {
     let whereCondition = {
       sender_type: 'store', // Messages from stores
@@ -448,7 +489,7 @@ module.exports = (sequelize, DataTypes) => {
     return await this.count({ where: whereCondition });
   };
 
-  // Get unread count for merchant
+  // Get unread count for merchant (messages FROM customers)
   Message.getUnreadCountForMerchant = async function(merchantId, storeId = null) {
     const { Store, Chat } = sequelize.models;
     
@@ -489,73 +530,17 @@ module.exports = (sequelize, DataTypes) => {
     });
   };
 
-  // Search messages in customer↔store chats
-  Message.searchInChats = async function(query, searchOptions = {}) {
-    const { 
-      chatIds = [], 
-      senderId = null,
-      senderType = null,
-      messageType = null,
-      dateFrom = null,
-      dateTo = null,
-      limit = 50 
-    } = searchOptions;
+  // BEFORE CREATE: Validate sender exists in correct table
+  Message.beforeCreate(async (message) => {
+    await message.validateSender();
+  });
 
-    let whereCondition = {
-      content: { [sequelize.Sequelize.Op.iLike]: `%${query}%` },
-      isDeleted: false
-    };
-
-    if (chatIds.length > 0) {
-      whereCondition.chat_id = { [sequelize.Sequelize.Op.in]: chatIds };
+  // BEFORE UPDATE: Validate sender if changed
+  Message.beforeUpdate(async (message) => {
+    if (message.changed('sender_id') || message.changed('sender_type')) {
+      await message.validateSender();
     }
-
-    if (senderId) {
-      whereCondition.sender_id = senderId;
-    }
-
-    if (senderType) {
-      whereCondition.sender_type = senderType;
-    }
-
-    if (messageType) {
-      whereCondition.messageType = messageType;
-    }
-
-    if (dateFrom || dateTo) {
-      whereCondition.createdAt = {};
-      if (dateFrom) {
-        whereCondition.createdAt[sequelize.Sequelize.Op.gte] = new Date(dateFrom);
-      }
-      if (dateTo) {
-        whereCondition.createdAt[sequelize.Sequelize.Op.lte] = new Date(dateTo);
-      }
-    }
-
-    return await this.findAll({
-      where: whereCondition,
-      include: [
-        {
-          model: sequelize.models.Chat,
-          as: 'chat',
-          include: [
-            {
-              model: sequelize.models.User,
-              as: 'user',
-              attributes: ['id', 'firstName', 'lastName']
-            },
-            {
-              model: sequelize.models.Store,
-              as: 'store',
-              attributes: ['id', 'name']
-            }
-          ]
-        }
-      ],
-      order: [['createdAt', 'DESC']],
-      limit
-    });
-  };
+  });
 
   return Message;
 };

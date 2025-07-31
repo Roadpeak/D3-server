@@ -93,7 +93,7 @@ module.exports = (sequelize, DataTypes) => {
     // Chat belongs to a Customer (User)
     Chat.belongsTo(models.User, {
       foreignKey: 'userId',
-      as: 'user', // The customer
+      as: 'chatUser', // The customer
       onDelete: 'CASCADE'
     });
 

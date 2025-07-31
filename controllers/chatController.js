@@ -157,12 +157,12 @@ class ChatController {
       // STEP 3: Format for merchant interface (showing customers chatting with their stores)
       const formattedChats = await Promise.all(
         customerStoreChats.map(async (chat) => {
-          const customer = chat.user;
+          const customer = chat.chatUser;
           const store = chat.store;
           
           // Calculate customer metrics
-          // const customerSince = new Date(customer.createdAt).getFullYear();
-          // const orderCount = await this.getCustomerOrderCount(customer.id, store.id);
+          const customerSince = new Date(customer.createdAt).getFullYear();
+          const orderCount = await this.getCustomerOrderCount(customer.id, store.id);
   
           // Count unread messages FROM customers TO this store
           const unreadCount = await Message.count({
@@ -357,18 +357,129 @@ class ChatController {
         });
       }
   
-      // FIXED: Get chat and related data with correct alias
+      let message;
+      let recipientId, recipientType;
+  
+      if (userType === 'user' || userType === 'customer') {
+        // Customer sending message TO store
+        console.log('✅ Creating CUSTOMER→STORE message...');
+        
+        message = await Message.createCustomerMessage(chatId, senderId, content, messageType);
+        
+        // Get chat to find store owner for notification
+        const chat = await Chat.findByPk(chatId, {
+          include: [{ model: Store, as: 'store' }]
+        });
+        recipientId = chat.store.merchant_id;
+        recipientType = 'merchant';
+        
+      } else if (userType === 'merchant') {
+        // Merchant sending message AS store TO customer
+        console.log('✅ Creating STORE→CUSTOMER message...');
+        
+        message = await Message.createStoreMessage(chatId, senderId, content, messageType);
+        
+        // Get chat to find customer for notification
+        const chat = await Chat.findByPk(chatId);
+        recipientId = chat.userId;
+        recipientType = 'customer';
+      } else {
+        return res.status(403).json({
+          success: false,
+          message: 'Invalid user type'
+        });
+      }
+  
+      // Get full message with sender info for response
+      const messageWithSender = await message.getWithSenderInfo();
+  
+      // Socket notifications
+      try {
+        if (socketManager && socketManager.isInitialized()) {
+          console.log('🔊 Sending socket notification...');
+          
+          const notificationEvent = {
+            ...messageWithSender,
+            type: userType === 'merchant' ? 'store_to_customer' : 'customer_to_store',
+            priority: userType === 'customer' ? 'high' : 'normal',
+            conversationId: chatId
+          };
+          
+          socketManager.emitToUser(recipientId, 'new_message', notificationEvent);
+          console.log('✅ Socket notification sent');
+        }
+      } catch (socketError) {
+        console.error('⚠️ Socket notification failed:', socketError);
+      }
+  
+      console.log('🎉 === MESSAGE SENT SUCCESSFULLY ===');
+      res.status(201).json({
+        success: true,
+        data: messageWithSender
+      });
+  
+    } catch (error) {
+      console.error('💥 Error sending message:', error);
+      
+      // Handle specific validation errors
+      if (error.message.includes('not found in users table') || 
+          error.message.includes('not found in merchants table')) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid sender credentials',
+          error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
+      }
+      
+      if (error.message.includes('not authorized')) {
+        return res.status(403).json({
+          success: false,
+          message: error.message
+        });
+      }
+      
+      res.status(500).json({
+        success: false,
+        message: 'Failed to send message',
+        error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
+    }
+  }
+  
+  
+  // ALSO UPDATE: getMessages method to handle NULL sender_id properly
+  async getMessages(req, res) {
+    try {
+      const { conversationId: chatId } = req.params;
+      const { page = 1, limit = 50 } = req.query;
+      const userId = req.user.id;
+      const userType = req.user.type || req.user.userType;
+      const { Chat, Message, User, Store } = sequelize.models;
+  
+      console.log('📨 Getting messages for chat:', {
+        chatId,
+        userId,
+        userType
+      });
+  
+      if (!chatId) {
+        return res.status(400).json({
+          success: false,
+          message: 'Chat ID is required'
+        });
+      }
+  
       const chat = await Chat.findByPk(chatId, {
         include: [
           {
-            model: User,
-            as: 'chatUser', // ✅ Changed from 'user' to 'chatUser'
-            attributes: ['id', 'firstName', 'lastName', 'avatar', 'email']
+            model: Store,
+            as: 'store',
+            attributes: ['id', 'name', 'logo_url', 'merchant_id']
           },
           {
-            model: Store,
-            as: 'store', // Store
-            attributes: ['id', 'name', 'logo_url', 'merchant_id']
+            model: User,
+            as: 'chatUser',
+            attributes: ['id', 'firstName', 'lastName', 'avatar']
           }
         ]
       });
@@ -380,29 +491,15 @@ class ChatController {
         });
       }
   
-      console.log('💬 Chat participants:', {
-        customer: `${chat.chatUser.firstName} ${chat.chatUser.lastName} (ID: ${chat.chatUser.id})`,
-        store: `${chat.store.name} (ID: ${chat.store.id})`,
-        storeOwner: `Merchant ID: ${chat.store.merchant_id}`
-      });
-  
-      // FIXED: Determine sender type and validate access
-      let senderType, recipientId, recipientType, hasAccess = false;
-  
-      if ((userType === 'user' || userType === 'customer') && chat.userId === senderId) {
-        // Customer sending message TO store
+      // Validate access permissions
+      let hasAccess = false;
+      
+      if ((userType === 'user' || userType === 'customer') && chat.userId === userId) {
         hasAccess = true;
-        senderType = 'user';
-        recipientId = chat.store.merchant_id; // Notify the merchant who owns the store
-        recipientType = 'merchant';
-        console.log('✅ CUSTOMER→STORE message validated');
-      } else if (userType === 'merchant' && chat.store.merchant_id === senderId) {
-        // Merchant sending message AS store TO customer
-        hasAccess = true;
-        senderType = 'store'; // FIXED: Message comes from store, not merchant directly
-        recipientId = chat.userId; // Notify the customer
-        recipientType = 'customer';
-        console.log('✅ STORE→CUSTOMER message validated (merchant responding as store)');
+        console.log('✅ Customer access granted');
+      } else if (userType === 'merchant') {
+        hasAccess = chat.store && chat.store.merchant_id === userId;
+        console.log('✅ Merchant access granted for store:', chat.store?.name);
       }
   
       if (!hasAccess) {
@@ -412,258 +509,84 @@ class ChatController {
         });
       }
   
-      // Create the message
-      console.log('💬 Creating message with sender_type:', senderType);
-      const message = await Message.create({
-        chat_id: chatId,
-        sender_id: senderId,
-        sender_type: senderType, // 'user' for customers, 'store' for merchant replies
-        content: content.trim(),
-        messageType,
-        status: 'sent'
+      const messages = await Message.findAll({
+        where: { chat_id: chatId },
+        include: [
+          {
+            model: User,
+            as: 'sender',
+            attributes: ['id', 'firstName', 'lastName', 'avatar'],
+            required: false // ✅ Important: make this optional since store messages have sender_id = null
+          }
+        ],
+        order: [['createdAt', 'DESC']],
+        limit: parseInt(limit),
+        offset: (parseInt(page) - 1) * parseInt(limit)
       });
   
-      // Update chat timestamp
-      await chat.update({ lastMessageAt: new Date() });
-  
-      // Get sender info for the response
-      let senderInfo = {
-        id: senderId,
-        name: 'Unknown',
-        avatar: null
-      };
-  
-      if (senderType === 'user') {
-        // Customer info - ✅ Updated reference
-        senderInfo = {
-          id: chat.chatUser.id,
-          name: `${chat.chatUser.firstName || ''} ${chat.chatUser.lastName || ''}`.trim() || 'Customer',
-          avatar: chat.chatUser.avatar || null
-        };
-      } else if (senderType === 'store') {
-        // Store info (merchant responding as store)
-        senderInfo = {
-          id: chat.store.id,
-          name: chat.store.name,
-          avatar: chat.store.logo_url || null,
-          isStore: true
-        };
+      // Mark messages as read based on user type
+      try {
+        await this.markMessagesAsRead(chatId, userId, userType);
+      } catch (markReadError) {
+        console.error('⚠️ Failed to mark messages as read:', markReadError);
       }
   
-      // Format message for response
-      const formattedMessage = {
-        id: message.id,
-        text: message.content,
-        sender: message.sender_type,
-        senderInfo: senderInfo,
-        timestamp: this.formatTime(message.createdAt),
-        status: message.status,
-        messageType: message.messageType,
-        conversationId: chatId,
-        chatInfo: {
-          customer: {
-            id: chat.chatUser.id, // ✅ Updated reference
-            name: `${chat.chatUser.firstName} ${chat.chatUser.lastName}`, // ✅ Updated reference
-            avatar: chat.chatUser.avatar // ✅ Updated reference
-          },
-          store: {
+      // Format messages with proper handling for NULL sender_id
+      const formattedMessages = messages.reverse().map((msg) => {
+        let senderInfo = {
+          id: 'unknown',
+          name: 'Unknown',
+          avatar: null
+        };
+  
+        if (msg.sender_type === 'user' && msg.sender) {
+          // Customer message - use sender info
+          senderInfo = {
+            id: msg.sender.id,
+            name: `${msg.sender.firstName || ''} ${msg.sender.lastName || ''}`.trim() || 'Customer',
+            avatar: msg.sender.avatar || null
+          };
+        } else if (msg.sender_type === 'store') {
+          // Store message - use store info from chat relationship
+          senderInfo = {
             id: chat.store.id,
             name: chat.store.name,
-            logo: chat.store.logo_url,
-            merchantId: chat.store.merchant_id
-          }
-        }
-      };
-  
-      // FIXED: Socket notifications based on message direction
-      try {
-        if (socketManager && socketManager.isInitialized()) {
-          console.log('🔊 === CUSTOMER↔STORE SOCKET NOTIFICATIONS ===');
-          
-          if (senderType === 'user') {
-            // Customer sent message to store → notify merchant
-            console.log(`📧 CUSTOMER→STORE: Notifying merchant ${recipientId} of customer message`);
-            
-            const customerToStoreEvent = {
-              ...formattedMessage,
-              type: 'customer_to_store',
-              priority: 'high',
-              notificationText: `New message from ${chat.chatUser.firstName} to ${chat.store.name}` // ✅ Updated reference
-            };
-            
-            // Notify the merchant
-            socketManager.emitToUser(recipientId, 'new_customer_to_store_message', customerToStoreEvent);
-            socketManager.emitToUser(recipientId, 'new_message', customerToStoreEvent);
-            
-          } else if (senderType === 'store') {
-            // Store sent message to customer → notify customer
-            console.log(`📧 STORE→CUSTOMER: Notifying customer ${recipientId} of store response`);
-            
-            const storeToCustomerEvent = {
-              ...formattedMessage,
-              type: 'store_to_customer',
-              priority: 'normal',
-              notificationText: `${chat.store.name} sent you a message`
-            };
-            
-            // Notify the customer
-            socketManager.emitToUser(recipientId, 'new_store_to_customer_message', storeToCustomerEvent);
-            socketManager.emitToUser(recipientId, 'new_message', storeToCustomerEvent);
-          }
-          
-          console.log('✅ Socket notifications sent successfully');
-        }
-      } catch (socketError) {
-        console.error('⚠️ Socket notification failed:', socketError);
-      }
-  
-      console.log('🎉 === MESSAGE SENT SUCCESSFULLY ===');
-      res.status(201).json({
-        success: true,
-        data: formattedMessage
-      });
-  
-    } catch (error) {
-      console.error('💥 Error sending message:', error);
-      res.status(500).json({
-        success: false,
-        message: 'Failed to send message',
-        error: process.env.NODE_ENV === 'development' ? error.message : undefined
-      });
-    }
-  }
-  // FIXED: Start conversation between customer and store
-  async startConversation(req, res) {
-    try {
-      const { storeId, initialMessage = '' } = req.body;
-      const userId = req.user.id;
-      const userType = req.user.type || req.user.userType;
-      const { Chat, Message, Store, User } = sequelize.models;
-  
-      console.log('🆕 === START CUSTOMER↔STORE CONVERSATION ===');
-      console.log('🆕 Details:', { userId, userType, storeId });
-  
-      // Only customers can start conversations with stores
-      if (userType !== 'user' && userType !== 'customer') {
-        return res.status(403).json({
-          success: false,
-          message: 'Only customers can start conversations with stores'
-        });
-      }
-  
-      if (!storeId) {
-        return res.status(400).json({
-          success: false,
-          message: 'Store ID is required'
-        });
-      }
-  
-      const store = await Store.findByPk(storeId, {
-        attributes: ['id', 'name', 'logo_url', 'merchant_id']
-      });
-      
-      if (!store) {
-        return res.status(404).json({
-          success: false,
-          message: 'Store not found'
-        });
-      }
-  
-      console.log('✅ Customer starting conversation with store:', {
-        store: store.name,
-        storeId: store.id,
-        storeOwner: store.merchant_id
-      });
-  
-      // Find or create customer↔store chat
-      let chat = await Chat.findOne({
-        where: {
-          userId, // Customer ID
-          storeId: store.id // Store ID
-        }
-      });
-  
-      let created = false;
-      if (!chat) {
-        console.log('🆕 Creating new customer↔store chat...');
-        chat = await Chat.create({
-          userId, // Customer
-          storeId: store.id, // Store
-          lastMessageAt: new Date()
-        });
-        created = true;
-        console.log('✅ New customer↔store chat created:', chat.id);
-      }
-  
-      // Send initial message if provided
-      if (initialMessage && initialMessage.trim()) {
-        console.log('📨 Sending initial customer→store message...');
-        
-        const message = await Message.create({
-          chat_id: chat.id,
-          sender_id: userId,
-          sender_type: 'user', // Customer message
-          content: initialMessage.trim(),
-          messageType: 'text',
-          status: 'sent'
-        });
-  
-        await chat.update({ lastMessageAt: new Date() });
-        console.log('✅ Initial customer→store message sent');
-  
-        // Notify the merchant who owns the store
-        if (socketManager && socketManager.isInitialized() && store.merchant_id) {
-          const customer = await User.findByPk(userId, {
-            attributes: ['id', 'firstName', 'lastName', 'avatar', 'email']
-          });
-          
-          const notificationData = {
-            conversationId: chat.id,
-            customer: {
-              id: customer.id,
-              name: `${customer.firstName} ${customer.lastName}`,
-              email: customer.email,
-              avatar: customer.avatar
-            },
-            store: {
-              id: store.id,
-              name: store.name,
-              logo: store.logo_url
-            },
-            initialMessage: initialMessage.trim(),
-            created: created,
-            type: 'new_customer_store_conversation'
+            avatar: chat.store.logo_url || null,
+            isStore: true
           };
-          
-          console.log(`🔔 Notifying merchant ${store.merchant_id} of new customer→store conversation`);
-          socketManager.emitToUser(store.merchant_id, 'new_customer_store_conversation', notificationData);
+        } else if (msg.sender) {
+          // Fallback for other message types
+          senderInfo = {
+            id: msg.sender.id,
+            name: `${msg.sender.firstName || ''} ${msg.sender.lastName || ''}`.trim() || 'Unknown',
+            avatar: msg.sender.avatar || null
+          };
         }
-      }
   
-      res.status(created ? 201 : 200).json({
-        success: true,
-        data: {
-          conversationId: chat.id,
-          message: created ? 'Customer↔Store chat started successfully' : 'Chat already exists',
-          created,
-          store: {
-            id: store.id,
-            name: store.name,
-            logo: store.logo_url
-          }
-        }
+        return {
+          id: msg.id,
+          text: msg.content,
+          sender: msg.sender_type, // 'user' or 'store'
+          senderInfo: senderInfo,
+          timestamp: this.formatTime(msg.createdAt),
+          status: msg.status,
+          messageType: msg.messageType
+        };
       });
   
+      res.status(200).json({
+        success: true,
+        data: formattedMessages
+      });
     } catch (error) {
-      console.error('💥 Error starting customer↔store chat:', error);
+      console.error('💥 Error fetching messages:', error);
       res.status(500).json({
         success: false,
-        message: 'Failed to start chat',
+        message: 'Failed to fetch messages',
         error: process.env.NODE_ENV === 'development' ? error.message : undefined
       });
     }
   }
-
   // FIXED: Mark messages as read with proper customer↔store logic
   async markMessagesAsRead(chatId, userId, userType) {
     try {
@@ -829,6 +752,137 @@ class ChatController {
       res.status(500).json({
         success: false,
         message: 'Failed to update message status',
+        error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
+    }
+  }
+
+  async startConversation(req, res) {
+    try {
+      const { storeId, initialMessage = '' } = req.body;
+      const userId = req.user.id;
+      const userType = req.user.type || req.user.userType;
+      const { Chat, Message, Store, User } = sequelize.models;
+  
+      console.log('🆕 === START CUSTOMER↔STORE CONVERSATION ===');
+      console.log('🆕 Details:', { userId, userType, storeId });
+  
+      // Only customers can start conversations with stores
+      if (userType !== 'user' && userType !== 'customer') {
+        return res.status(403).json({
+          success: false,
+          message: 'Only customers can start conversations with stores'
+        });
+      }
+  
+      if (!storeId) {
+        return res.status(400).json({
+          success: false,
+          message: 'Store ID is required'
+        });
+      }
+  
+      const store = await Store.findByPk(storeId, {
+        attributes: ['id', 'name', 'logo_url', 'merchant_id']
+      });
+      
+      if (!store) {
+        return res.status(404).json({
+          success: false,
+          message: 'Store not found'
+        });
+      }
+  
+      console.log('✅ Customer starting conversation with store:', {
+        store: store.name,
+        storeId: store.id,
+        storeOwner: store.merchant_id
+      });
+  
+      // Find or create customer↔store chat
+      let chat = await Chat.findOne({
+        where: {
+          userId, // Customer ID
+          storeId: store.id // Store ID
+        }
+      });
+  
+      let created = false;
+      if (!chat) {
+        console.log('🆕 Creating new customer↔store chat...');
+        chat = await Chat.create({
+          userId, // Customer
+          storeId: store.id, // Store
+          lastMessageAt: new Date()
+        });
+        created = true;
+        console.log('✅ New customer↔store chat created:', chat.id);
+      }
+  
+      // Send initial message if provided
+      if (initialMessage && initialMessage.trim()) {
+        console.log('📨 Sending initial customer→store message...');
+        
+        const message = await Message.create({
+          chat_id: chat.id,
+          sender_id: userId,
+          sender_type: 'user', // Customer message
+          content: initialMessage.trim(),
+          messageType: 'text',
+          status: 'sent'
+        });
+  
+        await chat.update({ lastMessageAt: new Date() });
+        console.log('✅ Initial customer→store message sent');
+  
+        // Notify the merchant who owns the store
+        if (socketManager && socketManager.isInitialized() && store.merchant_id) {
+          const customer = await User.findByPk(userId, {
+            attributes: ['id', 'firstName', 'lastName', 'avatar', 'email']
+          });
+          
+          const notificationData = {
+            conversationId: chat.id,
+            customer: {
+              id: customer.id,
+              name: `${customer.firstName} ${customer.lastName}`,
+              email: customer.email,
+              avatar: customer.avatar
+            },
+            store: {
+              id: store.id,
+              name: store.name,
+              logo: store.logo_url
+            },
+            initialMessage: initialMessage.trim(),
+            created: created,
+            type: 'new_customer_store_conversation'
+          };
+          
+          console.log(`🔔 Notifying merchant ${store.merchant_id} of new customer→store conversation`);
+          socketManager.emitToUser(store.merchant_id, 'new_customer_store_conversation', notificationData);
+        }
+      }
+  
+      res.status(created ? 201 : 200).json({
+        success: true,
+        data: {
+          conversationId: chat.id,
+          message: created ? 'Customer↔Store chat started successfully' : 'Chat already exists',
+          created,
+          store: {
+            id: store.id,
+            name: store.name,
+            logo: store.logo_url
+          }
+        }
+      });
+  
+    } catch (error) {
+      console.error('💥 Error starting customer↔store chat:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to start chat',
         error: process.env.NODE_ENV === 'development' ? error.message : undefined
       });
     }
