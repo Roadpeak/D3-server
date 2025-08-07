@@ -1,4 +1,4 @@
-// middleware/auth.js - Updated with better error handling
+// middleware/Merchantauth.js - Updated with better error handling
 const jwt = require('jsonwebtoken');
 const { Merchant } = require('../models');
 

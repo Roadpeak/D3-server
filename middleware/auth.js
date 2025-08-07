@@ -1,4 +1,4 @@
-// middleware/auth.js - Complete unified authentication middleware
+// middleware/auth.js - Complete unified authentication middleware(but i use it for users not merchant)
 const jwt = require('jsonwebtoken');
 const { User, Merchant } = require('../models');
 

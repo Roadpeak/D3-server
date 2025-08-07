@@ -1,4 +1,4 @@
-// controllers/enhancedBookingController.js - Updated with advanced slot management
+// controllers/enhancedBookingController.js - Updated to handle both offers and services
 
 const moment = require('moment');
 const QRCode = require('qrcode');
@@ -36,15 +36,14 @@ class EnhancedBookingController {
   // ==================== SLOT GENERATION METHODS ====================
 
   /**
-   * Get available slots for an offer (primary booking method)
+   * Get available slots for an offer (with access fee)
    */
-  async getAvailableSlots(req, res) {
+  async getAvailableSlotsForOffer(req, res) {
     try {
       const { date, offerId } = req.query;
 
-      console.log('📅 Getting available slots for offer:', { offerId, date });
+      console.log('📅 Getting available slots for OFFER:', { offerId, date });
 
-      // Validate inputs
       if (!date || !offerId) {
         return res.status(400).json({ 
           success: false,
@@ -53,7 +52,6 @@ class EnhancedBookingController {
         });
       }
 
-      // Validate date format
       if (!moment(date, 'YYYY-MM-DD', true).isValid()) {
         return res.status(400).json({ 
           success: false,
@@ -62,7 +60,6 @@ class EnhancedBookingController {
         });
       }
 
-      // Check if date is in the past
       if (moment(date).isBefore(moment().startOf('day'))) {
         return res.status(400).json({ 
           success: false,
@@ -71,55 +68,71 @@ class EnhancedBookingController {
         });
       }
 
-      // Use the slot generation service
+      // Use the slot generation service for offers
       const result = await slotService.generateAvailableSlots(offerId, 'offer', date);
       
-      // Return the result with proper status code
+      // Add booking type information
+      if (result.success) {
+        result.bookingType = 'offer';
+        result.requiresPayment = true;
+        result.accessFee = 5.99; // KES access fee for offers
+      }
+      
       const statusCode = result.success ? 200 : (result.message.includes('not found') ? 404 : 400);
       return res.status(statusCode).json(result);
 
     } catch (error) {
-      console.error('💥 Error getting available slots:', error);
+      console.error('💥 Error getting offer slots:', error);
       res.status(500).json({ 
         success: false,
-        message: 'Error fetching available slots',
-        error: process.env.NODE_ENV === 'development' ? {
-          message: error.message,
-          stack: error.stack
-        } : 'Internal server error',
-        fallbackSlots: [
-          '9:00 AM', '10:00 AM', '11:00 AM', 
-          '2:00 PM', '3:00 PM', '4:00 PM'
-        ]
+        message: 'Error fetching available offer slots',
+        error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
       });
     }
   }
 
   /**
-   * Get available slots for a service (direct service booking)
+   * Get available slots for a service (no access fee)
    */
-  async getServiceSlots(req, res) {
+  async getAvailableSlotsForService(req, res) {
     try {
       const { date, serviceId } = req.query;
 
-      console.log('📅 Getting available slots for service:', { serviceId, date });
+      console.log('📅 Getting available slots for SERVICE:', { serviceId, date });
 
       if (!date || !serviceId) {
         return res.status(400).json({ 
           success: false,
-          message: 'Date and service ID are required.'
+          message: 'Date and service ID are required.',
+          received: { date, serviceId }
         });
       }
 
       if (!moment(date, 'YYYY-MM-DD', true).isValid()) {
         return res.status(400).json({ 
           success: false,
-          message: 'Invalid date format. Use YYYY-MM-DD.'
+          message: 'Invalid date format. Use YYYY-MM-DD.',
+          received: date
+        });
+      }
+
+      if (moment(date).isBefore(moment().startOf('day'))) {
+        return res.status(400).json({ 
+          success: false,
+          message: 'Cannot book slots for past dates.',
+          received: date
         });
       }
 
       // Use the slot generation service for direct service booking
       const result = await slotService.generateAvailableSlots(serviceId, 'service', date);
+      
+      // Add booking type information
+      if (result.success) {
+        result.bookingType = 'service';
+        result.requiresPayment = false;
+        result.accessFee = 0; // No access fee for direct service bookings
+      }
       
       const statusCode = result.success ? 200 : (result.message.includes('not found') ? 404 : 400);
       return res.status(statusCode).json(result);
@@ -128,16 +141,16 @@ class EnhancedBookingController {
       console.error('💥 Error getting service slots:', error);
       res.status(500).json({ 
         success: false,
-        message: 'Error fetching service slots',
+        message: 'Error fetching available service slots',
         error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
       });
     }
   }
 
-  // ==================== BOOKING CREATION WITH AVAILABILITY CHECK ====================
+  // ==================== BOOKING CREATION WITH ENHANCED TYPE HANDLING ====================
 
   /**
-   * Create booking with enhanced availability checking
+   * Create booking with enhanced type handling (offer vs service)
    */
   async create(req, res) {
     let transaction;
@@ -150,14 +163,15 @@ class EnhancedBookingController {
 
       const { 
         offerId, 
-        serviceId, // For direct service bookings
+        serviceId,
         userId, 
         startTime, 
         storeId,
         staffId,
         notes,
         paymentData,
-        clientInfo
+        clientInfo,
+        bookingType // 'offer' or 'service'
       } = req.body;
 
       console.log('🎯 Creating enhanced booking:', {
@@ -166,23 +180,48 @@ class EnhancedBookingController {
         userId,
         startTime,
         storeId,
-        staffId
+        staffId,
+        bookingType
       });
 
-      // Validate required fields
-      if ((!offerId && !serviceId) || !userId || !startTime) {
+      // Validate booking type
+      if (!bookingType || !['offer', 'service'].includes(bookingType)) {
         if (transaction) await transaction.rollback();
         return res.status(400).json({ 
           success: false,
-          message: 'Offer ID or Service ID, User ID, and start time are required' 
+          message: 'Valid booking type (offer or service) is required' 
         });
       }
 
-      // Determine booking type and get entity details
-      let bookingEntity, entityType, service;
+      // Validate required fields based on booking type
+      if (bookingType === 'offer' && !offerId) {
+        if (transaction) await transaction.rollback();
+        return res.status(400).json({ 
+          success: false,
+          message: 'Offer ID is required for offer bookings' 
+        });
+      }
+
+      if (bookingType === 'service' && !serviceId) {
+        if (transaction) await transaction.rollback();
+        return res.status(400).json({ 
+          success: false,
+          message: 'Service ID is required for service bookings' 
+        });
+      }
+
+      if (!userId || !startTime) {
+        if (transaction) await transaction.rollback();
+        return res.status(400).json({ 
+          success: false,
+          message: 'User ID and start time are required' 
+        });
+      }
+
+      // Get entity details and determine service
+      let bookingEntity, service;
       
-      if (offerId) {
-        entityType = 'offer';
+      if (bookingType === 'offer') {
         bookingEntity = await Offer.findByPk(offerId, {
           include: [{
             model: Service,
@@ -201,8 +240,26 @@ class EnhancedBookingController {
         }
         
         service = bookingEntity.service;
+        
+        // Validate offer is active and not expired
+        if (bookingEntity.status !== 'active') {
+          if (transaction) await transaction.rollback();
+          return res.status(400).json({ 
+            success: false,
+            message: 'This offer is no longer active' 
+          });
+        }
+
+        if (bookingEntity.expiration_date && new Date(bookingEntity.expiration_date) < new Date()) {
+          if (transaction) await transaction.rollback();
+          return res.status(400).json({ 
+            success: false,
+            message: 'This offer has expired' 
+          });
+        }
+        
       } else {
-        entityType = 'service';
+        // Direct service booking
         service = await Service.findByPk(serviceId, {
           include: [{
             model: Store,
@@ -219,29 +276,12 @@ class EnhancedBookingController {
         bookingEntity = service;
       }
 
-      // Validate entity is active
-      if (entityType === 'offer' && bookingEntity.status !== 'active') {
-        if (transaction) await transaction.rollback();
-        return res.status(400).json({ 
-          success: false,
-          message: 'This offer is no longer active' 
-        });
-      }
-
-      if (entityType === 'offer' && bookingEntity.expiration_date && new Date(bookingEntity.expiration_date) < new Date()) {
-        if (transaction) await transaction.rollback();
-        return res.status(400).json({ 
-          success: false,
-          message: 'This offer has expired' 
-        });
-      }
-
       // Check service booking enabled
       if (!service.booking_enabled) {
         if (transaction) await transaction.rollback();
         return res.status(400).json({ 
           success: false,
-          message: 'Booking is not enabled for this service' 
+          message: 'Online booking is not enabled for this service' 
         });
       }
 
@@ -277,8 +317,8 @@ class EnhancedBookingController {
       const date = moment(startTime).format('YYYY-MM-DD');
       const time = moment(startTime).format('h:mm A');
       
-      const entityId = entityType === 'offer' ? offerId : serviceId;
-      const availabilityCheck = await slotService.isSlotAvailable(entityId, entityType, date, time);
+      const entityIdForSlot = bookingType === 'offer' ? offerId : serviceId;
+      const availabilityCheck = await slotService.isSlotAvailable(entityIdForSlot, bookingType, date, time);
       
       if (!availabilityCheck.available) {
         if (transaction) await transaction.rollback();
@@ -331,9 +371,9 @@ class EnhancedBookingController {
       const serviceDuration = service.duration || 60;
       const endTime = moment(startTime).add(serviceDuration, 'minutes').toDate();
 
-      // Process payment if required
+      // Process payment ONLY for offers
       let paymentRecord = null;
-      if (paymentData && paymentData.amount > 0) {
+      if (bookingType === 'offer' && paymentData && paymentData.amount > 0) {
         paymentRecord = await this.processPayment(paymentData, transaction);
         if (!paymentRecord && paymentData.amount > 0) {
           if (transaction) await transaction.rollback();
@@ -342,23 +382,25 @@ class EnhancedBookingController {
             message: 'Payment processing failed' 
           });
         }
+      } else if (bookingType === 'service') {
+        console.log('🔄 Service booking - no payment required');
       }
 
       // Create the booking
       const bookingData = {
-        offerId: entityType === 'offer' ? offerId : null,
-        serviceId: entityType === 'service' ? serviceId : service.id, // Always store service ID for reference
+        offerId: bookingType === 'offer' ? offerId : null,
+        serviceId: serviceId || service.id, // Always store service ID for reference
         userId,
         startTime: moment(startTime).toDate(),
         endTime,
-        status: paymentRecord ? 'confirmed' : 'pending',
+        status: bookingType === 'offer' ? (paymentRecord ? 'confirmed' : 'pending') : 'confirmed', // Service bookings are auto-confirmed
         storeId: bookingStore?.id,
         staffId: bookingStaff?.id,
         notes: notes || '',
         paymentId: paymentRecord?.id,
         paymentUniqueCode: paymentRecord?.unique_code,
-        accessFee: paymentData?.amount || 0,
-        bookingType: entityType
+        accessFee: bookingType === 'offer' ? (paymentData?.amount || 5.99) : 0,
+        bookingType: bookingType
       };
 
       const booking = await Booking.create(bookingData, { 
@@ -377,7 +419,7 @@ class EnhancedBookingController {
 
       // Send confirmation email
       try {
-        await this.sendBookingConfirmationEmail(booking, bookingEntity, user, bookingStore, bookingStaff, entityType);
+        await this.sendBookingConfirmationEmail(booking, bookingEntity, user, bookingStore, bookingStaff, bookingType);
       } catch (emailError) {
         console.warn('Email sending failed:', emailError.message);
       }
@@ -424,7 +466,17 @@ class EnhancedBookingController {
         ]
       });
 
-      console.log('✅ Enhanced booking created successfully:', booking.id);
+      console.log(`✅ Enhanced ${bookingType} booking created successfully:`, booking.id);
+
+      // Prepare response message
+      let responseMessage;
+      if (bookingType === 'offer') {
+        responseMessage = paymentRecord 
+          ? `Offer booking created successfully with payment. ${availabilityCheck.remainingSlots - 1} slots remaining for this time.`
+          : `Offer booking created successfully. Payment required to confirm. ${availabilityCheck.remainingSlots - 1} slots remaining.`;
+      } else {
+        responseMessage = `Service booking confirmed successfully. ${availabilityCheck.remainingSlots - 1} slots remaining for this time.`;
+      }
 
       res.status(201).json({ 
         success: true,
@@ -434,7 +486,10 @@ class EnhancedBookingController {
           remainingSlots: availabilityCheck.remainingSlots - 1,
           totalSlots: availabilityCheck.totalSlots
         },
-        message: `Booking created successfully. ${availabilityCheck.remainingSlots - 1} slots remaining for this time.`
+        bookingType: bookingType,
+        requiresPayment: bookingType === 'offer',
+        accessFee: bookingType === 'offer' ? 5.99 : 0,
+        message: responseMessage
       });
 
     } catch (error) {
@@ -448,15 +503,179 @@ class EnhancedBookingController {
     }
   }
 
+  // ==================== LEGACY SUPPORT METHOD ====================
+
+  /**
+   * Get available slots (legacy endpoint - determines type from parameters)
+   */
+  async getAvailableSlots(req, res) {
+    try {
+      const { date, offerId, serviceId } = req.query;
+
+      console.log('📅 Legacy getAvailableSlots called:', { offerId, serviceId, date });
+
+      // Determine booking type and route to appropriate method
+      if (offerId) {
+        req.query = { date, offerId };
+        return this.getAvailableSlotsForOffer(req, res);
+      } else if (serviceId) {
+        req.query = { date, serviceId };
+        return this.getAvailableSlotsForService(req, res);
+      } else {
+        return res.status(400).json({ 
+          success: false,
+          message: 'Either offer ID or service ID is required'
+        });
+      }
+
+    } catch (error) {
+      console.error('💥 Error in legacy getAvailableSlots:', error);
+      res.status(500).json({ 
+        success: false,
+        message: 'Error fetching available slots',
+        error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+      });
+    }
+  }
+
+  // ==================== STORES AND STAFF METHODS ====================
+
+  /**
+   * Get stores for offer booking
+   */
+  async getStoresForOffer(req, res) {
+    try {
+      const { offerId } = req.params;
+
+      console.log('🏪 Getting stores for offer:', offerId);
+
+      const offer = await Offer.findByPk(offerId, {
+        include: [{
+          model: Service,
+          as: 'service',
+          include: [{
+            model: Store,
+            as: 'store'
+          }]
+        }]
+      });
+
+      if (!offer) {
+        return res.status(404).json({
+          success: false,
+          message: 'Offer not found'
+        });
+      }
+
+      const stores = offer.service?.store ? [offer.service.store] : [];
+
+      res.status(200).json({
+        success: true,
+        stores: stores,
+        message: stores.length === 0 ? 'No stores available for this offer' : undefined
+      });
+
+    } catch (error) {
+      console.error('❌ Error getting stores for offer:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error fetching stores for offer',
+        error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+      });
+    }
+  }
+
+  /**
+   * Get stores for service booking
+   */
+  async getStoresForService(req, res) {
+    try {
+      const { serviceId } = req.params;
+
+      console.log('🏪 Getting stores for service:', serviceId);
+
+      const service = await Service.findByPk(serviceId, {
+        include: [{
+          model: Store,
+          as: 'store'
+        }]
+      });
+
+      if (!service) {
+        return res.status(404).json({
+          success: false,
+          message: 'Service not found'
+        });
+      }
+
+      const stores = service.store ? [service.store] : [];
+
+      res.status(200).json({
+        success: true,
+        stores: stores,
+        message: stores.length === 0 ? 'No stores available for this service' : undefined
+      });
+
+    } catch (error) {
+      console.error('❌ Error getting stores for service:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error fetching stores for service',
+        error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+      });
+    }
+  }
+
+  /**
+   * Get staff for store (works for both booking types)
+   */
+  async getStaffForStore(req, res) {
+    try {
+      const { storeId } = req.params;
+
+      console.log('👥 Getting staff for store:', storeId);
+
+      if (!Staff) {
+        return res.status(503).json({
+          success: false,
+          message: 'Staff management not available'
+        });
+      }
+
+      const staff = await Staff.findAll({
+        where: {
+          storeId: storeId,
+          status: 'active'
+        },
+        attributes: { exclude: ['password'] },
+        order: [['name', 'ASC']]
+      });
+
+      res.status(200).json({
+        success: true,
+        staff: staff || [],
+        message: staff.length === 0 ? 'No staff available for selection' : undefined
+      });
+
+    } catch (error) {
+      console.error('❌ Error getting staff for store:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error fetching staff',
+        error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+      });
+    }
+  }
+
   // ==================== BOOKING MANAGEMENT METHODS ====================
 
   /**
-   * Get user's bookings with enhanced filtering
+   * Get user's bookings with enhanced filtering for booking types
    */
   async getUserBookings(req, res) {
     try {
       const { userId } = req.query;
-      const { status, type, page = 1, limit = 10, upcoming = false } = req.query;
+      const { status, type, bookingType, page = 1, limit = 10, upcoming = false } = req.query;
 
       const targetUserId = userId || req.user?.id;
 
@@ -476,7 +695,7 @@ class EnhancedBookingController {
 
       const whereClause = { userId: targetUserId };
       if (status) whereClause.status = status;
-      if (type) whereClause.bookingType = type;
+      if (bookingType) whereClause.bookingType = bookingType; // Filter by 'offer' or 'service'
 
       // Filter upcoming bookings
       if (upcoming === 'true') {
@@ -530,27 +749,18 @@ class EnhancedBookingController {
         offset: offset
       });
 
-      // Enhance bookings with slot availability info
-      const enhancedBookings = await Promise.all(bookings.map(async (booking) => {
+      // Enhance bookings with booking type information
+      const enhancedBookings = bookings.map(booking => {
         const bookingJson = booking.toJSON();
         
-        // Add slot availability for future bookings
-        if (moment(booking.startTime).isAfter(moment())) {
-          try {
-            const date = moment(booking.startTime).format('YYYY-MM-DD');
-            const time = moment(booking.startTime).format('h:mm A');
-            const entityId = booking.offerId || booking.serviceId;
-            const entityType = booking.offerId ? 'offer' : 'service';
-            
-            const availability = await slotService.isSlotAvailable(entityId, entityType, date, time, booking.id);
-            bookingJson.slotAvailability = availability;
-          } catch (err) {
-            console.warn('Failed to check slot availability for booking:', booking.id);
-          }
-        }
-
+        // Add booking type metadata
+        bookingJson.isOfferBooking = booking.bookingType === 'offer' || !!booking.offerId;
+        bookingJson.isServiceBooking = booking.bookingType === 'service' || (!booking.offerId && !!booking.serviceId);
+        bookingJson.requiresPayment = bookingJson.isOfferBooking;
+        bookingJson.accessFeePaid = bookingJson.isOfferBooking && !!booking.paymentId;
+        
         return bookingJson;
-      }));
+      });
 
       res.status(200).json({
         success: true,
@@ -560,6 +770,12 @@ class EnhancedBookingController {
           page: parseInt(page),
           limit: parseInt(limit),
           totalPages: Math.ceil(count / parseInt(limit))
+        },
+        summary: {
+          total: count,
+          offerBookings: enhancedBookings.filter(b => b.isOfferBooking).length,
+          serviceBookings: enhancedBookings.filter(b => b.isServiceBooking).length,
+          upcomingBookings: enhancedBookings.filter(b => new Date(b.startTime) > new Date()).length
         }
       });
 
@@ -573,116 +789,10 @@ class EnhancedBookingController {
     }
   }
 
-  /**
-   * Cancel booking with slot availability update
-   */
-  async cancelBooking(req, res) {
-    try {
-      const { id } = req.params;
-      const { reason } = req.body;
-      const userId = req.user?.id;
-
-      if (!userId) {
-        return res.status(401).json({
-          success: false,
-          message: 'User authentication required'
-        });
-      }
-
-      if (!Booking) {
-        return res.status(503).json({
-          success: false,
-          message: 'Booking service temporarily unavailable'
-        });
-      }
-
-      const booking = await Booking.findOne({
-        where: { id, userId },
-        include: [
-          {
-            model: Service,
-            required: false
-          },
-          {
-            model: Offer,
-            required: false,
-            include: [{
-              model: Service,
-              as: 'service',
-              required: false
-            }]
-          }
-        ]
-      });
-
-      if (!booking) {
-        return res.status(404).json({
-          success: false,
-          message: 'Booking not found or access denied'
-        });
-      }
-
-      if (booking.status === 'cancelled') {
-        return res.status(400).json({
-          success: false,
-          message: 'Booking is already cancelled'
-        });
-      }
-
-      // Check if booking can be cancelled (not too close to start time)
-      const service = booking.Service || booking.Offer?.service;
-      if (service) {
-        const minCancellationTime = service.min_advance_booking || 30;
-        const timeUntilBooking = moment(booking.startTime).diff(moment(), 'minutes');
-        
-        if (timeUntilBooking < minCancellationTime) {
-          return res.status(400).json({
-            success: false,
-            message: `Booking cannot be cancelled less than ${Math.ceil(minCancellationTime / 60)} hours in advance`
-          });
-        }
-      }
-
-      await booking.update({
-        status: 'cancelled',
-        cancellationReason: reason || 'Cancelled by user',
-        cancelledAt: new Date()
-      });
-
-      // Get updated slot availability after cancellation
-      let updatedAvailability = null;
-      try {
-        const date = moment(booking.startTime).format('YYYY-MM-DD');
-        const time = moment(booking.startTime).format('h:mm A');
-        const entityId = booking.offerId || booking.serviceId;
-        const entityType = booking.offerId ? 'offer' : 'service';
-        
-        updatedAvailability = await slotService.isSlotAvailable(entityId, entityType, date, time);
-      } catch (err) {
-        console.warn('Failed to check updated slot availability:', err);
-      }
-
-      res.status(200).json({
-        success: true,
-        booking: booking,
-        slotAvailability: updatedAvailability,
-        message: 'Booking cancelled successfully. Slot is now available for other customers.'
-      });
-
-    } catch (error) {
-      console.error('Error cancelling booking:', error);
-      res.status(500).json({
-        success: false,
-        message: 'Error cancelling booking',
-        error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
-      });
-    }
-  }
-
   // ==================== UTILITY METHODS ====================
 
   /**
-   * Process payment (existing method with some enhancements)
+   * Process payment (only for offers)
    */
   async processPayment(paymentData, transaction) {
     if (!Payment) {
@@ -699,7 +809,11 @@ class EnhancedBookingController {
         unique_code: this.generateUniqueCode(),
         transaction_id: paymentData.transactionId || this.generateTransactionId(),
         phone_number: paymentData.phoneNumber,
-        metadata: paymentData.metadata || {}
+        metadata: {
+          ...paymentData.metadata,
+          bookingType: 'offer',
+          accessFee: true
+        }
       }, { ...(transaction && { transaction }) });
 
       return payment;
@@ -716,8 +830,10 @@ class EnhancedBookingController {
     try {
       const qrData = JSON.stringify({ 
         bookingId: booking.id,
-        paymentCode: booking.paymentUniqueCode || 'FREE',
+        bookingType: booking.bookingType,
+        paymentCode: booking.paymentUniqueCode || (booking.bookingType === 'service' ? 'SERVICE_BOOKING' : 'FREE'),
         verificationCode: this.generateVerificationCode(),
+        accessFeePaid: booking.bookingType === 'offer' && !!booking.paymentId,
         timestamp: new Date().getTime()
       });
 
@@ -739,45 +855,40 @@ class EnhancedBookingController {
   }
 
   /**
-   * Send booking confirmation email
+   * Send booking confirmation email with type-specific content
    */
-  async sendBookingConfirmationEmail(booking, entity, user, store, staff, entityType) {
-    // Email sending logic would go here
-    console.log(`📧 Sending confirmation email for ${entityType} booking:`, booking.id);
+  async sendBookingConfirmationEmail(booking, entity, user, store, staff, bookingType) {
+    console.log(`📧 Sending confirmation email for ${bookingType} booking:`, booking.id);
     
-    // This is a placeholder - implement with your email service
     try {
-      // const emailContent = this.generateEmailTemplate(booking, entity, user, store, staff, entityType);
-      // await emailService.send(user.email, 'Booking Confirmation', emailContent);
-      console.log('✅ Confirmation email sent successfully');
+      // Email content would differ based on booking type
+      const emailSubject = bookingType === 'offer' 
+        ? `Offer Booking Confirmation - ${entity.title || entity.service?.name}`
+        : `Service Booking Confirmation - ${entity.name}`;
+
+      const paymentInfo = bookingType === 'offer' && booking.paymentId
+        ? 'Access fee has been paid. Pay the discounted service price at the venue.'
+        : bookingType === 'offer'
+        ? 'Please complete payment to confirm your booking.'
+        : 'Pay the full service price at the venue.';
+
+      console.log(`✅ Email would be sent with subject: ${emailSubject}`);
+      console.log(`💰 Payment info: ${paymentInfo}`);
+      
+      // Implement actual email sending here
+      // await emailService.send(user.email, emailSubject, emailContent);
+      
     } catch (error) {
       console.error('Email sending failed:', error);
     }
   }
 
   /**
-   * Helper methods
-   */
-  generateUniqueCode() {
-    return 'PAY_' + Date.now() + '_' + Math.random().toString(36).substring(2, 8).toUpperCase();
-  }
-
-  generateTransactionId() {
-    return 'TXN_' + Date.now() + '_' + Math.random().toString(36).substring(2, 10).toUpperCase();
-  }
-
-  generateVerificationCode() {
-    return Math.random().toString(36).substring(2, 8).toUpperCase();
-  }
-
-  // ==================== ADMIN/MERCHANT METHODS ====================
-
-  /**
-   * Get booking analytics with slot utilization
+   * Get booking analytics with type breakdown
    */
   async getBookingAnalytics(req, res) {
     try {
-      const { startDate, endDate, storeId, entityType } = req.query;
+      const { startDate, endDate, storeId, bookingType } = req.query;
 
       if (!Booking) {
         return res.status(503).json({
@@ -789,7 +900,7 @@ class EnhancedBookingController {
       let whereClause = {};
       
       if (storeId) whereClause.storeId = storeId;
-      if (entityType) whereClause.bookingType = entityType;
+      if (bookingType) whereClause.bookingType = bookingType;
       
       if (startDate && endDate) {
         whereClause.createdAt = {
@@ -797,53 +908,47 @@ class EnhancedBookingController {
         };
       }
 
-      // Get booking statistics
+      // Get booking statistics by type
       const [
         totalBookings,
+        offerBookings,
+        serviceBookings,
         confirmedBookings,
         cancelledBookings,
         pendingBookings,
-        completedBookings
+        completedBookings,
+        paidOfferBookings
       ] = await Promise.all([
         Booking.count({ where: whereClause }),
+        Booking.count({ where: { ...whereClause, bookingType: 'offer' } }),
+        Booking.count({ where: { ...whereClause, bookingType: 'service' } }),
         Booking.count({ where: { ...whereClause, status: 'confirmed' } }),
         Booking.count({ where: { ...whereClause, status: 'cancelled' } }),
         Booking.count({ where: { ...whereClause, status: 'pending' } }),
-        Booking.count({ where: { ...whereClause, status: 'completed' } })
+        Booking.count({ where: { ...whereClause, status: 'completed' } }),
+        Booking.count({ 
+          where: { 
+            ...whereClause, 
+            bookingType: 'offer',
+            paymentId: { [Op.not]: null }
+          } 
+        })
       ]);
 
-      // Calculate slot utilization rates
-      const bookingsWithSlotInfo = await Booking.findAll({
+      // Calculate revenue from access fees
+      const accessFeeRevenue = await Booking.sum('accessFee', {
         where: {
           ...whereClause,
-          status: { [Op.ne]: 'cancelled' }
-        },
-        include: [
-          {
-            model: Service,
-            required: false,
-            attributes: ['max_concurrent_bookings', 'duration']
-          },
-          {
-            model: Offer,
-            required: false,
-            include: [{
-              model: Service,
-              as: 'service',
-              required: false,
-              attributes: ['max_concurrent_bookings', 'duration']
-            }]
-          }
-        ],
-        attributes: ['startTime', 'endTime']
-      });
-
-      // Calculate utilization (simplified)
-      const slotUtilization = this.calculateSlotUtilization(bookingsWithSlotInfo);
+          bookingType: 'offer',
+          paymentId: { [Op.not]: null }
+        }
+      }) || 0;
 
       const analytics = {
         overview: {
           totalBookings,
+          offerBookings,
+          serviceBookings,
           confirmedBookings,
           cancelledBookings,
           pendingBookings,
@@ -853,12 +958,27 @@ class EnhancedBookingController {
           cancellationRate: totalBookings > 0 ? 
             (cancelledBookings / totalBookings * 100).toFixed(2) : 0
         },
-        slotUtilization,
+        offerBookings: {
+          total: offerBookings,
+          paidBookings: paidOfferBookings,
+          pendingPayment: offerBookings - paidOfferBookings,
+          accessFeeRevenue: accessFeeRevenue.toFixed(2),
+          averageAccessFee: offerBookings > 0 ? (accessFeeRevenue / offerBookings).toFixed(2) : 0
+        },
+        serviceBookings: {
+          total: serviceBookings,
+          // Service bookings don't have payment requirements
+          directBookings: serviceBookings
+        },
         statusDistribution: {
           confirmed: confirmedBookings,
           cancelled: cancelledBookings,
           pending: pendingBookings,
           completed: completedBookings
+        },
+        typeDistribution: {
+          offers: offerBookings,
+          services: serviceBookings
         }
       };
 
@@ -878,45 +998,41 @@ class EnhancedBookingController {
   }
 
   /**
-   * Calculate slot utilization rates
+   * Helper methods
    */
-  calculateSlotUtilization(bookings) {
-    // This is a simplified calculation
-    // In a real implementation, you'd want more sophisticated slot utilization tracking
-    const totalSlots = bookings.length;
-    const utilizationByHour = {};
+  generateUniqueCode() {
+    return 'PAY_' + Date.now() + '_' + Math.random().toString(36).substring(2, 8).toUpperCase();
+  }
 
-    bookings.forEach(booking => {
-      const hour = moment(booking.startTime).format('HH');
-      if (!utilizationByHour[hour]) {
-        utilizationByHour[hour] = 0;
-      }
-      utilizationByHour[hour]++;
-    });
+  generateTransactionId() {
+    return 'TXN_' + Date.now() + '_' + Math.random().toString(36).substring(2, 10).toUpperCase();
+  }
 
-    return {
-      totalSlotsBooked: totalSlots,
-      peakHours: Object.entries(utilizationByHour)
-        .sort(([,a], [,b]) => b - a)
-        .slice(0, 3)
-        .map(([hour, count]) => ({ hour: `${hour}:00`, bookings: count })),
-      averageUtilizationRate: totalSlots > 0 ? 
-        (Object.values(utilizationByHour).reduce((a, b) => a + b, 0) / Object.keys(utilizationByHour).length).toFixed(2) : 0
-    };
+  generateVerificationCode() {
+    return Math.random().toString(36).substring(2, 8).toUpperCase();
   }
 }
 
 // Create and export instance
 const enhancedBookingController = new EnhancedBookingController();
 
-// Export both the class and individual methods for backwards compatibility
+// Export both the class and individual methods
 module.exports = {
   // Main booking methods
   create: enhancedBookingController.create.bind(enhancedBookingController),
+  
+  // Slot methods
   getAvailableSlots: enhancedBookingController.getAvailableSlots.bind(enhancedBookingController),
-  getServiceSlots: enhancedBookingController.getServiceSlots.bind(enhancedBookingController),
+  getAvailableSlotsForOffer: enhancedBookingController.getAvailableSlotsForOffer.bind(enhancedBookingController),
+  getAvailableSlotsForService: enhancedBookingController.getAvailableSlotsForService.bind(enhancedBookingController),
+  
+  // Store and staff methods
+  getStoresForOffer: enhancedBookingController.getStoresForOffer.bind(enhancedBookingController),
+  getStoresForService: enhancedBookingController.getStoresForService.bind(enhancedBookingController),
+  getStaffForStore: enhancedBookingController.getStaffForStore.bind(enhancedBookingController),
+  
+  // User booking methods
   getUserBookings: enhancedBookingController.getUserBookings.bind(enhancedBookingController),
-  cancelBooking: enhancedBookingController.cancelBooking.bind(enhancedBookingController),
   
   // Analytics methods
   getBookingAnalytics: enhancedBookingController.getBookingAnalytics.bind(enhancedBookingController),

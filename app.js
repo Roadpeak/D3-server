@@ -12,7 +12,7 @@ const staffRoutes = require('./routes/staffRoutes');
 const serviceFormsRoutes = require('./routes/serviceForms');
 const offerRoutes = require('./routes/offerRoutes');
 const bookingRoutes = require('./routes/bookingRoutes');
-const socialRoutes = require('./routes/socialsRoutes');
+const socialsRoutes = require('./routes/socialsRoutes');
 const reviewRoutes = require('./routes/reviewRoutes');
 const transactionRoutes = require('./routes/transactionRoutes');
 const formRoutes = require('./routes/formRoutes');
@@ -189,7 +189,7 @@ app.use('/api/v1/staff', staffRoutes);
 app.use('/api/v1/offers', offerRoutes);
 app.use('/api/v1/bookings', bookingRoutes);
 app.use('/api/v1/hero', heroRoutes);
-app.use('/api/v1/social', socialRoutes);
+app.use('/api/v1', socialsRoutes);
 app.use('/api/v1/branches', branchRoutes);
 app.use('/api/v1/reviews', reviewRoutes);
 app.use('/api/v1/categories', categoryRoutes);
@@ -203,7 +203,7 @@ app.use('/api/v1/forms', formRoutes);
 // app.use('/api/v1/discounts', discountRoutes);
 app.use('/api/v1/form-fields', formFieldRoutes);
 app.use('/api/v1/form-responses', formResponseRoutes);
-app.use('/api/v1/service-requests', serviceRequestRoutes);
+app.use('/api/v1/request-service', serviceRequestRoutes);
 
 // Static file serving
 app.use('/qrcodes', express.static(path.join(__dirname, 'public', 'qrcodes')));

@@ -1,8 +1,6 @@
 // Complete storesController.js with all required functions
 
-const { Store, Service, Review, User, Merchant, Follow, sequelize } = require('../models');
-// Note: Deal and Outlet models are missing, so we'll work without them for now
-
+const { Store, Service, Review, User, Merchant, Follow, Social, sequelize } = require('../models');
 const jwt = require('jsonwebtoken');
 const { Op } = require('sequelize');
 const JWT_SECRET = process.env.JWT_SECRET;
@@ -300,12 +298,33 @@ exports.getStores = async (req, res) => {
   }
 };
 
+// Updated getStoreById function for your storesController.js
 exports.getStoreById = async (req, res) => {
   try {
     const { id } = req.params;
     console.log('🔍 DEBUG: Getting store by ID:', id);
 
-    const store = await Store.findByPk(id);
+    // First, try to find the store with social links included
+    let store;
+    let socialLinks = [];
+
+    try {
+      // Try to include Social model (if association exists)
+      store = await Store.findByPk(id, {
+        include: [
+          {
+            model: Social,
+            as: 'socials', // Make sure this matches your model association
+            attributes: ['id', 'platform', 'link'],
+            required: false
+          }
+        ]
+      });
+    } catch (associationError) {
+      console.log('⚠️ Social association not found, fetching store without socials:', associationError.message);
+      // Fallback: get store without social links
+      store = await Store.findByPk(id);
+    }
 
     if (!store) {
       return res.status(404).json({ 
@@ -316,26 +335,60 @@ exports.getStoreById = async (req, res) => {
 
     console.log('🔍 DEBUG: Found store:', store.name);
 
+    // If we didn't get socials from association, fetch them separately
+    if (!store.socials && Social) {
+      try {
+        socialLinks = await Social.findAll({
+          where: { store_id: id },
+          attributes: ['id', 'platform', 'link'],
+          order: [['createdAt', 'ASC']]
+        });
+        console.log('📱 DEBUG: Fetched social links separately:', socialLinks.length);
+      } catch (socialError) {
+        console.log('⚠️ Could not fetch social links:', socialError.message);
+        socialLinks = [];
+      }
+    } else {
+      socialLinks = store.socials || [];
+      console.log('📱 DEBUG: Social links from association:', socialLinks.length);
+    }
+
     let userId = null;
+    let userType = null;
     const token = req.headers['authorization']?.split(' ')[1];
 
     if (token) {
       try {
         const decoded = jwt.verify(token, JWT_SECRET);
-        userId = decoded?.userId || decoded?.id;
+        console.log('🔍 Decoded token in getStoreById:', decoded);
+        
+        // Handle both user and merchant tokens based on your auth structure
+        if (decoded.type === 'user' && decoded.userId) {
+          userId = decoded.userId;
+          userType = 'user';
+        } else if (decoded.type === 'merchant' && decoded.id) {
+          userId = decoded.id;
+          userType = 'merchant';
+        } else if (decoded.userId) {
+          userId = decoded.userId;
+          userType = 'user';
+        } else if (decoded.id) {
+          userId = decoded.id;
+          userType = 'merchant';
+        }
+        
+        console.log('👤 Authenticated user:', userId, 'Type:', userType);
       } catch (err) {
         console.error('Error verifying token:', err);
         userId = null;
+        userType = null;
       }
     }
 
     let following = false;
     let followersCount = 0;
 
-
-    
-
-    // Get followers count
+    // Get followers count and check if current user is following
     if (Follow) {
       try {
         followersCount = await Follow.count({
@@ -353,7 +406,7 @@ exports.getStoreById = async (req, res) => {
       }
     }
 
-    // Get review stats
+    // Get review stats and reviews
     let avgRating = store.rating || 0;
     let totalReviews = 0;
     let reviews = [];
@@ -372,30 +425,48 @@ exports.getStoreById = async (req, res) => {
         avgRating = reviewStats?.avgRating ? parseFloat(reviewStats.avgRating).toFixed(1) : store.rating || 0;
         totalReviews = reviewStats?.totalReviews || 0;
 
-        // Get recent reviews
+        // Get recent reviews with user info
         const recentReviews = await Review.findAll({
           where: { store_id: id },
-          include: User ? [
-            {
-              model: User,
-              as: 'user',
-              attributes: ['first_name', 'last_name']
-            }
-          ] : [],
           order: [['created_at', 'DESC']],
           limit: 10
         });
 
-        reviews = recentReviews.map(review => ({
-          id: review.id,
-          name: review.user ? `${review.user.first_name} ${review.user.last_name.charAt(0)}.` : 'Anonymous',
-          rating: review.rating,
-          date: new Date(review.created_at).toLocaleDateString('en-US', {
-            month: 'short',
-            day: 'numeric',
-            year: 'numeric'
-          }),
-          comment: review.comment
+        // Format reviews with user names
+        reviews = await Promise.all(recentReviews.map(async (review) => {
+          let reviewerName = 'Anonymous';
+          
+          try {
+            // Try to get user info (could be regular user or merchant)
+            if (User) {
+              const user = await User.findByPk(review.user_id);
+              if (user) {
+                reviewerName = `${user.first_name || user.firstName} ${(user.last_name || user.lastName)?.charAt(0) || ''}.`;
+              }
+            }
+            
+            // If not found in User, try Merchant
+            if (reviewerName === 'Anonymous' && Merchant) {
+              const merchant = await Merchant.findByPk(review.user_id);
+              if (merchant) {
+                reviewerName = `${merchant.firstName} ${merchant.lastName?.charAt(0) || ''}.`;
+              }
+            }
+          } catch (err) {
+            console.log('Error getting reviewer info:', err.message);
+          }
+
+          return {
+            id: review.id,
+            name: reviewerName,
+            rating: review.rating,
+            date: new Date(review.created_at).toLocaleDateString('en-US', {
+              month: 'short',
+              day: 'numeric',
+              year: 'numeric'
+            }),
+            comment: review.comment
+          };
         }));
 
       } catch (err) {
@@ -410,7 +481,19 @@ exports.getStoreById = async (req, res) => {
       storeData.working_days = [];
     }
 
-    // Format the response data
+    // FIXED: Format social links properly for frontend
+    const socialLinksFormatted = {};
+    if (socialLinks && socialLinks.length > 0) {
+      socialLinks.forEach(social => {
+        const socialData = social.toJSON ? social.toJSON() : social;
+        socialLinksFormatted[socialData.platform] = socialData.link;
+      });
+    }
+
+    console.log('📱 DEBUG: Formatted social links:', socialLinksFormatted);
+    console.log('📱 DEBUG: Raw social links count:', socialLinks.length);
+
+    // Format the response data with FIXED social links structure
     const responseData = {
       ...storeData,
       following,
@@ -420,12 +503,36 @@ exports.getStoreById = async (req, res) => {
       logo: storeData.logo_url,
       wasRate: storeData.was_rate,
 
-      // Format social links
+      // FIXED: Ensure socialLinksRaw is always an array of objects
+      socialLinksRaw: socialLinks.map(social => {
+        const socialData = social.toJSON ? social.toJSON() : social;
+        return {
+          id: socialData.id,
+          platform: socialData.platform,
+          link: socialData.link
+        };
+      }),
+
+      // Format social links for backward compatibility
       socialLinks: {
-        facebook: storeData.facebook_url || null,
-        twitter: storeData.twitter_url || null,
-        instagram: storeData.instagram_url || null,
-        website: storeData.website_url || null
+        facebook: socialLinksFormatted.facebook || null,
+        twitter: socialLinksFormatted.twitter || null,
+        instagram: socialLinksFormatted.instagram || null,
+        linkedin: socialLinksFormatted.linkedin || null,
+        youtube: socialLinksFormatted.youtube || null,
+        tiktok: socialLinksFormatted.tiktok || null,
+        pinterest: socialLinksFormatted.pinterest || null,
+        snapchat: socialLinksFormatted.snapchat || null,
+        whatsapp: socialLinksFormatted.whatsapp || null,
+        discord: socialLinksFormatted.discord || null,
+        tumblr: socialLinksFormatted.tumblr || null,
+        reddit: socialLinksFormatted.reddit || null,
+        vimeo: socialLinksFormatted.vimeo || null,
+        github: socialLinksFormatted.github || null,
+        flickr: socialLinksFormatted.flickr || null,
+        website: storeData.website_url || null,
+        // Include all other platforms
+        ...socialLinksFormatted
       },
 
       // Create a basic deal from store cashback info
@@ -448,6 +555,12 @@ exports.getStoreById = async (req, res) => {
       reviews: reviews
     };
 
+    console.log('🎯 DEBUG: Final response social structure:', {
+      socialLinksRawCount: responseData.socialLinksRaw.length,
+      socialLinksKeys: Object.keys(responseData.socialLinks).filter(key => responseData.socialLinks[key]),
+      firstSocialLink: responseData.socialLinksRaw[0] || 'None'
+    });
+
     return res.status(200).json({
       success: true,
       store: responseData,
@@ -461,7 +574,6 @@ exports.getStoreById = async (req, res) => {
     });
   }
 };
-
 exports.updateStore = async (req, res) => {
   try {
     const { id } = req.params;

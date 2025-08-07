@@ -18,19 +18,37 @@ module.exports = (sequelize, DataTypes) => {
         platform: {
             type: DataTypes.STRING,
             allowNull: false,
+            validate: {
+                isIn: [['facebook', 'instagram', 'twitter', 'linkedin', 'youtube', 'tiktok', 'pinterest', 'snapchat', 'whatsapp', 'discord', 'tumblr', 'reddit', 'vimeo', 'github', 'flickr']]
+            }
         },
         link: {
             type: DataTypes.STRING,
             allowNull: false,
+            validate: {
+                isUrl: true
+            }
         },
     }, {
         timestamps: true,
         createdAt: 'createdAt',
         updatedAt: 'updatedAt',
+        tableName: 'socials',
+        indexes: [
+            {
+                unique: true,
+                fields: ['store_id', 'platform']
+            }
+        ]
     });
 
     Social.associate = (models) => {
-        // Define associations if needed
+        // Social belongs to Store
+        Social.belongsTo(models.Store, {
+            foreignKey: 'store_id',
+            as: 'store',
+            onDelete: 'CASCADE'
+        });
     };
 
     return Social;
