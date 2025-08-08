@@ -304,27 +304,8 @@ exports.getStoreById = async (req, res) => {
     const { id } = req.params;
     console.log('🔍 DEBUG: Getting store by ID:', id);
 
-    // First, try to find the store with social links included
-    let store;
-    let socialLinks = [];
-
-    try {
-      // Try to include Social model (if association exists)
-      store = await Store.findByPk(id, {
-        include: [
-          {
-            model: Social,
-            as: 'socials', // Make sure this matches your model association
-            attributes: ['id', 'platform', 'link'],
-            required: false
-          }
-        ]
-      });
-    } catch (associationError) {
-      console.log('⚠️ Social association not found, fetching store without socials:', associationError.message);
-      // Fallback: get store without social links
-      store = await Store.findByPk(id);
-    }
+    // First, get the store
+    const store = await Store.findByPk(id);
 
     if (!store) {
       return res.status(404).json({ 
@@ -335,24 +316,24 @@ exports.getStoreById = async (req, res) => {
 
     console.log('🔍 DEBUG: Found store:', store.name);
 
-    // If we didn't get socials from association, fetch them separately
-    if (!store.socials && Social) {
-      try {
+    // FIXED: Get social links (using the working method from earlier)
+    let socialLinks = [];
+    try {
+      if (Social) {
         socialLinks = await Social.findAll({
           where: { store_id: id },
-          attributes: ['id', 'platform', 'link'],
-          order: [['createdAt', 'ASC']]
+          attributes: ['id', 'platform', 'link', 'created_at'],
+          order: [['created_at', 'ASC']],
+          raw: true
         });
-        console.log('📱 DEBUG: Fetched social links separately:', socialLinks.length);
-      } catch (socialError) {
-        console.log('⚠️ Could not fetch social links:', socialError.message);
-        socialLinks = [];
+        console.log('📱 DEBUG: Fetched social links:', socialLinks.length);
       }
-    } else {
-      socialLinks = store.socials || [];
-      console.log('📱 DEBUG: Social links from association:', socialLinks.length);
+    } catch (socialError) {
+      console.log('⚠️ Could not fetch social links:', socialError.message);
+      socialLinks = [];
     }
 
+    // Get authentication info
     let userId = null;
     let userType = null;
     const token = req.headers['authorization']?.split(' ')[1];
@@ -362,7 +343,6 @@ exports.getStoreById = async (req, res) => {
         const decoded = jwt.verify(token, JWT_SECRET);
         console.log('🔍 Decoded token in getStoreById:', decoded);
         
-        // Handle both user and merchant tokens based on your auth structure
         if (decoded.type === 'user' && decoded.userId) {
           userId = decoded.userId;
           userType = 'user';
@@ -385,10 +365,10 @@ exports.getStoreById = async (req, res) => {
       }
     }
 
+    // Get follow status and followers count
     let following = false;
     let followersCount = 0;
 
-    // Get followers count and check if current user is following
     if (Follow) {
       try {
         followersCount = await Follow.count({
@@ -406,13 +386,16 @@ exports.getStoreById = async (req, res) => {
       }
     }
 
-    // Get review stats and reviews
+    // FIXED: Enhanced review fetching with proper error handling and formatting
     let avgRating = store.rating || 0;
     let totalReviews = 0;
     let reviews = [];
 
     if (Review) {
       try {
+        console.log('📝 DEBUG: Fetching reviews for store:', id);
+
+        // Get review statistics
         const reviewStats = await Review.findOne({
           where: { store_id: id },
           attributes: [
@@ -425,55 +408,120 @@ exports.getStoreById = async (req, res) => {
         avgRating = reviewStats?.avgRating ? parseFloat(reviewStats.avgRating).toFixed(1) : store.rating || 0;
         totalReviews = reviewStats?.totalReviews || 0;
 
-        // Get recent reviews with user info
-        const recentReviews = await Review.findAll({
-          where: { store_id: id },
-          order: [['created_at', 'DESC']],
-          limit: 10
-        });
+        console.log('📊 Review stats:', { avgRating, totalReviews });
 
-        // Format reviews with user names
-        reviews = await Promise.all(recentReviews.map(async (review) => {
-          let reviewerName = 'Anonymous';
+        // FIXED: Get reviews with proper user information and error handling
+        let reviewsData = [];
+        
+        try {
+          // Try with User association first
+          reviewsData = await Review.findAll({
+            where: { store_id: id },
+            order: [['created_at', 'DESC']],
+            limit: 10,
+            include: [
+              {
+                model: User,
+                as: 'user',
+                attributes: ['id', 'first_name', 'last_name', 'firstName', 'lastName', 'email'],
+                required: false
+              }
+            ]
+          });
+          console.log('📝 Reviews with User association:', reviewsData.length);
+        } catch (associationError) {
+          console.log('⚠️ User association failed, trying without:', associationError.message);
+          
+          // Fallback: get reviews without user association
+          reviewsData = await Review.findAll({
+            where: { store_id: id },
+            order: [['created_at', 'DESC']],
+            limit: 10,
+            raw: true
+          });
+          console.log('📝 Reviews without association:', reviewsData.length);
+        }
+
+        // FIXED: Format reviews with enhanced user name resolution
+        reviews = await Promise.all(reviewsData.map(async (review) => {
+          let reviewData = review.toJSON ? review.toJSON() : review;
+          let reviewerName = 'Anonymous Customer';
           
           try {
-            // Try to get user info (could be regular user or merchant)
-            if (User) {
-              const user = await User.findByPk(review.user_id);
+            // Method 1: From included User association
+            if (reviewData.user) {
+              const firstName = reviewData.user.first_name || reviewData.user.firstName;
+              const lastName = reviewData.user.last_name || reviewData.user.lastName;
+              if (firstName) {
+                reviewerName = `${firstName} ${lastName?.charAt(0) || ''}.`;
+              }
+              console.log('👤 Review user from association:', reviewerName);
+            } 
+            // Method 2: Direct user lookup if no association
+            else if (reviewData.user_id && User) {
+              const user = await User.findByPk(reviewData.user_id, {
+                attributes: ['first_name', 'last_name', 'firstName', 'lastName']
+              });
+              
               if (user) {
-                reviewerName = `${user.first_name || user.firstName} ${(user.last_name || user.lastName)?.charAt(0) || ''}.`;
+                const userData = user.toJSON();
+                const firstName = userData.first_name || userData.firstName;
+                const lastName = userData.last_name || userData.lastName;
+                if (firstName) {
+                  reviewerName = `${firstName} ${lastName?.charAt(0) || ''}.`;
+                }
+                console.log('👤 Review user from direct lookup:', reviewerName);
               }
             }
-            
-            // If not found in User, try Merchant
-            if (reviewerName === 'Anonymous' && Merchant) {
-              const merchant = await Merchant.findByPk(review.user_id);
+            // Method 3: Try Merchant table if User lookup failed
+            else if (reviewData.user_id && Merchant && reviewerName === 'Anonymous Customer') {
+              const merchant = await Merchant.findByPk(reviewData.user_id, {
+                attributes: ['firstName', 'lastName', 'first_name', 'last_name']
+              });
+              
               if (merchant) {
-                reviewerName = `${merchant.firstName} ${merchant.lastName?.charAt(0) || ''}.`;
+                const merchantData = merchant.toJSON();
+                const firstName = merchantData.firstName || merchantData.first_name;
+                const lastName = merchantData.lastName || merchantData.last_name;
+                if (firstName) {
+                  reviewerName = `${firstName} ${lastName?.charAt(0) || ''}.`;
+                }
+                console.log('👤 Review user from merchant lookup:', reviewerName);
               }
             }
-          } catch (err) {
-            console.log('Error getting reviewer info:', err.message);
+          } catch (userLookupError) {
+            console.log('⚠️ User lookup failed for review:', userLookupError.message);
           }
 
+          // FIXED: Return properly formatted review object
           return {
-            id: review.id,
+            id: reviewData.id,
             name: reviewerName,
-            rating: review.rating,
-            date: new Date(review.created_at).toLocaleDateString('en-US', {
+            customerName: reviewerName,
+            rating: reviewData.rating,
+            comment: reviewData.text || reviewData.comment,
+            text: reviewData.text || reviewData.comment,
+            date: new Date(reviewData.created_at || reviewData.createdAt).toLocaleDateString('en-US', {
               month: 'short',
               day: 'numeric',
               year: 'numeric'
             }),
-            comment: review.comment
+            createdAt: reviewData.created_at || reviewData.createdAt,
+            created_at: reviewData.created_at || reviewData.createdAt,
+            user_id: reviewData.user_id
           };
         }));
 
-      } catch (err) {
-        console.log('Review operations failed:', err.message);
+        console.log('📝 Final formatted reviews:', reviews.length);
+
+      } catch (reviewError) {
+        console.error('📝 Review operations failed:', reviewError);
+        reviews = [];
+        totalReviews = 0;
       }
     }
 
+    // Format store data
     const storeData = store.toJSON();
     try {
       storeData.working_days = JSON.parse(storeData.working_days || '[]');
@@ -481,19 +529,15 @@ exports.getStoreById = async (req, res) => {
       storeData.working_days = [];
     }
 
-    // FIXED: Format social links properly for frontend
+    // Format social links
     const socialLinksFormatted = {};
     if (socialLinks && socialLinks.length > 0) {
       socialLinks.forEach(social => {
-        const socialData = social.toJSON ? social.toJSON() : social;
-        socialLinksFormatted[socialData.platform] = socialData.link;
+        socialLinksFormatted[social.platform] = social.link;
       });
     }
 
-    console.log('📱 DEBUG: Formatted social links:', socialLinksFormatted);
-    console.log('📱 DEBUG: Raw social links count:', socialLinks.length);
-
-    // Format the response data with FIXED social links structure
+    // FIXED: Build complete response with all data properly included
     const responseData = {
       ...storeData,
       following,
@@ -503,17 +547,17 @@ exports.getStoreById = async (req, res) => {
       logo: storeData.logo_url,
       wasRate: storeData.was_rate,
 
-      // FIXED: Ensure socialLinksRaw is always an array of objects
-      socialLinksRaw: socialLinks.map(social => {
-        const socialData = social.toJSON ? social.toJSON() : social;
-        return {
-          id: socialData.id,
-          platform: socialData.platform,
-          link: socialData.link
-        };
-      }),
+      // CRITICAL: Include the reviews array
+      reviews: reviews,
 
-      // Format social links for backward compatibility
+      // Social links
+      socialLinksRaw: socialLinks.map(social => ({
+        id: social.id,
+        platform: social.platform,
+        link: social.link,
+        created_at: social.created_at
+      })),
+
       socialLinks: {
         facebook: socialLinksFormatted.facebook || null,
         twitter: socialLinksFormatted.twitter || null,
@@ -531,11 +575,10 @@ exports.getStoreById = async (req, res) => {
         github: socialLinksFormatted.github || null,
         flickr: socialLinksFormatted.flickr || null,
         website: storeData.website_url || null,
-        // Include all other platforms
         ...socialLinksFormatted
       },
 
-      // Create a basic deal from store cashback info
+      // Deals and services
       deals: [{
         id: 1,
         type: 'cashback',
@@ -549,16 +592,17 @@ exports.getStoreById = async (req, res) => {
         terms: 'Cashback is not available if you fail to clean your shopping bag before clicking through to the retailer.'
       }],
 
-      // Empty arrays for now - will be populated when Deal/Outlet models are available
       services: [],
-      outlets: [],
-      reviews: reviews
+      outlets: []
     };
 
-    console.log('🎯 DEBUG: Final response social structure:', {
+    console.log('🎯 FINAL DEBUG: Complete response structure:', {
+      hasReviews: !!(responseData.reviews && responseData.reviews.length > 0),
+      reviewsCount: responseData.reviews?.length || 0,
+      totalReviews: responseData.totalReviews,
+      rating: responseData.rating,
       socialLinksRawCount: responseData.socialLinksRaw.length,
-      socialLinksKeys: Object.keys(responseData.socialLinks).filter(key => responseData.socialLinks[key]),
-      firstSocialLink: responseData.socialLinksRaw[0] || 'None'
+      socialLinksKeys: Object.keys(responseData.socialLinks).filter(key => responseData.socialLinks[key])
     });
 
     return res.status(200).json({
@@ -845,18 +889,18 @@ exports.toggleFollowStore = async (req, res) => {
 };
 exports.submitReview = async (req, res) => {
   try {
-    const { id } = req.params;
-    const { rating, comment } = req.body;
+    const { id } = req.params; // Store ID from URL params
+    const { rating, comment, text } = req.body;
     
     console.log('📝 Submit review called for store ID:', id);
-    console.log('📝 Review data:', { rating, comment: comment?.substring(0, 50) + '...' });
+    console.log('📝 Review data:', { rating, comment: (comment || text)?.substring(0, 50) + '...' });
     
-    // The verifyToken middleware should have already set req.user
+    // Check authentication
     if (!req.user) {
       console.log('❌ No user found in request');
       return res.status(401).json({ 
         success: false,
-        message: 'Authentication required' 
+        message: 'Authentication required to submit a review' 
       });
     }
 
@@ -867,21 +911,36 @@ exports.submitReview = async (req, res) => {
     console.log('👤 User details:', {
       firstName: req.user.firstName,
       lastName: req.user.lastName,
+      first_name: req.user.first_name,
+      last_name: req.user.last_name,
       email: req.user.email
     });
 
-    // Get user display name from req.user (set by verifyToken middleware)
-    let userName = 'Anonymous';
-    if (req.user.firstName && req.user.lastName) {
-      userName = `${req.user.firstName} ${req.user.lastName.charAt(0)}.`;
-    } else if (req.user.firstName) {
-      userName = req.user.firstName;
+    // Get user display name with multiple field support
+    let userName = 'Anonymous Customer';
+    const firstNameCandidates = [
+      req.user.firstName, 
+      req.user.first_name, 
+      req.user.fname
+    ].filter(Boolean);
+    
+    const lastNameCandidates = [
+      req.user.lastName, 
+      req.user.last_name, 
+      req.user.lname
+    ].filter(Boolean);
+
+    const firstName = firstNameCandidates[0];
+    const lastName = lastNameCandidates[0];
+
+    if (firstName) {
+      userName = lastName ? `${firstName} ${lastName.charAt(0)}.` : firstName;
     }
     
     console.log('👤 Display name will be:', userName);
 
     // Validate input
-    if (!rating || !comment) {
+    if (!rating || (!comment && !text)) {
       return res.status(400).json({ 
         success: false,
         message: 'Rating and comment are required' 
@@ -927,22 +986,24 @@ exports.submitReview = async (req, res) => {
     if (existingReview) {
       return res.status(400).json({ 
         success: false,
-        message: 'You have already reviewed this store' 
+        message: 'You have already reviewed this store. Each customer can only submit one review per store.' 
       });
     }
 
-    // Create new review
+    // FIXED: Create new review with proper field mapping
+    const reviewText = comment || text || '';
+    
     const newReview = await Review.create({
       user_id: userId,
       store_id: id,
       rating: parseInt(rating),
-      comment: comment.trim(),
+      text: reviewText.trim(), // Use 'text' field as per your model
     });
 
-    console.log('✅ Review created successfully');
+    console.log('✅ Review created successfully with ID:', newReview.id);
 
-    // Update store's average rating
-    const reviewStats = await Review.findOne({
+    // FIXED: Update store's average rating
+    const updatedReviewStats = await Review.findOne({
       where: { store_id: id },
       attributes: [
         [sequelize.fn('AVG', sequelize.col('rating')), 'avgRating'],
@@ -951,29 +1012,35 @@ exports.submitReview = async (req, res) => {
       raw: true
     });
 
-    const avgRating = reviewStats?.avgRating ? parseFloat(reviewStats.avgRating).toFixed(1) : rating;
+    const newAvgRating = updatedReviewStats?.avgRating ? parseFloat(updatedReviewStats.avgRating).toFixed(1) : rating;
+    const newTotalReviews = updatedReviewStats?.totalReviews || 1;
 
-    // Update store rating
-    await store.update({ rating: avgRating });
+    // Update store rating in database
+    await store.update({ rating: newAvgRating });
 
-    console.log('✅ Store rating updated to:', avgRating);
+    console.log('✅ Store rating updated to:', newAvgRating);
 
+    // FIXED: Return properly formatted response
     return res.status(201).json({
       success: true,
       message: 'Review submitted successfully',
       review: {
         id: newReview.id,
         rating: newReview.rating,
-        comment: newReview.comment,
-        name: userName, // Use the properly formatted name
-        date: new Date(newReview.created_at).toLocaleDateString('en-US', {
+        text: newReview.text,
+        comment: newReview.text, // Alias for frontend compatibility
+        name: userName,
+        customerName: userName,
+        date: new Date(newReview.createdAt).toLocaleDateString('en-US', {
           month: 'short',
           day: 'numeric',
           year: 'numeric'
-        })
+        }),
+        createdAt: newReview.createdAt,
+        created_at: newReview.createdAt
       },
-      storeRating: parseFloat(avgRating),
-      totalReviews: parseInt(reviewStats?.totalReviews || 1)
+      storeRating: parseFloat(newAvgRating),
+      totalReviews: parseInt(newTotalReviews)
     });
     
   } catch (err) {
