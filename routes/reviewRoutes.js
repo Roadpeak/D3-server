@@ -1,44 +1,45 @@
-// routes/reviewRoutes.js - FIXED version
+// routes/reviewRoutes.js - FIXED version with proper authentication and endpoints
 
 const express = require('express');
 const reviewController = require('../controllers/reviewController');
-const storesController = require('../controllers/storesController'); 
 const { verifyToken } = require('../middleware/auth'); 
 const router = express.Router();
 
-// Public routes (no authentication required)
+// ===============================
+// PUBLIC ROUTES (No authentication required)
+// ===============================
+
+// Get reviews for a specific store (public view)
 router.get('/stores/:store_id/reviews', reviewController.getReviewsByStore);
+
+// Get a single review by ID (public view)
 router.get('/reviews/:id', reviewController.getReviewById);
 
-// Protected routes (authentication required)
-// FIXED: Only include routes for functions that actually exist
+// ===============================
+// PROTECTED ROUTES (Authentication required)
+// ===============================
+
+// Create a new review (customers only)
 router.post('/reviews', verifyToken, reviewController.createReview);
 
-// CONDITIONAL: Only add these if the functions exist in your reviewController
-if (reviewController.updateReview) {
-  router.put('/reviews/:id', verifyToken, reviewController.updateReview);
-}
+// Update a review (only by original reviewer)
+router.put('/reviews/:id', verifyToken, reviewController.updateReview);
 
-if (reviewController.deleteReview) {
-  router.delete('/reviews/:id', verifyToken, reviewController.deleteReview);
-}
+// Delete a review (by original reviewer or store owner)
+router.delete('/reviews/:id', verifyToken, reviewController.deleteReview);
 
-// FIXED: Store-specific review submission (using stores controller)
+// Alternative store-specific review submission endpoint
 router.post('/stores/:store_id/reviews', verifyToken, async (req, res) => {
   try {
-    // Reformat params for the stores controller
-    req.params.id = req.params.store_id;
+    console.log('📝 Store-specific review submission:', req.params.store_id);
     
-    // Make sure the function exists before calling it
-    if (storesController.submitReview) {
-      return storesController.submitReview(req, res);
-    } else {
-      // Fallback to review controller if stores controller doesn't have submitReview
-      req.body.store_id = req.params.store_id;
-      return reviewController.createReview(req, res);
-    }
+    // Add store_id to request body
+    req.body.store_id = req.params.store_id;
+    
+    // Forward to main review creation controller
+    return reviewController.createReview(req, res);
   } catch (error) {
-    console.error('Review submission route error:', error);
+    console.error('Store review submission route error:', error);
     return res.status(500).json({
       success: false,
       message: 'Error submitting review'
@@ -46,18 +47,24 @@ router.post('/stores/:store_id/reviews', verifyToken, async (req, res) => {
   }
 });
 
-// CONDITIONAL: Only add if the function exists
-if (reviewController.getMerchantStoreReviews) {
-  router.get('/merchant/reviews', verifyToken, reviewController.getMerchantStoreReviews);
-}
+// ===============================
+// MERCHANT ROUTES (For merchant dashboard)
+// ===============================
 
-// Merchant route to get reviews with verification
+// Get reviews for merchant's own store
+router.get('/merchant/reviews', verifyToken, reviewController.getMerchantStoreReviews);
+
+// Get reviews for a specific store (with ownership verification)
 router.get('/merchant/stores/:store_id/reviews', verifyToken, async (req, res) => {
   try {
     const { Store } = require('../models');
     const { store_id } = req.params;
-    const merchantId = req.user.id;
+    const merchantId = req.user.id || req.user.userId;
 
+    console.log('🏪 Merchant requesting reviews for store:', store_id);
+    console.log('👤 Merchant ID:', merchantId);
+
+    // Verify store ownership
     const store = await Store.findOne({
       where: { 
         id: store_id,
@@ -72,7 +79,9 @@ router.get('/merchant/stores/:store_id/reviews', verifyToken, async (req, res) =
       });
     }
 
-    // If store belongs to merchant, proceed with getting reviews
+    console.log('✅ Store ownership verified');
+
+    // Forward to reviews controller
     req.params.store_id = store_id;
     return reviewController.getReviewsByStore(req, res);
     
@@ -83,6 +92,122 @@ router.get('/merchant/stores/:store_id/reviews', verifyToken, async (req, res) =
       message: 'Error accessing store reviews'
     });
   }
+});
+
+// ===============================
+// ADMIN ROUTES (For admin management)
+// ===============================
+
+// Get all reviews with pagination (admin only)
+router.get('/admin/reviews', verifyToken, async (req, res) => {
+  try {
+    // Check if user is admin
+    if (req.user.userType !== 'admin' && req.user.type !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Admin access required'
+      });
+    }
+
+    const { page = 1, limit = 50 } = req.query;
+    const { Review, User, Store } = require('../models');
+
+    const { count, rows } = await Review.findAndCountAll({
+      limit: parseInt(limit),
+      offset: (page - 1) * limit,
+      order: [['created_at', 'DESC']],
+      include: [
+        {
+          model: User,
+          as: 'user',
+          attributes: ['id', 'first_name', 'last_name', 'email']
+        },
+        {
+          model: Store,
+          as: 'store',
+          attributes: ['id', 'name', 'merchant_id']
+        }
+      ]
+    });
+
+    return res.status(200).json({
+      success: true,
+      reviews: rows,
+      pagination: {
+        currentPage: parseInt(page),
+        totalPages: Math.ceil(count / limit),
+        totalItems: count,
+        hasNextPage: (page * limit) < count
+      }
+    });
+
+  } catch (error) {
+    console.error('Admin reviews route error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Error fetching admin reviews'
+    });
+  }
+});
+
+// ===============================
+// UTILITY ROUTES (For testing and debugging)
+// ===============================
+
+// Test endpoint for connectivity
+router.get('/reviews/test', (req, res) => {
+  res.status(200).json({
+    success: true,
+    message: 'Review routes are working!',
+    timestamp: new Date().toISOString(),
+    endpoints: {
+      public: [
+        'GET /stores/:store_id/reviews',
+        'GET /reviews/:id'
+      ],
+      protected: [
+        'POST /reviews',
+        'PUT /reviews/:id',
+        'DELETE /reviews/:id',
+        'POST /stores/:store_id/reviews'
+      ],
+      merchant: [
+        'GET /merchant/reviews',
+        'GET /merchant/stores/:store_id/reviews'
+      ],
+      admin: [
+        'GET /admin/reviews'
+      ]
+    }
+  });
+});
+
+// Authentication test endpoint
+router.get('/reviews/auth-test', verifyToken, (req, res) => {
+  res.status(200).json({
+    success: true,
+    message: 'Authentication working for reviews',
+    user: {
+      id: req.user.id || req.user.userId,
+      type: req.user.userType || req.user.type
+    },
+    timestamp: new Date().toISOString()
+  });
+});
+
+// ===============================
+// ERROR HANDLING MIDDLEWARE
+// ===============================
+
+// Catch-all error handler for review routes
+router.use((error, req, res, next) => {
+  console.error('Review routes error:', error);
+  
+  return res.status(error.status || 500).json({
+    success: false,
+    message: error.message || 'Internal server error in review routes',
+    ...(process.env.NODE_ENV === 'development' && { stack: error.stack })
+  });
 });
 
 module.exports = router;

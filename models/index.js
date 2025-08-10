@@ -41,10 +41,9 @@ const StoreSubscription = require('./storesubscription')(sequelize, DataTypes);
 // ADD NEW BRANCH MODEL
 const Branch = require('./Branch')(sequelize, DataTypes);
 
-
-// Import NEW service marketplace models
-// const ServiceRequest = require('./serviceRequest')(sequelize, DataTypes);
-// const ServiceOffer = require('./ServiceOffer')(sequelize, DataTypes);
+// ✅ UNCOMMENT AND IMPORT NEW SERVICE MARKETPLACE MODELS
+const ServiceRequest = require('./serviceRequest')(sequelize, DataTypes);
+const ServiceOffer = require('./ServiceOffer')(sequelize, DataTypes);
 const Notification = require('./notification')(sequelize, DataTypes);
 
 // EXISTING ASSOCIATIONS (keep all your current associations)
@@ -185,7 +184,7 @@ Social.belongsTo(Store, { foreignKey: 'store_id', as: 'store', onDelete: 'CASCAD
 Store.hasMany(Social, { foreignKey: 'store_id', as: 'socialLinks' });
 
 // ==========================================
-// NEW BRANCH ASSOCIATIONS
+// BRANCH ASSOCIATIONS
 // ==========================================
 
 // Branch-Store
@@ -210,49 +209,79 @@ Merchant.hasMany(Branch, {
   as: 'Branches'
 });
 
-// NEW SERVICE MARKETPLACE ASSOCIATIONS (updated to handle circular dependency)
+// ==========================================
+// ✅ NEW SERVICE MARKETPLACE ASSOCIATIONS
+// ==========================================
 
-// // ServiceRequest-User
-// ServiceRequest.belongsTo(User, { foreignKey: 'postedBy', as: 'requestOwner', onDelete: 'CASCADE' });
-// User.hasMany(ServiceRequest, { foreignKey: 'postedBy', as: 'serviceRequests' });
+// ServiceRequest-User
+ServiceRequest.belongsTo(User, { 
+  foreignKey: 'postedBy', 
+  as: 'user', // ✅ This matches your route code
+  onDelete: 'CASCADE' 
+});
+User.hasMany(ServiceRequest, { 
+  foreignKey: 'postedBy', 
+  as: 'serviceRequests' 
+});
 
-// // ServiceOffer-ServiceRequest
-// ServiceOffer.belongsTo(ServiceRequest, { foreignKey: 'requestId', as: 'serviceRequest', onDelete: 'CASCADE' });
-// ServiceRequest.hasMany(ServiceOffer, { foreignKey: 'requestId', as: 'offers' });
+// ServiceOffer-ServiceRequest  
+ServiceOffer.belongsTo(ServiceRequest, { 
+  foreignKey: 'requestId', 
+  as: 'serviceRequest', 
+  onDelete: 'CASCADE' 
+});
+ServiceRequest.hasMany(ServiceOffer, { 
+  foreignKey: 'requestId', 
+  as: 'offers' // ✅ This matches your route code
+});
 
-// // ServiceOffer-User (provider)
-// ServiceOffer.belongsTo(User, { foreignKey: 'providerId', as: 'provider', onDelete: 'CASCADE' });
-// User.hasMany(ServiceOffer, { foreignKey: 'providerId', as: 'sentOffers' });
+// ServiceOffer-User (provider)
+ServiceOffer.belongsTo(User, { 
+  foreignKey: 'providerId', 
+  as: 'provider', 
+  onDelete: 'CASCADE' 
+});
+User.hasMany(ServiceOffer, { 
+  foreignKey: 'providerId', 
+  as: 'sentOffers' 
+});
 
-// // ServiceOffer-Store
-// ServiceOffer.belongsTo(Store, { foreignKey: 'storeId', as: 'store', onDelete: 'CASCADE' });
-// Store.hasMany(ServiceOffer, { foreignKey: 'storeId', as: 'serviceOffers' });
+// ServiceOffer-Store
+ServiceOffer.belongsTo(Store, { 
+  foreignKey: 'storeId', 
+  as: 'store', 
+  onDelete: 'CASCADE' 
+});
+Store.hasMany(ServiceOffer, { 
+  foreignKey: 'storeId', 
+  as: 'serviceOffers' 
+});
 
-// // Handle acceptedOffer relationship through association (not foreign key)
-// ServiceRequest.belongsTo(ServiceOffer, { 
-//   foreignKey: 'acceptedOfferId', 
-//   as: 'acceptedOffer', 
-//   constraints: false  // This tells Sequelize not to create the foreign key constraint
-// });
-// ServiceOffer.hasOne(ServiceRequest, { 
-//   foreignKey: 'acceptedOfferId', 
-//   as: 'acceptedRequest',
-//   constraints: false  // This tells Sequelize not to create the foreign key constraint
-// });
+// Handle acceptedOffer relationship (no constraints to avoid circular dependency)
+ServiceRequest.belongsTo(ServiceOffer, { 
+  foreignKey: 'acceptedOfferId', 
+  as: 'acceptedOffer', 
+  constraints: false  // No foreign key constraint
+});
+ServiceOffer.hasOne(ServiceRequest, { 
+  foreignKey: 'acceptedOfferId', 
+  as: 'acceptedRequest',
+  constraints: false
+});
 
-// // // ServiceOffer self-reference for revisions
-// ServiceOffer.belongsTo(ServiceOffer, { 
-//   foreignKey: 'originalOfferId', 
-//   as: 'originalOffer', 
-//   constraints: false  // No constraint since it's self-referencing
-// });
-// ServiceOffer.hasMany(ServiceOffer, { 
-//   foreignKey: 'originalOfferId', 
-//   as: 'revisions',
-//   constraints: false
-// });
+// ServiceOffer self-reference for revisions
+ServiceOffer.belongsTo(ServiceOffer, { 
+  foreignKey: 'originalOfferId', 
+  as: 'originalOffer', 
+  constraints: false
+});
+ServiceOffer.hasMany(ServiceOffer, { 
+  foreignKey: 'originalOfferId', 
+  as: 'revisions',
+  constraints: false
+});
 
-// // Notification-User (recipient)
+// Notification-User (recipient)
 Notification.belongsTo(User, { foreignKey: 'recipientId', as: 'recipient', onDelete: 'CASCADE' });
 User.hasMany(Notification, { foreignKey: 'recipientId', as: 'notifications' });
 
@@ -283,10 +312,10 @@ module.exports = {
   Category,
   Chat,
   Message,
-  Branch, // ADD BRANCH TO EXPORTS
-  // NEW MODELS
-  // ServiceRequest,
-  // ServiceOffer,
+  Branch,
+  // ✅ UNCOMMENT AND EXPORT NEW MODELS
+  ServiceRequest,
+  ServiceOffer,
   Notification,
   sequelize,
 };

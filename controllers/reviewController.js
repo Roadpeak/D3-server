@@ -1,16 +1,24 @@
-// reviewController.js - Enhanced version with merchant store review fetching
+// controllers/reviewController.js - FIXED version with correct column names and associations
 
 const { Review, User, Store, Merchant, sequelize } = require('../models');
 const jwt = require('jsonwebtoken');
 const { Op } = require('sequelize');
 const JWT_SECRET = process.env.JWT_SECRET;
 
-// Create a new review (customers submit reviews on store page)
+// ===============================
+// CREATE REVIEW
+// ===============================
 exports.createReview = async (req, res) => {
   try {
     const { store_id, rating, text, comment } = req.body;
     
-    console.log('📝 Creating review:', { store_id, rating, text: text?.substring(0, 50) });
+    console.log('📝 Creating review:', { 
+      store_id, 
+      rating, 
+      text: text?.substring(0, 50),
+      userId: req.user?.id || req.user?.userId,
+      userType: req.user?.userType || req.user?.type
+    });
     
     // Validate required fields
     if (!store_id || !rating) {
@@ -36,13 +44,15 @@ exports.createReview = async (req, res) => {
       });
     }
 
-    // Get user ID from token
+    // FIXED: Get user ID from authenticated request
     let userId = null;
     if (req.user) {
       userId = req.user.id || req.user.userId;
+      console.log('✅ User ID extracted from token:', userId);
     }
 
     if (!userId) {
+      console.error('❌ No user ID found in request');
       return res.status(401).json({
         success: false,
         message: 'Authentication required to submit a review'
@@ -57,7 +67,8 @@ exports.createReview = async (req, res) => {
     if (existingReview) {
       return res.status(400).json({
         success: false,
-        message: 'You have already reviewed this store'
+        message: 'You have already reviewed this store. You can edit your existing review instead.',
+        existingReviewId: existingReview.id
       });
     }
 
@@ -66,20 +77,35 @@ exports.createReview = async (req, res) => {
       store_id,
       user_id: userId,
       rating: parseInt(rating),
-      text: text || comment || null, // Handle both field names
+      text: text || comment || null,
     });
 
-    // Get user info for response
+    console.log('✅ Review created with ID:', newReview.id);
+
+    // FIXED: Get user info with correct column names
     let userName = 'Anonymous';
+    let userEmail = null;
+    
     try {
-      if (User) {
-        const user = await User.findByPk(userId);
-        if (user) {
-          userName = `${user.first_name || user.firstName} ${(user.last_name || user.lastName)?.charAt(0) || ''}.`;
+      const user = await User.findByPk(userId, {
+        attributes: ['id', 'firstName', 'lastName', 'email'] // ✅ FIXED: Use correct column names
+      });
+      
+      if (user) {
+        const firstName = user.firstName;
+        const lastName = user.lastName;
+        userEmail = user.email;
+        
+        if (firstName) {
+          userName = lastName ? `${firstName} ${lastName.charAt(0)}.` : firstName;
         }
+        
+        console.log('✅ User info retrieved:', { firstName, lastName, email: userEmail });
+      } else {
+        console.warn('⚠️ User not found in database:', userId);
       }
     } catch (err) {
-      console.log('Error getting user info:', err.message);
+      console.error('❌ Error getting user info:', err.message);
     }
 
     // Update store's average rating
@@ -93,11 +119,12 @@ exports.createReview = async (req, res) => {
     });
 
     const avgRating = reviewStats?.avgRating ? parseFloat(reviewStats.avgRating).toFixed(1) : rating;
+    const totalReviews = parseInt(reviewStats?.totalReviews || 1);
     
     // Update store rating
     await store.update({ rating: avgRating });
 
-    console.log('✅ Review created successfully');
+    console.log('✅ Store rating updated:', { avgRating, totalReviews });
 
     return res.status(201).json({
       success: true,
@@ -107,15 +134,22 @@ exports.createReview = async (req, res) => {
         rating: newReview.rating,
         text: newReview.text,
         customerName: userName,
+        name: userName,
+        customerEmail: userEmail,
         createdAt: newReview.createdAt,
-        created_at: newReview.createdAt
+        created_at: newReview.createdAt,
+        date: new Date(newReview.createdAt).toLocaleDateString('en-US', {
+          month: 'short',
+          day: 'numeric',
+          year: 'numeric'
+        })
       },
       storeRating: parseFloat(avgRating),
-      totalReviews: parseInt(reviewStats?.totalReviews || 1)
+      totalReviews: totalReviews
     });
 
   } catch (error) {
-    console.error('Create review error:', error);
+    console.error('❌ Create review error:', error);
     return res.status(500).json({
       success: false,
       message: 'Error creating review',
@@ -124,11 +158,13 @@ exports.createReview = async (req, res) => {
   }
 };
 
-// Get reviews for a specific store (for merchant dashboard and public store view)
+// ===============================
+// GET REVIEWS BY STORE
+// ===============================
 exports.getReviewsByStore = async (req, res) => {
   try {
     const { store_id } = req.params;
-    const { page = 1, limit = 10, rating = null, sortBy = 'newest' } = req.query;
+    const { page = 1, limit = 20, rating = null, sortBy = 'newest' } = req.query;
     
     console.log('📖 Fetching reviews for store:', store_id);
     console.log('📖 Query params:', { page, limit, rating, sortBy });
@@ -142,33 +178,33 @@ exports.getReviewsByStore = async (req, res) => {
       });
     }
 
-    // Build where clause
+    // Build where clause for filtering
     const whereClause = { store_id };
     if (rating && rating !== 'all') {
       whereClause.rating = parseInt(rating);
     }
 
-    // Build order clause
-    let orderClause = [['created_at', 'DESC']]; // Default: newest first
+    // Build order clause for sorting
+    let orderClause = [['createdAt', 'DESC']]; // Default: newest first
     
     switch (sortBy) {
       case 'oldest':
-        orderClause = [['created_at', 'ASC']];
+        orderClause = [['createdAt', 'ASC']];
         break;
       case 'highest':
-        orderClause = [['rating', 'DESC'], ['created_at', 'DESC']];
+        orderClause = [['rating', 'DESC'], ['createdAt', 'DESC']];
         break;
       case 'lowest':
-        orderClause = [['rating', 'ASC'], ['created_at', 'DESC']];
+        orderClause = [['rating', 'ASC'], ['createdAt', 'DESC']];
         break;
       default:
-        orderClause = [['created_at', 'DESC']];
+        orderClause = [['createdAt', 'DESC']];
     }
 
     // Calculate pagination
     const offset = (page - 1) * limit;
 
-    // Get reviews with user information
+    // FIXED: Get reviews with correct association alias
     const { count, rows: reviewsData } = await Review.findAndCountAll({
       where: whereClause,
       order: orderClause,
@@ -177,26 +213,30 @@ exports.getReviewsByStore = async (req, res) => {
       include: [
         {
           model: User,
-          as: 'user',
-          attributes: ['id', 'first_name', 'last_name', 'firstName', 'lastName'],
-          required: false
+          as: 'reviewUser', // ✅ FIXED: Use correct association alias
+          attributes: ['id', 'firstName', 'lastName', 'email'], // ✅ FIXED: Use correct column names
+          required: false // LEFT JOIN to include reviews even if user is deleted
         }
       ]
     });
 
     console.log('📖 Found reviews:', count);
 
-    // Format reviews with customer names
+    // FIXED: Format reviews with correct user data access
     const formattedReviews = reviewsData.map(review => {
       const reviewData = review.toJSON();
       
       // Get customer name from associated user
       let customerName = 'Anonymous Customer';
-      if (reviewData.user) {
-        const firstName = reviewData.user.first_name || reviewData.user.firstName;
-        const lastName = reviewData.user.last_name || reviewData.user.lastName;
+      let customerEmail = null;
+      
+      if (reviewData.reviewUser) { // ✅ FIXED: Use correct association alias
+        const firstName = reviewData.reviewUser.firstName;
+        const lastName = reviewData.reviewUser.lastName;
+        customerEmail = reviewData.reviewUser.email;
+        
         if (firstName) {
-          customerName = `${firstName} ${lastName?.charAt(0) || ''}.`;
+          customerName = lastName ? `${firstName} ${lastName.charAt(0)}.` : firstName;
         }
       }
 
@@ -207,22 +247,24 @@ exports.getReviewsByStore = async (req, res) => {
         comment: reviewData.text, // Alias for compatibility
         customerName,
         name: customerName, // Alias for compatibility
-        User: reviewData.user, // Keep original structure
-        user: reviewData.user,
+        customerEmail,
+        User: reviewData.reviewUser, // Keep original structure for compatibility
+        user: reviewData.reviewUser, // Alias for compatibility
         createdAt: reviewData.createdAt,
         created_at: reviewData.createdAt,
         date: new Date(reviewData.createdAt).toLocaleDateString('en-US', {
           month: 'short',
           day: 'numeric',
           year: 'numeric'
-        })
+        }),
+        timeAgo: getTimeAgo(reviewData.createdAt)
       };
     });
 
-    // Calculate review statistics
+    // Calculate comprehensive review statistics
     const allReviews = await Review.findAll({
       where: { store_id },
-      attributes: ['rating'],
+      attributes: ['rating', 'createdAt'],
       raw: true
     });
 
@@ -255,7 +297,7 @@ exports.getReviewsByStore = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Get reviews by store error:', error);
+    console.error('❌ Get reviews by store error:', error);
     return res.status(500).json({
       success: false,
       message: 'Error fetching reviews',
@@ -264,71 +306,15 @@ exports.getReviewsByStore = async (req, res) => {
   }
 };
 
-// Get a single review by ID
-exports.getReviewById = async (req, res) => {
-  try {
-    const { id } = req.params;
-    
-    const review = await Review.findByPk(id, {
-      include: [
-        {
-          model: User,
-          as: 'user',
-          attributes: ['id', 'first_name', 'last_name', 'firstName', 'lastName']
-        },
-        {
-          model: Store,
-          as: 'store',
-          attributes: ['id', 'name', 'logo_url']
-        }
-      ]
-    });
-
-    if (!review) {
-      return res.status(404).json({
-        success: false,
-        message: 'Review not found'
-      });
-    }
-
-    const reviewData = review.toJSON();
-    
-    // Format customer name
-    let customerName = 'Anonymous Customer';
-    if (reviewData.user) {
-      const firstName = reviewData.user.first_name || reviewData.user.firstName;
-      const lastName = reviewData.user.last_name || reviewData.user.lastName;
-      if (firstName) {
-        customerName = `${firstName} ${lastName?.charAt(0) || ''}.`;
-      }
-    }
-
-    const formattedReview = {
-      ...reviewData,
-      customerName,
-      name: customerName
-    };
-
-    return res.status(200).json({
-      success: true,
-      review: formattedReview
-    });
-
-  } catch (error) {
-    console.error('Get review by ID error:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'Error fetching review',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
-    });
-  }
-};
-
-// Update review (only by the original reviewer)
+// ===============================
+// UPDATE REVIEW
+// ===============================
 exports.updateReview = async (req, res) => {
   try {
     const { id } = req.params;
     const { rating, text, comment } = req.body;
+    
+    console.log('✏️ Updating review:', id, { rating, text: text?.substring(0, 50) });
     
     if (!req.user) {
       return res.status(401).json({
@@ -339,11 +325,19 @@ exports.updateReview = async (req, res) => {
 
     const userId = req.user.id || req.user.userId;
 
+    // Find the review with user and store info
     const review = await Review.findOne({
       where: { 
         id,
-        user_id: userId 
-      }
+        user_id: userId // Ensure user can only edit their own review
+      },
+      include: [
+        {
+          model: User,
+          as: 'reviewUser', // ✅ FIXED: Use correct association alias
+          attributes: ['id', 'firstName', 'lastName'] // ✅ FIXED: Use correct column names
+        }
+      ]
     });
 
     if (!review) {
@@ -385,16 +379,36 @@ exports.updateReview = async (req, res) => {
         { rating: avgRating },
         { where: { id: review.store_id } }
       );
+
+      console.log('✅ Store rating recalculated:', avgRating);
+    }
+
+    // Format response with user info
+    let userName = 'Anonymous';
+    if (review.reviewUser) { // ✅ FIXED: Use correct association alias
+      const firstName = review.reviewUser.firstName;
+      const lastName = review.reviewUser.lastName;
+      if (firstName) {
+        userName = lastName ? `${firstName} ${lastName.charAt(0)}.` : firstName;
+      }
     }
 
     return res.status(200).json({
       success: true,
       message: 'Review updated successfully',
-      review: updatedReview
+      review: {
+        id: updatedReview.id,
+        rating: updatedReview.rating,
+        text: updatedReview.text,
+        customerName: userName,
+        name: userName,
+        createdAt: updatedReview.createdAt,
+        updatedAt: updatedReview.updatedAt
+      }
     });
 
   } catch (error) {
-    console.error('Update review error:', error);
+    console.error('❌ Update review error:', error);
     return res.status(500).json({
       success: false,
       message: 'Error updating review',
@@ -403,7 +417,9 @@ exports.updateReview = async (req, res) => {
   }
 };
 
-// Delete review (only by the original reviewer or store owner)
+// ===============================
+// DELETE REVIEW
+// ===============================
 exports.deleteReview = async (req, res) => {
   try {
     const { id } = req.params;
@@ -479,7 +495,7 @@ exports.deleteReview = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Delete review error:', error);
+    console.error('❌ Delete review error:', error);
     return res.status(500).json({
       success: false,
       message: 'Error deleting review',
@@ -488,176 +504,71 @@ exports.deleteReview = async (req, res) => {
   }
 };
 
-// ENHANCED: Get reviews by store (with better formatting and authentication handling)
-exports.getReviewsByStore = async (req, res) => {
+// ===============================
+// GET REVIEW BY ID
+// ===============================
+exports.getReviewById = async (req, res) => {
   try {
-    const { store_id } = req.params;
-    const { page = 1, limit = 20, rating = null, sortBy = 'newest' } = req.query;
+    const { id } = req.params;
     
-    console.log('📖 Enhanced: Fetching reviews for store:', store_id);
-    console.log('📖 Query params:', { page, limit, rating, sortBy });
-
-    // Check if store exists
-    const store = await Store.findByPk(store_id);
-    if (!store) {
-      return res.status(404).json({
-        success: false,
-        message: 'Store not found'
-      });
-    }
-
-    // Build where clause for filtering
-    const whereClause = { store_id };
-    if (rating && rating !== 'all') {
-      whereClause.rating = parseInt(rating);
-    }
-
-    // Build order clause for sorting
-    let orderClause = [['created_at', 'DESC']]; // Default: newest first
-    
-    switch (sortBy) {
-      case 'oldest':
-        orderClause = [['created_at', 'ASC']];
-        break;
-      case 'highest':
-        orderClause = [['rating', 'DESC'], ['created_at', 'DESC']];
-        break;
-      case 'lowest':
-        orderClause = [['rating', 'ASC'], ['created_at', 'DESC']];
-        break;
-      default:
-        orderClause = [['created_at', 'DESC']];
-    }
-
-    // Calculate pagination
-    const offset = (page - 1) * limit;
-
-    // Get reviews with user information (using proper association alias)
-    const { count, rows: reviewsData } = await Review.findAndCountAll({
-      where: whereClause,
-      order: orderClause,
-      limit: parseInt(limit),
-      offset: parseInt(offset),
+    const review = await Review.findByPk(id, {
       include: [
         {
           model: User,
-          as: 'user', // This must match the alias in your Review model associations
-          attributes: ['id', 'first_name', 'last_name', 'firstName', 'lastName', 'email'],
-          required: false
+          as: 'reviewUser', // ✅ FIXED: Use correct association alias
+          attributes: ['id', 'firstName', 'lastName'] // ✅ FIXED: Use correct column names
+        },
+        {
+          model: Store,
+          as: 'store',
+          attributes: ['id', 'name', 'logo_url']
         }
       ]
     });
 
-    console.log('📖 Found reviews:', count);
-
-    // Format reviews with better customer information
-    const formattedReviews = reviewsData.map(review => {
-      const reviewData = review.toJSON();
-      
-      // Get customer name from associated user with multiple fallbacks
-      let customerName = 'Anonymous Customer';
-      let customerEmail = null;
-      
-      if (reviewData.user) {
-        // Try different field name combinations
-        const firstName = reviewData.user.first_name || reviewData.user.firstName;
-        const lastName = reviewData.user.last_name || reviewData.user.lastName;
-        customerEmail = reviewData.user.email;
-        
-        if (firstName) {
-          customerName = `${firstName} ${lastName?.charAt(0) || ''}.`;
-        }
-      }
-
-      return {
-        id: reviewData.id,
-        rating: reviewData.rating,
-        text: reviewData.text,
-        comment: reviewData.text, // Alias for compatibility
-        customerName,
-        name: customerName, // Alias for compatibility
-        customerEmail,
-        User: reviewData.user, // Keep original structure for compatibility
-        user: reviewData.user,
-        createdAt: reviewData.createdAt,
-        created_at: reviewData.createdAt,
-        date: new Date(reviewData.createdAt).toLocaleDateString('en-US', {
-          month: 'short',
-          day: 'numeric',
-          year: 'numeric'
-        }),
-        timeAgo: getTimeAgo(reviewData.createdAt)
-      };
-    });
-
-    // Calculate comprehensive review statistics
-    const allReviews = await Review.findAll({
-      where: { store_id },
-      attributes: ['rating', 'created_at'],
-      raw: true
-    });
-
-    const stats = {
-      totalReviews: count,
-      averageRating: allReviews.length > 0 
-        ? Math.round((allReviews.reduce((sum, r) => sum + r.rating, 0) / allReviews.length) * 10) / 10
-        : 0,
-      ratingDistribution: { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 }
-    };
-
-    // Calculate rating distribution
-    allReviews.forEach(review => {
-      if (stats.ratingDistribution[review.rating] !== undefined) {
-        stats.ratingDistribution[review.rating]++;
-      }
-    });
-
-    // Calculate recent trend (last 30 days vs previous 30 days)
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-    const sixtyDaysAgo = new Date();
-    sixtyDaysAgo.setDate(sixtyDaysAgo.getDate() - 60);
-
-    const recentReviews = allReviews.filter(r => new Date(r.created_at) >= thirtyDaysAgo);
-    const previousReviews = allReviews.filter(r => 
-      new Date(r.created_at) >= sixtyDaysAgo && new Date(r.created_at) < thirtyDaysAgo
-    );
-
-    let recentTrend = 'stable';
-    if (recentReviews.length > 0 && previousReviews.length > 0) {
-      const recentAvg = recentReviews.reduce((sum, r) => sum + r.rating, 0) / recentReviews.length;
-      const previousAvg = previousReviews.reduce((sum, r) => sum + r.rating, 0) / previousReviews.length;
-      
-      if (recentAvg > previousAvg + 0.3) recentTrend = 'improving';
-      else if (recentAvg < previousAvg - 0.3) recentTrend = 'declining';
+    if (!review) {
+      return res.status(404).json({
+        success: false,
+        message: 'Review not found'
+      });
     }
 
-    stats.recentTrend = recentTrend;
+    const reviewData = review.toJSON();
+    
+    // Format customer name
+    let customerName = 'Anonymous Customer';
+    if (reviewData.reviewUser) { // ✅ FIXED: Use correct association alias
+      const firstName = reviewData.reviewUser.firstName;
+      const lastName = reviewData.reviewUser.lastName;
+      if (firstName) {
+        customerName = `${firstName} ${lastName?.charAt(0) || ''}.`;
+      }
+    }
+
+    const formattedReview = {
+      ...reviewData,
+      customerName,
+      name: customerName
+    };
 
     return res.status(200).json({
       success: true,
-      reviews: formattedReviews,
-      stats,
-      pagination: {
-        currentPage: parseInt(page),
-        totalPages: Math.ceil(count / limit),
-        totalItems: count,
-        hasNextPage: offset + reviewsData.length < count,
-        hasPrevPage: page > 1
-      }
+      review: formattedReview
     });
 
   } catch (error) {
-    console.error('Enhanced get reviews by store error:', error);
+    console.error('❌ Get review by ID error:', error);
     return res.status(500).json({
       success: false,
-      message: 'Error fetching reviews',
+      message: 'Error fetching review',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 };
 
-// NEW: Get reviews for merchant's own store (dashboard endpoint)
+// ===============================
+// GET MERCHANT STORE REVIEWS
+// ===============================
 exports.getMerchantStoreReviews = async (req, res) => {
   try {
     console.log('📊 Getting reviews for merchant store...');
@@ -669,7 +580,7 @@ exports.getMerchantStoreReviews = async (req, res) => {
       });
     }
 
-    const merchantId = req.user.id;
+    const merchantId = req.user.id || req.user.userId;
     console.log('👤 Merchant ID:', merchantId);
 
     // Find the merchant's store
@@ -691,7 +602,7 @@ exports.getMerchantStoreReviews = async (req, res) => {
     return exports.getReviewsByStore(req, res);
 
   } catch (error) {
-    console.error('Get merchant store reviews error:', error);
+    console.error('❌ Get merchant store reviews error:', error);
     return res.status(500).json({
       success: false,
       message: 'Error fetching your store reviews',
@@ -699,6 +610,10 @@ exports.getMerchantStoreReviews = async (req, res) => {
     });
   }
 };
+
+// ===============================
+// UTILITY FUNCTIONS
+// ===============================
 
 // Utility function to calculate time ago
 function getTimeAgo(date) {

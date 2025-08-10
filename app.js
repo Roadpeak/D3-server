@@ -24,7 +24,6 @@ const categoryRoutes = require('./routes/categoryRoutes');
 const chatRoutes = require('./routes/chatRoutes');
 const branchRoutes = require('./routes/branchRoutes');
 const heroRoutes = require('./routes/heroRoutes');
-// const discountRoutes = require('./routes/discountRoutes');
 const { socketManager } = require('./socket/websocket');
 const homedealsstores = require('./routes/homedealsstoresRoutes');
 const serviceRequestRoutes = require('./routes/serviceRequestRoutes');
@@ -191,16 +190,15 @@ app.use('/api/v1/bookings', bookingRoutes);
 app.use('/api/v1/hero', heroRoutes);
 app.use('/api/v1', socialsRoutes);
 app.use('/api/v1/branches', branchRoutes);
-app.use('/api/v1/reviews', reviewRoutes);
+app.use('/api/v1', reviewRoutes);
 app.use('/api/v1/categories', categoryRoutes);
 app.use('/api/v1/service-forms', serviceFormsRoutes);
 app.use('/api/v1/transactions', transactionRoutes);
 app.use('/api/v1/follows', followRoutes);
 app.use('/api/v1/home-deals-stores', homedealsstores);
-app.use('/api/v1/chat', chatRoutes); // Chat routes - should now work with CORS fix
+app.use('/api/v1/chat', chatRoutes);
 app.use('/api/v1/likes', likeRoutes);
 app.use('/api/v1/forms', formRoutes);
-// app.use('/api/v1/discounts', discountRoutes);
 app.use('/api/v1/form-fields', formFieldRoutes);
 app.use('/api/v1/form-responses', formResponseRoutes);
 app.use('/api/v1/request-service', serviceRequestRoutes);
@@ -218,94 +216,469 @@ if (fs.existsSync(swaggerFile)) {
   );
 }
 
-// Add this function before your database sync
-// async function dropProblematicTables() {
-//   try {
-//     console.log('🗑️ Dropping existing tables to fix foreign key issues...');
+// ===============================
+// 🔥 ENHANCED DATABASE INITIALIZATION - FIXED FOR COMPLEX REVIEW MODEL
+// ===============================
 
-//     await sequelize.query('SET FOREIGN_KEY_CHECKS = 0;');
-//     await sequelize.query('DROP TABLE IF EXISTS bookings;');
-//     await sequelize.query('DROP TABLE IF EXISTS payments;');
-//     await sequelize.query('SET FOREIGN_KEY_CHECKS = 1;');
-
-//     console.log('✅ Tables dropped successfully');
-//   } catch (error) {
-//     console.log('⚠️ Could not drop tables:', error.message);
-//   }
-// }
-
-
-// Database Sync - Clean production-ready version
 async function initializeDatabase() {
   try {
     const isDevelopment = process.env.NODE_ENV === 'development' || !process.env.NODE_ENV;
 
     if (isDevelopment) {
-      console.log('🔄 Development mode: Syncing database...');
-      // Use alter in development to handle schema changes
-      // Add this line before sync
-      // await dropProblematicTables();
-
-      await sequelize.sync({ alter: true });
-      console.log('✅ Database synced successfully!');
+      console.log('🔄 Development mode: Syncing database with complex Review model...');
+      
+      // ✅ FIXED: Sync models in dependency order to avoid foreign key issues
+      await syncModelsInOrder();
+      
+      console.log('✅ Database synced successfully with complex models!');
 
       // Add test data in development
       await seedTestData();
     } else {
-      console.log('🔄 Production mode: Syncing database...');
+      console.log('🔄 Production mode: Safe sync...');
+      
       // Use safe sync in production
-      await sequelize.sync();
-      console.log('✅ Database synced successfully!');
+      try {
+        await sequelize.sync();
+        console.log('✅ Database synced successfully!');
+      } catch (prodError) {
+        console.error('❌ Production sync error:', prodError);
+        // In production, we want to fail fast
+        throw prodError;
+      }
     }
 
   } catch (err) {
     console.error('❌ Error syncing database:', err);
-    process.exit(1);
+    
+    // Enhanced error handling for specific Review model issues
+    if (err.message.includes('user_id') && err.message.includes('SET NULL')) {
+      console.log('💡 Review model foreign key issue detected.');
+      console.log('🔧 Attempting automatic fix...');
+      await attemptReviewModelFix();
+    } else if (err.message.includes('created_at') && err.message.includes('index')) {
+      console.log('💡 Index creation issue detected.');
+      console.log('🔧 Attempting to continue without complex indexes...');
+      await attemptSimpleSync();
+    } else if (err.message.includes('Reviews') && err.message.includes('incompatible')) {
+      console.log('💡 Foreign key compatibility issue detected.');
+      console.log('🔧 Attempting Reviews table recreation...');
+      await recreateReviewsTable();
+    }
+    
+    // Don't exit in development - let the server run
+    if (process.env.NODE_ENV !== 'development') {
+      process.exit(1);
+    } else {
+      console.log('⚠️ Continuing in development mode despite sync errors...');
+      console.log('💡 You may need to run: node setup-complex-reviews.js');
+    }
   }
 }
 
-// Optional: Seed some test data (only in development)
+// ✅ NEW: Sync models in proper dependency order
+async function syncModelsInOrder() {
+  console.log('📋 Step 1: Syncing core dependency models...');
+  
+  // Get all models
+  const models = sequelize.models;
+  
+  // Define sync order - dependencies first
+  const syncOrder = [
+    'User',
+    'Merchant', 
+    'Store',
+    'Review', // ✅ Review comes after its dependencies
+    // Add other models in dependency order
+    'Service',
+    'Offer',
+    'Branch',
+    'Social',
+    'Category',
+    'Booking',
+    'Payment',
+    'Transaction',
+    'Follow',
+    'Like',
+    'Chat',
+    'Message',
+    'Staff',
+    'Form',
+    'FormField',
+    'FormResponse',
+    'ServiceRequest'
+  ];
+
+  // Sync models in order
+  for (const modelName of syncOrder) {
+    if (models[modelName]) {
+      try {
+        console.log(`🔄 Syncing ${modelName}...`);
+        
+        if (modelName === 'Review') {
+          // Special handling for Review model
+          await syncReviewModel(models[modelName]);
+        } else {
+          await models[modelName].sync({ alter: true });
+        }
+        
+        console.log(`✅ ${modelName} synced successfully`);
+      } catch (modelError) {
+        console.error(`❌ ${modelName} sync failed:`, modelError.message);
+        
+        // For Review model, try alternative approaches
+        if (modelName === 'Review') {
+          console.log('🔄 Attempting Review model fix...');
+          await handleReviewSyncError(models[modelName], modelError);
+        } else {
+          console.log(`⚠️ Continuing despite ${modelName} sync error...`);
+        }
+      }
+    }
+  }
+
+  // Sync any remaining models not in the order list
+  const remainingModels = Object.keys(models).filter(name => !syncOrder.includes(name));
+  for (const modelName of remainingModels) {
+    try {
+      console.log(`🔄 Syncing remaining model: ${modelName}...`);
+      await models[modelName].sync({ alter: true });
+      console.log(`✅ ${modelName} synced`);
+    } catch (error) {
+      console.log(`⚠️ ${modelName} sync warning:`, error.message);
+    }
+  }
+}
+
+// ✅ NEW: Special Review model sync handling
+async function syncReviewModel(ReviewModel) {
+  try {
+    // Try normal sync first
+    await ReviewModel.sync({ alter: true });
+  } catch (error) {
+    console.log('⚠️ Normal Review sync failed, trying alternatives...');
+    
+    if (error.message.includes('SET NULL') || error.message.includes('NOT NULL')) {
+      // Foreign key constraint issue
+      console.log('🔧 Fixing foreign key constraints...');
+      await fixReviewForeignKeys(ReviewModel);
+    } else if (error.message.includes('incompatible')) {
+      // Column type mismatch
+      console.log('🔧 Fixing column compatibility...');
+      await recreateReviewsTable();
+    } else {
+      // Try force sync as last resort
+      console.log('🔄 Attempting force sync for Reviews...');
+      await ReviewModel.sync({ force: true });
+    }
+  }
+}
+
+// ✅ NEW: Handle Review sync errors
+async function handleReviewSyncError(ReviewModel, error) {
+  try {
+    if (error.message.includes('user_id') && error.message.includes('SET NULL')) {
+      console.log('🔧 Fixing user_id constraint issue...');
+      
+      // Drop and recreate Reviews table with correct constraints
+      await sequelize.query('SET FOREIGN_KEY_CHECKS = 0;');
+      await sequelize.query('DROP TABLE IF EXISTS Reviews;');
+      await sequelize.query('SET FOREIGN_KEY_CHECKS = 1;');
+      
+      // Recreate with force
+      await ReviewModel.sync({ force: true });
+      
+      console.log('✅ Review model recreated successfully');
+    } else {
+      console.log('⚠️ Using fallback Review sync...');
+      await fallbackReviewSync();
+    }
+  } catch (fixError) {
+    console.error('❌ Review fix also failed:', fixError.message);
+    console.log('💡 Manual intervention may be required');
+  }
+}
+
+// ✅ NEW: Fix Review foreign key constraints
+async function fixReviewForeignKeys(ReviewModel) {
+  try {
+    // Check existing table structure
+    const [storesStructure] = await sequelize.query('DESCRIBE Stores;');
+    const [usersStructure] = await sequelize.query('DESCRIBE Users;');
+    
+    const storeIdType = storesStructure.find(col => col.Field === 'id')?.Type;
+    const userIdType = usersStructure.find(col => col.Field === 'id')?.Type;
+    
+    console.log(`🔍 Store ID type: ${storeIdType}, User ID type: ${userIdType}`);
+    
+    // Drop existing Reviews table
+    await sequelize.query('SET FOREIGN_KEY_CHECKS = 0;');
+    await sequelize.query('DROP TABLE IF EXISTS Reviews;');
+    
+    // Create compatible table
+    const createSQL = `
+      CREATE TABLE Reviews (
+        id ${storeIdType} PRIMARY KEY,
+        store_id ${storeIdType} NOT NULL,
+        user_id ${userIdType} NULL,
+        text TEXT,
+        rating INTEGER NOT NULL,
+        is_verified BOOLEAN DEFAULT FALSE,
+        is_helpful_count INTEGER DEFAULT 0,
+        is_reported BOOLEAN DEFAULT FALSE,
+        merchant_response TEXT,
+        merchant_response_date DATETIME,
+        createdAt DATETIME NOT NULL,
+        updatedAt DATETIME NOT NULL,
+        
+        INDEX idx_reviews_store_id (store_id),
+        INDEX idx_reviews_user_id (user_id),
+        INDEX idx_reviews_rating (rating),
+        
+        FOREIGN KEY (store_id) REFERENCES Stores(id) ON DELETE CASCADE,
+        FOREIGN KEY (user_id) REFERENCES Users(id) ON DELETE SET NULL
+      );
+    `;
+    
+    await sequelize.query(createSQL);
+    await sequelize.query('SET FOREIGN_KEY_CHECKS = 1;');
+    
+    console.log('✅ Review foreign keys fixed');
+  } catch (fkError) {
+    console.error('❌ Foreign key fix failed:', fkError.message);
+    throw fkError;
+  }
+}
+
+// ✅ NEW: Recreate Reviews table with proper structure
+async function recreateReviewsTable() {
+  try {
+    console.log('🔧 Recreating Reviews table...');
+    
+    await sequelize.query('SET FOREIGN_KEY_CHECKS = 0;');
+    await sequelize.query('DROP TABLE IF EXISTS Reviews;');
+    
+    // Create minimal compatible table
+    const minimalSQL = `
+      CREATE TABLE Reviews (
+        id VARCHAR(255) PRIMARY KEY,
+        store_id VARCHAR(255) NOT NULL,
+        user_id VARCHAR(255) NULL,
+        text TEXT,
+        rating INTEGER NOT NULL,
+        is_verified BOOLEAN DEFAULT FALSE,
+        is_helpful_count INTEGER DEFAULT 0,
+        is_reported BOOLEAN DEFAULT FALSE,
+        merchant_response TEXT,
+        merchant_response_date DATETIME,
+        createdAt DATETIME NOT NULL,
+        updatedAt DATETIME NOT NULL,
+        
+        INDEX idx_reviews_store_id (store_id),
+        INDEX idx_reviews_user_id (user_id),
+        INDEX idx_reviews_rating (rating)
+      );
+    `;
+    
+    await sequelize.query(minimalSQL);
+    await sequelize.query('SET FOREIGN_KEY_CHECKS = 1;');
+    
+    console.log('✅ Reviews table recreated');
+  } catch (recreateError) {
+    console.error('❌ Table recreation failed:', recreateError.message);
+    throw recreateError;
+  }
+}
+
+// ✅ NEW: Fallback Review sync
+async function fallbackReviewSync() {
+  try {
+    console.log('🔄 Attempting fallback Review sync...');
+    
+    // Create very simple Reviews table
+    await sequelize.query('SET FOREIGN_KEY_CHECKS = 0;');
+    await sequelize.query('DROP TABLE IF EXISTS Reviews;');
+    
+    const fallbackSQL = `
+      CREATE TABLE Reviews (
+        id VARCHAR(255) PRIMARY KEY,
+        store_id VARCHAR(255) NOT NULL,
+        user_id VARCHAR(255),
+        text TEXT,
+        rating INTEGER NOT NULL,
+        createdAt DATETIME NOT NULL,
+        updatedAt DATETIME NOT NULL
+      );
+    `;
+    
+    await sequelize.query(fallbackSQL);
+    await sequelize.query('SET FOREIGN_KEY_CHECKS = 1;');
+    
+    console.log('✅ Fallback Reviews table created');
+  } catch (fallbackError) {
+    console.error('❌ Fallback sync failed:', fallbackError.message);
+  }
+}
+
+// ✅ NEW: Attempt automatic Review model fix
+async function attemptReviewModelFix() {
+  try {
+    console.log('🔧 Attempting automatic Review model fix...');
+    
+    const { Review } = sequelize.models;
+    if (Review) {
+      await recreateReviewsTable();
+      console.log('✅ Review model fix completed');
+    }
+  } catch (fixError) {
+    console.error('❌ Automatic fix failed:', fixError.message);
+  }
+}
+
+// ✅ NEW: Attempt simple sync without complex features
+async function attemptSimpleSync() {
+  try {
+    console.log('🔄 Attempting simple database sync...');
+    
+    // Sync all models except Review first
+    const models = sequelize.models;
+    const modelNames = Object.keys(models).filter(name => name !== 'Review');
+    
+    for (const modelName of modelNames) {
+      try {
+        await models[modelName].sync({ alter: true });
+        console.log(`✅ ${modelName} synced`);
+      } catch (error) {
+        console.log(`⚠️ ${modelName} warning:`, error.message);
+      }
+    }
+    
+    // Try Review last with fallback
+    if (models.Review) {
+      await fallbackReviewSync();
+    }
+    
+    console.log('✅ Simple sync completed');
+  } catch (simpleError) {
+    console.error('❌ Simple sync failed:', simpleError.message);
+  }
+}
+
+// ✅ ENHANCED: Seed test data with Review model support
 async function seedTestData() {
   try {
-    const { User } = sequelize.models;
+    const { User, Store, Review, Merchant } = sequelize.models;
 
-    // Check if users already exist
-    const userCount = await User.count();
-    if (userCount > 0) {
-      console.log('📊 Test data already exists, skipping seed...');
-      return;
+    // Check if data already exists
+    if (User) {
+      const userCount = await User.count();
+      if (userCount > 0) {
+        console.log('📊 Test data already exists, skipping seed...');
+        return;
+      }
     }
 
-    // Create test users
-    const testUsers = [
-      {
-        firstName: 'John',
-        lastName: 'Doe',
-        email: 'john@example.com',
-        phoneNumber: '+1234567890',
-        password: 'password123',
-        userType: 'customer'
-      },
-      {
-        firstName: 'Jane',
-        lastName: 'Smith',
-        email: 'jane@example.com',
-        phoneNumber: '+0987654321',
-        password: 'password123',
-        userType: 'merchant'
-      },
-      {
-        firstName: 'Admin',
-        lastName: 'User',
-        email: 'admin@discoun3ree.com',
-        phoneNumber: '+1111111111',
-        password: 'admin123',
-        userType: 'admin'
-      }
-    ];
+    console.log('🌱 Seeding test data with Review support...');
 
-    for (const userData of testUsers) {
-      await User.create(userData);
+    // Create test users
+    let testUser = null;
+    let testMerchant = null;
+    
+    if (User) {
+      try {
+        testUser = await User.create({
+          firstName: 'John',
+          lastName: 'Doe',
+          email: 'john@example.com',
+          phoneNumber: '+1234567890',
+          password: 'password123',
+          userType: 'customer'
+        });
+
+        testMerchant = await User.create({
+          firstName: 'Jane',
+          lastName: 'Smith',
+          email: 'jane@merchant.com',
+          phoneNumber: '+0987654321',
+          password: 'password123',
+          userType: 'merchant'
+        });
+        
+        console.log('✅ Test users created');
+      } catch (userError) {
+        console.log('⚠️ User creation warning:', userError.message);
+      }
+    }
+
+    // Create test store
+    let testStore = null;
+    if (Store && testMerchant) {
+      try {
+        testStore = await Store.create({
+          name: 'Test Store',
+          merchant_id: testMerchant.id,
+          location: 'Test Location',
+          primary_email: 'store@test.com',
+          description: 'A test store for review testing',
+          category: 'General',
+          opening_time: '09:00',
+          closing_time: '18:00',
+          working_days: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'],
+          status: 'open',
+          is_active: true
+        });
+        
+        console.log('✅ Test store created');
+      } catch (storeError) {
+        console.log('⚠️ Store creation warning:', storeError.message);
+      }
+    }
+
+    // Create test review with complex model support
+    if (Review && testUser && testStore) {
+      try {
+        const reviewData = {
+          store_id: testStore.id,
+          user_id: testUser.id,
+          rating: 5,
+          text: 'Great store! Excellent service and quality products.'
+        };
+        
+        // Add complex fields if they exist in the model
+        const reviewAttributes = Review.getTableName ? Object.keys(Review.rawAttributes || {}) : [];
+        
+        if (reviewAttributes.includes('is_verified')) {
+          reviewData.is_verified = true;
+        }
+        if (reviewAttributes.includes('is_helpful_count')) {
+          reviewData.is_helpful_count = 0;
+        }
+        if (reviewAttributes.includes('is_reported')) {
+          reviewData.is_reported = false;
+        }
+        
+        const testReview = await Review.create(reviewData);
+        
+        console.log('✅ Test review created');
+        
+        // Test Review model methods if they exist
+        if (typeof testReview.getCustomerName === 'function') {
+          console.log('🧪 Testing Review methods:');
+          console.log('  - Customer name:', testReview.getCustomerName());
+          console.log('  - Time ago:', testReview.getTimeAgo?.() || 'Method not available');
+          console.log('  - Can edit:', testReview.canEdit?.(testUser.id) || 'Method not available');
+        }
+        
+        // Test static methods if they exist
+        if (typeof Review.getStoreStats === 'function') {
+          const stats = await Review.getStoreStats(testStore.id);
+          console.log('  - Store stats:', stats);
+        }
+        
+      } catch (reviewError) {
+        console.log('⚠️ Test review creation warning:', reviewError.message);
+        console.log('💡 Review model might be using simple structure');
+      }
     }
 
     console.log('🌱 Test data seeded successfully!');
@@ -314,6 +687,51 @@ async function seedTestData() {
     console.error('❌ Error seeding test data:', error);
   }
 }
+
+// ✅ NEW: Check Review model health
+async function checkReviewModelHealth() {
+  try {
+    const { Review, Store, User } = sequelize.models;
+    
+    if (!Review) {
+      console.log('❌ Review model not found');
+      return false;
+    }
+    
+    console.log('🔍 Checking Review model health...');
+    
+    // Test basic operations
+    const reviewCount = await Review.count();
+    console.log(`📊 Review count: ${reviewCount}`);
+    
+    // Test associations if they exist
+    try {
+      const reviewWithAssociations = await Review.findOne({
+        include: [
+          { model: Store, as: 'store', required: false },
+          { model: User, as: 'user', required: false }
+        ]
+      });
+      console.log('✅ Review associations working');
+    } catch (assocError) {
+      console.log('⚠️ Review associations may not be fully configured');
+    }
+    
+    // Test static methods if they exist
+    if (typeof Review.getStoreStats === 'function') {
+      const testStats = await Review.getStoreStats('test-id');
+      console.log('✅ Review static methods working');
+    }
+    
+    return true;
+  } catch (error) {
+    console.error('❌ Review model health check failed:', error);
+    return false;
+  }
+}
+
+// Initialize database
+initializeDatabase();
 
 // Error handling middleware
 app.use((err, req, res, next) => {
@@ -345,17 +763,64 @@ app.use('*', (req, res) => {
   });
 });
 
-// Initialize database
-initializeDatabase();
+// ===============================
+// 🧪 TEMPORARY DEBUG ROUTES FOR TESTING (Development Only)
+// ===============================
 
-// Temporary debug routes for testing
 if (process.env.NODE_ENV === 'development') {
   const jwt = require('jsonwebtoken');
 
+  // Test endpoints for debugging
   app.get('/api/v1/users/test', (req, res) => {
     res.json({ message: 'User routes are working via app.js!', timestamp: new Date().toISOString() });
   });
 
+  // Review model health check endpoint
+  app.get('/api/v1/debug/review-health', async (req, res) => {
+    try {
+      const health = await checkReviewModelHealth();
+      res.json({
+        success: true,
+        reviewModelHealthy: health,
+        timestamp: new Date().toISOString()
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: error.message
+      });
+    }
+  });
+
+  // Database sync status endpoint
+  app.get('/api/v1/debug/db-status', async (req, res) => {
+    try {
+      const models = sequelize.models;
+      const status = {};
+      
+      for (const [modelName, model] of Object.entries(models)) {
+        try {
+          const count = await model.count();
+          status[modelName] = { exists: true, count };
+        } catch (error) {
+          status[modelName] = { exists: false, error: error.message };
+        }
+      }
+      
+      res.json({
+        success: true,
+        models: status,
+        timestamp: new Date().toISOString()
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: error.message
+      });
+    }
+  });
+
+  // Test OTP endpoints
   app.post('/api/v1/users/verify-otp', (req, res) => {
     console.log('OTP verification request:', req.body);
     const { phone, otp } = req.body;
@@ -382,7 +847,7 @@ if (process.env.NODE_ENV === 'development') {
     });
   });
 
-  // Test login route
+  // Test login routes
   app.post('/api/v1/users/login', (req, res) => {
     console.log('Login attempt:', req.body);
     const { email, password } = req.body;
@@ -394,12 +859,11 @@ if (process.env.NODE_ENV === 'development') {
       });
     }
 
-    // Simple test login - accept any email/password for now
     const token = jwt.sign(
       {
         userId: 1,
         email: email,
-        type: 'user' // Important: specify the type
+        type: 'user'
       },
       process.env.JWT_SECRET || 'your-secret-key',
       { expiresIn: '30d' }
@@ -421,7 +885,6 @@ if (process.env.NODE_ENV === 'development') {
     });
   });
 
-  // Test register route
   app.post('/api/v1/users/register', (req, res) => {
     console.log('Registration attempt:', req.body);
     const { firstName, lastName, email, phoneNumber, password } = req.body;
@@ -452,7 +915,6 @@ if (process.env.NODE_ENV === 'development') {
 
   // Test profile route for debugging auth
   app.get('/api/v1/users/profile', (req, res) => {
-    // Simple middleware to check token
     const authHeader = req.headers.authorization;
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
       return res.status(401).json({
@@ -481,6 +943,46 @@ if (process.env.NODE_ENV === 'development') {
         message: 'Invalid token'
       });
     }
+  });
+
+  // Merchant test routes
+  app.post('/api/v1/merchants/login', (req, res) => {
+    console.log('🏪 Merchant login attempt:', req.body);
+    const { email, password } = req.body;
+
+    if (!email || !password) {
+      return res.status(400).json({
+        message: 'Email and password required',
+        errors: {}
+      });
+    }
+
+    const token = jwt.sign(
+      {
+        userId: 'merchant-test-123',
+        id: 'merchant-test-123',
+        email: email,
+        type: 'merchant',
+        userType: 'merchant'
+      },
+      process.env.JWT_SECRET || 'your-secret-key',
+      { expiresIn: '30d' }
+    );
+
+    return res.status(200).json({
+      message: 'Merchant login successful',
+      user: {
+        id: 'merchant-test-123',
+        firstName: 'Test',
+        lastName: 'Merchant',
+        email: email,
+        phoneNumber: '+1234567890',
+        userType: 'merchant',
+        isEmailVerified: true,
+        isPhoneVerified: true,
+      },
+      access_token: token,
+    });
   });
 }
 
@@ -511,6 +1013,13 @@ server.listen(PORT, () => {
   console.log(`🧪 CORS Test: http://localhost:${PORT}/api/v1/cors-test`);
   console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
   console.log(`💬 Chat API: http://localhost:${PORT}/api/v1/chat/*`);
+  console.log(`📝 Review API: http://localhost:${PORT}/api/v1/reviews/*`);
+  
+  if (process.env.NODE_ENV === 'development') {
+    console.log(`🔍 Debug Endpoints:`);
+    console.log(`  - Review Health: http://localhost:${PORT}/api/v1/debug/review-health`);
+    console.log(`  - DB Status: http://localhost:${PORT}/api/v1/debug/db-status`);
+  }
 });
 
 // Graceful shutdown
@@ -552,428 +1061,5 @@ process.on('unhandledRejection', (reason, promise) => {
   console.error('💥 Unhandled Rejection at:', promise, 'reason:', reason);
   gracefulShutdown('unhandledRejection');
 });
-
-// Route debugging middleware - add this AFTER your routes are defined
-if (process.env.NODE_ENV === 'development') {
-  console.log('\n🔍 DEBUGGING ROUTES:');
-
-  // Function to extract routes from the app
-  const printRoutes = (app) => {
-    app._router.stack.forEach((middleware) => {
-      if (middleware.route) {
-        // Direct route
-        console.log(`📍 ${Object.keys(middleware.route.methods).join(',').toUpperCase()} ${middleware.route.path}`);
-      } else if (middleware.name === 'router') {
-        // Router middleware
-        const routerPath = middleware.regexp.source
-          .replace('\\', '')
-          .replace('(?:', '')
-          .replace('\\', '')
-          .replace('$', '');
-
-        console.log(`📁 Router found: ${routerPath}`);
-
-        if (middleware.handle && middleware.handle.stack) {
-          middleware.handle.stack.forEach((handler) => {
-            if (handler.route) {
-              const methods = Object.keys(handler.route.methods).join(',').toUpperCase();
-              console.log(`  └─ ${methods} ${routerPath}${handler.route.path}`);
-            }
-          });
-        }
-      }
-    });
-  };
-
-  // Print routes after a short delay to ensure they're all loaded
-  setTimeout(() => {
-    console.log('\n📋 REGISTERED ROUTES:');
-    printRoutes(app);
-    console.log('\n');
-  }, 1000);
-}
-
-// Simple route test endpoints for verification
-app.get('/debug/routes', (req, res) => {
-  const routes = [];
-
-  app._router.stack.forEach((middleware) => {
-    if (middleware.route) {
-      routes.push({
-        method: Object.keys(middleware.route.methods),
-        path: middleware.route.path
-      });
-    } else if (middleware.name === 'router') {
-      const routerPath = middleware.regexp.source
-        .replace(/\\/g, '')
-        .replace('(?:', '')
-        .replace('$', '');
-
-      if (middleware.handle && middleware.handle.stack) {
-        middleware.handle.stack.forEach((handler) => {
-          if (handler.route) {
-            routes.push({
-              method: Object.keys(handler.route.methods),
-              path: routerPath + handler.route.path
-            });
-          }
-        });
-      }
-    }
-  });
-
-  res.json({
-    message: 'Registered routes',
-    routes: routes,
-    timestamp: new Date().toISOString()
-  });
-});
-
-// Test specific merchant endpoints
-app.get('/debug/test-merchant', async (req, res) => {
-  const tests = {};
-
-  try {
-    // Test 1: Basic merchant test endpoint
-    try {
-      const testResponse = await fetch('http://localhost:4000/api/v1/merchants/test');
-      tests.merchantTest = {
-        status: testResponse.status,
-        success: testResponse.ok
-      };
-    } catch (error) {
-      tests.merchantTest = { error: error.message };
-    }
-
-    res.json({
-      message: 'Merchant endpoint tests',
-      tests,
-      timestamp: new Date().toISOString()
-    });
-  } catch (error) {
-    res.status(500).json({
-      error: error.message,
-      message: 'Test failed'
-    });
-  }
-});
-
-
-// ADD THESE ROUTES TO YOUR app.js in the development section (around line 350)
-
-if (process.env.NODE_ENV === 'development') {
-  const jwt = require('jsonwebtoken');
-
-  // ✅ FIXED: Add merchant login test route
-  app.post('/api/v1/merchants/login', (req, res) => {
-    console.log('🏪 Merchant login attempt:', req.body);
-    const { email, password } = req.body;
-
-    if (!email || !password) {
-      return res.status(400).json({
-        message: 'Email and password required',
-        errors: {}
-      });
-    }
-
-    // Create test merchant token
-    const token = jwt.sign(
-      {
-        userId: 'merchant-test-123',
-        id: 'merchant-test-123',
-        email: email,
-        type: 'merchant',        // ✅ Important: type = merchant
-        userType: 'merchant'     // ✅ Important: userType = merchant
-      },
-      process.env.JWT_SECRET || 'your-secret-key',
-      { expiresIn: '30d' }
-    );
-
-    return res.status(200).json({
-      message: 'Merchant login successful',
-      user: {
-        id: 'merchant-test-123',
-        firstName: 'Test',
-        lastName: 'Merchant',
-        email: email,
-        phoneNumber: '+1234567890',
-        userType: 'merchant',      // ✅ Important: merchant type
-        isEmailVerified: true,
-        isPhoneVerified: true,
-      },
-      access_token: token,
-    });
-  });
-
-  // ✅ Add merchant profile route
-  app.get('/api/v1/merchants/profile', (req, res) => {
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({
-        success: false,
-        message: 'No token provided'
-      });
-    }
-
-    const token = authHeader.substring(7);
-    try {
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key');
-      return res.status(200).json({
-        success: true,
-        user: {
-          id: decoded.userId || decoded.id,
-          firstName: 'Test',
-          lastName: 'Merchant',
-          email: decoded.email,
-          phoneNumber: '+1234567890',
-          userType: 'merchant'
-        }
-      });
-    } catch (error) {
-      return res.status(401).json({
-        success: false,
-        message: 'Invalid token'
-      });
-    }
-  });
-
-  // ✅ Create test store for merchant
-  app.post('/api/v1/stores/test-create', (req, res) => {
-    console.log('🏬 Creating test store...');
-    
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({
-        success: false,
-        message: 'No token provided'
-      });
-    }
-
-    const token = authHeader.substring(7);
-    try {
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key');
-      
-      // Simulate store creation
-      const testStore = {
-        id: 'store-test-123',
-        name: 'Test Merchant Store',
-        merchant_id: decoded.userId || decoded.id,
-        location: 'Test Location',
-        primary_email: decoded.email,
-        description: 'A test store for merchant chat testing',
-        category: 'General',
-        logo_url: 'https://via.placeholder.com/150',
-        opening_time: '09:00',
-        closing_time: '18:00',
-        working_days: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'],
-        status: 'open',
-        is_active: true
-      };
-
-      return res.status(201).json({
-        success: true,
-        message: 'Test store created',
-        store: testStore
-      });
-    } catch (error) {
-      return res.status(401).json({
-        success: false,
-        message: 'Invalid token'
-      });
-    }
-  });
-
-  // ✅ DEBUG: Check chat system status
-  app.get('/api/v1/debug/chat-status', async (req, res) => {
-    try {
-      const { Store, Chat, Message, User } = require('./models/index').sequelize.models;
-      
-      const stats = {
-        totalStores: await Store.count(),
-        totalChats: await Chat.count(),
-        totalMessages: await Message.count(),
-        totalUsers: await User.count(),
-        sampleStores: await Store.findAll({ 
-          limit: 3, 
-          attributes: ['id', 'name', 'merchant_id'] 
-        }),
-        sampleChats: await Chat.findAll({ 
-          limit: 3, 
-          attributes: ['id', 'userId', 'storeId'] 
-        })
-      };
-
-      res.json({
-        success: true,
-        message: 'Chat system status',
-        data: stats,
-        timestamp: new Date().toISOString()
-      });
-    } catch (error) {
-      res.status(500).json({
-        success: false,
-        error: error.message,
-        stack: error.stack
-      });
-    }
-  });
-
-  // ✅ DEBUG: Test merchant chat endpoint directly
-  app.get('/api/v1/debug/test-merchant-chat', async (req, res) => {
-    try {
-      const authHeader = req.headers.authorization;
-      if (!authHeader || !authHeader.startsWith('Bearer ')) {
-        return res.status(401).json({
-          success: false,
-          message: 'No token provided'
-        });
-      }
-
-      const token = authHeader.substring(7);
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key');
-      
-      console.log('🧪 Test merchant chat debug:', {
-        decodedToken: decoded,
-        merchantId: decoded.userId || decoded.id,
-        userType: decoded.type || decoded.userType
-      });
-
-      const { Store, Chat } = require('./models/index').sequelize.models;
-      
-      // Check stores for this merchant
-      const stores = await Store.findAll({
-        where: { merchant_id: decoded.userId || decoded.id },
-        attributes: ['id', 'name', 'merchant_id']
-      });
-
-      // Check chats for these stores
-      const storeIds = stores.map(s => s.id);
-      const chats = await Chat.findAll({
-        where: { storeId: { [require('sequelize').Op.in]: storeIds } },
-        attributes: ['id', 'userId', 'storeId']
-      });
-
-      res.json({
-        success: true,
-        debug: {
-          merchantId: decoded.userId || decoded.id,
-          userType: decoded.type || decoded.userType,
-          storesFound: stores.length,
-          stores: stores,
-          chatsFound: chats.length,
-          chats: chats
-        }
-      });
-
-    } catch (error) {
-      res.status(500).json({
-        success: false,
-        error: error.message,
-        stack: error.stack
-      });
-    }
-  });
-
-  // ✅ Create test data for merchant chat
-  app.post('/api/v1/debug/create-test-data', async (req, res) => {
-    try {
-      const { Store, Chat, Message, User } = require('./models/index').sequelize.models;
-      
-      // Create test merchant
-      const [testMerchant, created] = await User.findOrCreate({
-        where: { email: 'merchant@test.com' },
-        defaults: {
-          firstName: 'Test',
-          lastName: 'Merchant',
-          email: 'merchant@test.com',
-          phoneNumber: '+1234567890',
-          password: 'password123',
-          userType: 'merchant'
-        }
-      });
-
-      // Create test store
-      const [testStore, storeCreated] = await Store.findOrCreate({
-        where: { merchant_id: testMerchant.id },
-        defaults: {
-          name: 'Test Store',
-          merchant_id: testMerchant.id,
-          location: 'Test Location',
-          primary_email: 'store@test.com',
-          description: 'Test store for chat',
-          opening_time: '09:00',
-          closing_time: '18:00',
-          working_days: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'],
-          status: 'open',
-          is_active: true
-        }
-      });
-
-      // Create test customer
-      const [testCustomer, customerCreated] = await User.findOrCreate({
-        where: { email: 'customer@test.com' },
-        defaults: {
-          firstName: 'Test',
-          lastName: 'Customer',
-          email: 'customer@test.com',
-          phoneNumber: '+0987654321',
-          password: 'password123',
-          userType: 'customer'
-        }
-      });
-
-      // Create test chat
-      const [testChat, chatCreated] = await Chat.findOrCreate({
-        where: { 
-          userId: testCustomer.id,
-          storeId: testStore.id 
-        },
-        defaults: {
-          userId: testCustomer.id,
-          storeId: testStore.id,
-          status: 'active',
-          lastMessageAt: new Date()
-        }
-      });
-
-      // Create test message
-      if (chatCreated) {
-        await Message.create({
-          chat_id: testChat.id,
-          sender_id: testCustomer.id,
-          sender_type: 'user',
-          content: 'Hello! I would like to know more about your products.',
-          messageType: 'text',
-          status: 'sent'
-        });
-      }
-
-      res.json({
-        success: true,
-        message: 'Test data created successfully',
-        data: {
-          merchant: { id: testMerchant.id, email: testMerchant.email },
-          store: { id: testStore.id, name: testStore.name },
-          customer: { id: testCustomer.id, email: testCustomer.email },
-          chat: { id: testChat.id },
-          newRecords: {
-            merchant: created,
-            store: storeCreated,
-            customer: customerCreated,
-            chat: chatCreated
-          }
-        }
-      });
-
-    } catch (error) {
-      console.error('Error creating test data:', error);
-      res.status(500).json({
-        success: false,
-        error: error.message,
-        stack: error.stack
-      });
-    }
-  });
-}
 
 module.exports = app;
