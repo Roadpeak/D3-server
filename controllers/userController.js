@@ -1,62 +1,31 @@
-const bcrypt = require('bcryptjs');
-const jwt = require('jsonwebtoken');
-const ejs = require('ejs');
-const fs = require('fs');
-const { Op } = require('sequelize');
-const { sendEmail } = require('../utils/emailUtil');
-const userService = require('../services/userService');
-
-const JWT_SECRET = process.env.JWT_SECRET;
-
-// ==========================================
-// EXISTING USER FUNCTIONS (UNCHANGED)
-// ==========================================
-
-// REGISTER
+// USER REGISTER
 exports.register = async (req, res) => {
   try {
-    const {
-      firstName, lastName, email, phoneNumber, password,
-      first_name, last_name, phone, password_confirmation
-    } = req.body;
-
-    const userData = {
-      firstName: firstName || first_name,
-      lastName: lastName || last_name,
-      email,
-      phoneNumber: phoneNumber || phone,
-      password,
-      passwordConfirmation: password_confirmation,
-    };
-
+    const { firstName, lastName, email, phoneNumber, password } = req.body;
     const errors = {};
 
-    // Basic validations
-    if (!userData.firstName?.trim()) errors.firstName = 'First name is required';
-    if (!userData.lastName?.trim()) errors.lastName = 'Last name is required';
-    if (!userData.email?.trim()) {
+    // Validation
+    if (!firstName?.trim()) errors.firstName = 'First name is required';
+    if (!lastName?.trim()) errors.lastName = 'Last name is required';
+    if (!email?.trim()) {
       errors.email = 'Email is required';
-    } else if (!/\S+@\S+\.\S+/.test(userData.email)) {
+    } else if (!/\S+@\S+\.\S+/.test(email)) {
       errors.email = 'Please enter a valid email address';
     }
-    if (!userData.phoneNumber?.trim()) errors.phoneNumber = 'Phone number is required';
-    if (!userData.password) {
+    if (!phoneNumber?.trim()) errors.phoneNumber = 'Phone number is required';
+    if (!password) {
       errors.password = 'Password is required';
-    } else if (userData.password.length < 8) {
+    } else if (password.length < 8) {
       errors.password = 'Password must be at least 8 characters long';
-    }
-    if (userData.passwordConfirmation && userData.password !== userData.passwordConfirmation) {
-      errors.password_confirmation = 'Passwords do not match';
+    } else if (!/(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/.test(password)) {
+      errors.password = 'Password must contain uppercase, lowercase, and number';
     }
 
-    // Duplicate check
-    const [existingEmail, existingPhone] = await Promise.all([
-      userService.findUserByEmail(userData.email),
-      userService.findUserByPhone(userData.phoneNumber),
-    ]);
-
-    if (existingEmail) errors.email = 'User with this email already exists';
-    if (existingPhone) errors.phoneNumber = 'User with this phone number already exists';
+    // Check for existing user
+    const existingUser = await userService.findUserByEmail(email);
+    if (existingUser) {
+      errors.email = 'User with this email already exists';
+    }
 
     if (Object.keys(errors).length > 0) {
       return res.status(400).json({
@@ -67,94 +36,160 @@ exports.register = async (req, res) => {
 
     // Create user
     const newUser = await userService.createUser(
-      userData.firstName,
-      userData.lastName,
-      userData.email,
-      userData.phoneNumber,
-      userData.password
+      firstName.trim(),
+      lastName.trim(),
+      email.toLowerCase().trim(),
+      phoneNumber.trim(),
+      password,
+      'customer' // default userType
     );
 
-    // FIXED: Add type field to token
-    const token = jwt.sign(
-      { 
-        userId: newUser.id, 
-        email: newUser.email,
-        type: 'user'  // ADDED THIS LINE
-      },
-      JWT_SECRET,
-      { expiresIn: '30d' }
-    );
-
-    // Send welcome email (non-blocking)
-    try {
-      if (fs.existsSync('./templates/welcomeUser.ejs')) {
-        const template = fs.readFileSync('./templates/welcomeUser.ejs', 'utf8');
-        const emailContent = ejs.render(template, {
-          userName: newUser.firstName,
-          marketplaceLink: 'https://discoun3ree.com/marketplace',
-        });
-
-        await sendEmail(
-          newUser.email,
-          `Welcome to D3, ${newUser.firstName}!`,
-          '',
-          emailContent
-        );
-      }
-    } catch (emailError) {
-      console.error('Error sending welcome email:', emailError);
-    }
+    // Mark as unverified (default)
+    // Optionally send verification email/SMS here
 
     return res.status(201).json({
-      message: 'Registration successful',
+      message: 'Account created successfully',
       user: {
         id: newUser.id,
         firstName: newUser.firstName,
         lastName: newUser.lastName,
         email: newUser.email,
         phoneNumber: newUser.phoneNumber,
-        userType: newUser.userType || 'customer',
+        userType: newUser.userType,
         createdAt: newUser.createdAt,
-        updatedAt: newUser.updatedAt,
-      },
-      access_token: token,
+      }
     });
   } catch (err) {
-    console.error('Registration error:', err);
-
-    if (err.name === 'SequelizeValidationError') {
-      const errors = {};
-      
-      err.errors.forEach(error => {
-        const field = error.path;
-        if (!errors[field]) errors[field] = error.message;
-      });
-
-      return res.status(400).json({
-        message: 'Validation failed',
-        errors: errors
-      });
-    }
-
-    if (err.name === 'SequelizeUniqueConstraintError') {
-      const errors = {};
-      err.errors.forEach(error => {
-        if (error.path === 'email') errors.email = 'User with this email already exists';
-        if (error.path === 'phoneNumber') errors.phoneNumber = 'User with this phone number already exists';
-      });
-      
-      return res.status(400).json({
-        message: 'User already exists',
-        errors: errors
-      });
-    }
-
+    console.error('User registration error:', err);
     return res.status(500).json({
       message: 'An error occurred during registration. Please try again.',
       errors: {}
     });
   }
 };
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
+const ejs = require('ejs');
+const fs = require('fs');
+const { Op } = require('sequelize');
+const { sendEmail } = require('../utils/emailUtil');
+const userService = require('../services/userService');
+
+exports.getAllUsers = async function(req, res) {
+  try {
+    const {
+      page = 1,
+      limit = 10,
+      search = '',
+      userType = 'all',
+      status = 'all',
+      sortBy = 'createdAt',
+      sortOrder = 'DESC'
+    } = req.query;
+
+    const offset = (page - 1) * limit;
+    let whereCondition = {};
+
+    // Defensive: Only add search clause if search is a non-empty string
+    if (typeof search === 'string' && search.trim().length > 0) {
+      whereCondition[Op.or] = [
+        { firstName: { [Op.iLike]: `%${search}%` } },
+        { lastName: { [Op.iLike]: `%${search}%` } },
+        { email: { [Op.iLike]: `%${search}%` } },
+        { phoneNumber: { [Op.like]: `%${search}%` } }
+      ];
+    }
+
+    // Filter by user type
+    if (userType !== 'all') {
+      whereCondition.userType = userType;
+    }
+
+    // Filter by status
+    if (status === 'active') {
+      whereCondition.isActive = true;
+    } else if (status === 'suspended') {
+      whereCondition.isActive = false;
+    } else if (status === 'verified') {
+      whereCondition[Op.and] = [
+        { emailVerifiedAt: { [Op.ne]: null } },
+        { phoneVerifiedAt: { [Op.ne]: null } }
+      ];
+    } else if (status === 'unverified') {
+      whereCondition[Op.or] = [
+        { emailVerifiedAt: null },
+        { phoneVerifiedAt: null }
+      ];
+    }
+
+    const { rows: users, count: totalUsers } = await userService.findAndCountAllUsers({
+      where: whereCondition,
+      limit: parseInt(limit),
+      offset: offset,
+      order: [[sortBy, sortOrder.toUpperCase()]],
+      attributes: [
+        'id', 'firstName', 'lastName', 'email', 'phoneNumber', 'userType',
+        'isActive', 'isOnline', 'emailVerifiedAt', 'phoneVerifiedAt',
+        'createdAt', 'updatedAt', 'lastLoginAt', 'lastSeenAt', 'avatar'
+      ]
+    });
+
+    // Get additional stats for each user (if needed)
+    const usersWithStats = await Promise.all(users.map(async (user) => {
+      let additionalData = {};
+      
+      if (user.userType === 'customer') {
+        // Add customer-specific data (orders, spending, etc.)
+        // This would come from your Order model
+        additionalData = {
+          totalOrders: Math.floor(Math.random() * 50), // Mock data
+          totalSpent: Math.floor(Math.random() * 5000), // Mock data
+          lastOrderDate: null,
+          favoriteCategories: []
+        };
+      } else if (user.userType === 'merchant') {
+        // Add merchant-specific data (stores, etc.)
+        additionalData = {
+          totalStores: Math.floor(Math.random() * 5), // Mock data
+          storeName: `${user.firstName}'s Store` // Mock data
+        };
+      }
+
+      return {
+        ...user.toJSON(),
+        ...additionalData
+      };
+    }));
+
+    const totalPages = Math.ceil(totalUsers / limit);
+
+    return res.status(200).json({
+      message: 'Users retrieved successfully',
+      users: usersWithStats,
+      pagination: {
+        currentPage: parseInt(page),
+        totalPages: totalPages,
+        totalUsers: totalUsers,
+        perPage: parseInt(limit),
+        hasNextPage: page < totalPages,
+        hasPrevPage: page > 1
+      },
+      filters: {
+        search,
+        userType,
+        status,
+        sortBy,
+        sortOrder
+      }
+    });
+  } catch (err) {
+    console.error('Get all users error:', err);
+    return res.status(500).json({
+      message: 'An error occurred while fetching users',
+      errors: { details: err.message }
+    });
+  }
+}
 
 // LOGIN - FIXED to include type field
 exports.login = async (req, res) => {
@@ -876,127 +911,10 @@ exports.adminRegister = async (req, res) => {
   }
 };
 
-// GET ALL USERS (Admin function)
-exports.getAllUsers = async (req, res) => {
-  try {
-    const {
-      page = 1,
-      limit = 10,
-      search = '',
-      userType = 'all',
-      status = 'all',
-      sortBy = 'createdAt',
-      sortOrder = 'DESC'
-    } = req.query;
-
-    const offset = (page - 1) * limit;
-    let whereCondition = {};
-
-    // Search functionality
-    if (search) {
-      whereCondition[Op.or] = [
-        { firstName: { [Op.iLike]: `%${search}%` } },
-        { lastName: { [Op.iLike]: `%${search}%` } },
-        { email: { [Op.iLike]: `%${search}%` } },
-        { phoneNumber: { [Op.like]: `%${search}%` } }
-      ];
-    }
-
-    // Filter by user type
-    if (userType !== 'all') {
-      whereCondition.userType = userType;
-    }
-
-    // Filter by status
-    if (status === 'active') {
-      whereCondition.isActive = true;
-    } else if (status === 'suspended') {
-      whereCondition.isActive = false;
-    } else if (status === 'verified') {
-      whereCondition[Op.and] = [
-        { emailVerifiedAt: { [Op.ne]: null } },
-        { phoneVerifiedAt: { [Op.ne]: null } }
-      ];
-    } else if (status === 'unverified') {
-      whereCondition[Op.or] = [
-        { emailVerifiedAt: null },
-        { phoneVerifiedAt: null }
-      ];
-    }
-
-    // Get users with pagination
-    const { rows: users, count: totalUsers } = await userService.findAndCountAllUsers({
-      where: whereCondition,
-      limit: parseInt(limit),
-      offset: offset,
-      order: [[sortBy, sortOrder.toUpperCase()]],
-      attributes: [
-        'id', 'firstName', 'lastName', 'email', 'phoneNumber', 'userType',
-        'isActive', 'isOnline', 'emailVerifiedAt', 'phoneVerifiedAt',
-        'createdAt', 'updatedAt', 'lastLoginAt', 'lastSeenAt', 'avatar'
-      ]
-    });
-
-    // Get additional stats for each user (if needed)
-    const usersWithStats = await Promise.all(users.map(async (user) => {
-      let additionalData = {};
-      
-      if (user.userType === 'customer') {
-        // Add customer-specific data (orders, spending, etc.)
-        // This would come from your Order model
-        additionalData = {
-          totalOrders: Math.floor(Math.random() * 50), // Mock data
-          totalSpent: Math.floor(Math.random() * 5000) // Mock data
-        };
-      } else if (user.userType === 'merchant') {
-        // Add merchant-specific data (stores, etc.)
-        additionalData = {
-          totalStores: Math.floor(Math.random() * 5), // Mock data
-          storeName: `${user.firstName}'s Store` // Mock data
-        };
-      }
-
-      return {
-        ...user.toJSON(),
-        ...additionalData
-      };
-    }));
-
-    const totalPages = Math.ceil(totalUsers / limit);
-
-    return res.status(200).json({
-      message: 'Users retrieved successfully',
-      users: usersWithStats,
-      pagination: {
-        currentPage: parseInt(page),
-        totalPages: totalPages,
-        totalUsers: totalUsers,
-        perPage: parseInt(limit),
-        hasNextPage: page < totalPages,
-        hasPrevPage: page > 1
-      },
-      filters: {
-        search,
-        userType,
-        status,
-        sortBy,
-        sortOrder
-      }
-    });
-  } catch (err) {
-    console.error('Get all users error:', err);
-    return res.status(500).json({
-      message: 'An error occurred while fetching users',
-      errors: {}
-    });
-  }
-};
-
 // GET USER BY ID (Admin function)
 exports.getUserById = async (req, res) => {
   try {
     const { userId } = req.params;
-    
     const user = await userService.findUserById(userId);
     if (!user) {
       return res.status(404).json({
@@ -1004,11 +922,9 @@ exports.getUserById = async (req, res) => {
         errors: { userId: 'User with this ID does not exist' }
       });
     }
-
     // Get additional user data based on type
     let additionalData = {};
     if (user.userType === 'customer') {
-      // Get customer statistics
       additionalData = {
         totalOrders: Math.floor(Math.random() * 50),
         totalSpent: Math.floor(Math.random() * 5000),
@@ -1016,7 +932,6 @@ exports.getUserById = async (req, res) => {
         favoriteCategories: []
       };
     } else if (user.userType === 'merchant') {
-      // Get merchant statistics
       additionalData = {
         totalStores: Math.floor(Math.random() * 5),
         totalProducts: Math.floor(Math.random() * 100),
@@ -1024,7 +939,6 @@ exports.getUserById = async (req, res) => {
         stores: []
       };
     }
-
     return res.status(200).json({
       message: 'User retrieved successfully',
       user: {
@@ -1208,6 +1122,30 @@ exports.getDashboardStats = async (req, res) => {
     console.error('Get dashboard stats error:', err);
     return res.status(500).json({
       message: 'An error occurred while fetching dashboard statistics',
+      errors: {}
+    });
+  }
+};
+
+// GET USER STATS (Admin function)
+exports.getUserStats = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const stats = await userService.getUserStats(id);
+    if (!stats) {
+      return res.status(404).json({
+        message: 'User not found or no stats available',
+        errors: { id: 'User with this ID does not exist or no stats available' }
+      });
+    }
+    return res.status(200).json({
+      message: 'User stats retrieved successfully',
+      stats
+    });
+  } catch (err) {
+    console.error('Get user stats error:', err);
+    return res.status(500).json({
+      message: 'An error occurred while fetching user stats',
       errors: {}
     });
   }

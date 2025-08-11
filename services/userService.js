@@ -215,6 +215,69 @@ exports.markEmailAsVerified = async (userId) => {
   }
 };
 
+// Find and count all users (for admin pagination/search)
+exports.findAndCountAllUsers = async ({ where, limit, offset, order, attributes }) => {
+  try {
+    return await User.findAndCountAll({
+      where,
+      limit,
+      offset,
+      order,
+      attributes
+    });
+  } catch (error) {
+    throw new Error('Error finding users: ' + error.message);
+  }
+};
+
+// Get user statistics (for /admin/users/{id}/stats)
+exports.getUserStats = async (userId) => {
+  try {
+    // Example stats: total bookings, total offers, total spent (for customers), total stores (for merchants)
+    const { User, Booking, Store, sequelize } = require('../models');
+    const user = await User.findByPk(userId);
+    if (!user) return null;
+
+    let stats = {};
+    if (user.userType === 'customer') {
+      // Total bookings and total spent
+      const totalBookings = await Booking.count({ where: { user_id: userId } });
+      const totalSpentResult = await Booking.findAll({
+        where: { user_id: userId },
+        attributes: [[sequelize.fn('SUM', sequelize.col('amount')), 'totalSpent']]
+      });
+      const totalSpent = totalSpentResult[0]?.dataValues?.totalSpent || 0;
+      stats = { totalBookings, totalSpent };
+    } else if (user.userType === 'merchant') {
+      // Total stores and total revenue
+      const totalStores = await Store.count({ where: { merchant_id: userId } });
+      // Get all bookings for stores owned by this merchant
+      const merchantStoreIds = await Store.findAll({
+        where: { merchant_id: userId },
+        attributes: ['id']
+      });
+      const storeIds = merchantStoreIds.map(store => store.id);
+      let totalRevenue = 0;
+      if (storeIds.length > 0) {
+        const totalRevenueResult = await Booking.findAll({
+          where: { store_id: { [sequelize.Op.in]: storeIds } },
+          attributes: [[sequelize.fn('SUM', sequelize.col('amount')), 'totalRevenue']]
+        });
+        totalRevenue = totalRevenueResult[0]?.dataValues?.totalRevenue || 0;
+      }
+      stats = { totalStores, totalRevenue };
+    } else if (user.userType === 'admin') {
+      // Gracefully handle admin users
+      stats = { message: 'No stats available for admin users.' };
+    } else {
+      stats = { message: 'No stats available for this user type.' };
+    }
+    return stats;
+  } catch (error) {
+    // Always return a message instead of throwing for unknown types
+    return { message: 'No stats available due to error.' };
+  }
+};
 // Get user with verification status
 exports.getUserWithVerificationStatus = async (id) => {
   try {
