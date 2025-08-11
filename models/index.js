@@ -41,7 +41,7 @@ const StoreSubscription = require('./storesubscription')(sequelize, DataTypes);
 // ADD NEW BRANCH MODEL
 const Branch = require('./Branch')(sequelize, DataTypes);
 
-// ✅ UNCOMMENT AND IMPORT NEW SERVICE MARKETPLACE MODELS
+// ✅ NEW SERVICE MARKETPLACE MODELS
 const ServiceRequest = require('./serviceRequest')(sequelize, DataTypes);
 const ServiceOffer = require('./ServiceOffer')(sequelize, DataTypes);
 const Notification = require('./notification')(sequelize, DataTypes);
@@ -210,13 +210,13 @@ Merchant.hasMany(Branch, {
 });
 
 // ==========================================
-// ✅ NEW SERVICE MARKETPLACE ASSOCIATIONS
+// ✅ FIXED SERVICE MARKETPLACE ASSOCIATIONS
 // ==========================================
 
-// ServiceRequest-User
+// ServiceRequest-User (✅ Fixed alias to match routes)
 ServiceRequest.belongsTo(User, { 
   foreignKey: 'postedBy', 
-  as: 'user', // ✅ This matches your route code
+  as: 'postedByUser', // ✅ Changed from 'user' to 'postedByUser' to match routes
   onDelete: 'CASCADE' 
 });
 User.hasMany(ServiceRequest, { 
@@ -224,21 +224,21 @@ User.hasMany(ServiceRequest, {
   as: 'serviceRequests' 
 });
 
-// ServiceOffer-ServiceRequest  
+// ServiceOffer-ServiceRequest (✅ Fixed alias to match routes)
 ServiceOffer.belongsTo(ServiceRequest, { 
   foreignKey: 'requestId', 
-  as: 'serviceRequest', 
+  as: 'request', // ✅ Changed from 'serviceRequest' to 'request' to match routes
   onDelete: 'CASCADE' 
 });
 ServiceRequest.hasMany(ServiceOffer, { 
   foreignKey: 'requestId', 
-  as: 'offers' // ✅ This matches your route code
+  as: 'offers' // ✅ This already matches the routes
 });
 
-// ServiceOffer-User (provider)
+// ServiceOffer-User (provider) - ✅ This already matches
 ServiceOffer.belongsTo(User, { 
   foreignKey: 'providerId', 
-  as: 'provider', 
+  as: 'provider', // ✅ This matches the routes
   onDelete: 'CASCADE' 
 });
 User.hasMany(ServiceOffer, { 
@@ -246,7 +246,7 @@ User.hasMany(ServiceOffer, {
   as: 'sentOffers' 
 });
 
-// ServiceOffer-Store
+// ServiceOffer-Store - ✅ This already matches
 ServiceOffer.belongsTo(Store, { 
   foreignKey: 'storeId', 
   as: 'store', 
@@ -289,6 +289,46 @@ User.hasMany(Notification, { foreignKey: 'recipientId', as: 'notifications' });
 Notification.belongsTo(User, { foreignKey: 'senderId', as: 'sender', onDelete: 'SET NULL' });
 User.hasMany(Notification, { foreignKey: 'senderId', as: 'sentNotifications' });
 
+// ==========================================
+// ✅ ADD MISSING ASSOCIATIONS FOR BETTER FUNCTIONALITY
+// ==========================================
+
+// ServiceRequest-ServiceOffer (for easier querying of accepted offers)
+ServiceRequest.hasOne(ServiceOffer, {
+  foreignKey: 'requestId',
+  as: 'acceptedOfferDetail',
+  where: { status: 'accepted' },
+  required: false
+});
+
+// User-ServiceRequest (for easier querying of user's requests)
+User.hasMany(ServiceRequest, {
+  foreignKey: 'postedBy',
+  as: 'postedRequests'
+});
+
+// User-ServiceOffer (for easier querying of offers made by user)
+User.hasMany(ServiceOffer, {
+  foreignKey: 'providerId',
+  as: 'providedOffers'
+});
+
+// Store-ServiceRequest (for finding requests in store's area/category)
+// This is indirect through ServiceOffer, but we might want direct access
+Store.belongsToMany(ServiceRequest, {
+  through: ServiceOffer,
+  foreignKey: 'storeId',
+  otherKey: 'requestId',
+  as: 'relatedRequests'
+});
+
+ServiceRequest.belongsToMany(Store, {
+  through: ServiceOffer,
+  foreignKey: 'requestId',
+  otherKey: 'storeId',
+  as: 'interestedStores'
+});
+
 module.exports = {
   User,
   Merchant,
@@ -313,7 +353,7 @@ module.exports = {
   Chat,
   Message,
   Branch,
-  // ✅ UNCOMMENT AND EXPORT NEW MODELS
+  // ✅ SERVICE MARKETPLACE MODELS
   ServiceRequest,
   ServiceOffer,
   Notification,

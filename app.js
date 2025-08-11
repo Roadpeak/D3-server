@@ -24,6 +24,7 @@ const categoryRoutes = require('./routes/categoryRoutes');
 const chatRoutes = require('./routes/chatRoutes');
 const branchRoutes = require('./routes/branchRoutes');
 const heroRoutes = require('./routes/heroRoutes');
+const merchantServiceRoutes = require('./routes/merchantServiceRoutes');
 const { socketManager } = require('./socket/websocket');
 const homedealsstores = require('./routes/homedealsstoresRoutes');
 const serviceRequestRoutes = require('./routes/serviceRequestRoutes');
@@ -180,6 +181,7 @@ app.get('/api/v1/cors-test', (req, res) => {
 // API Routes
 app.use('/api/v1/users', userRoutes);
 app.use('/api/v1/merchants', merchantRoutes);
+app.use('/api/v1/merchant', merchantServiceRoutes);
 app.use('/api/v1/stores', storesRoutes);
 app.use('/api/v1/services', serviceRoutes);
 app.use('/api/v1/upload', uploadRoutes);

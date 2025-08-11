@@ -353,20 +353,96 @@ exports.deleteService = async (req, res) => {
 exports.getServicesByStoreId = async (req, res) => {
   try {
     const { storeId } = req.params;
-    const services = await Service.findAll({
-      where: {
-        store_id: storeId,
-      },
-    });
-
-    if (services.length === 0) {
-      return res.status(404).json({ message: 'No services found for this store' });
+    
+    console.log('🔍 Getting services for store:', storeId);
+    console.log('🔍 Authenticated user:', req.user);
+    
+    // Validate storeId parameter
+    if (!storeId || storeId === 'undefined' || storeId === 'null') {
+      return res.status(400).json({ 
+        success: false,
+        message: 'Valid store ID is required',
+        services: []
+      });
+    }
+    
+    // Check if store exists
+    const store = await Store.findByPk(storeId);
+    if (!store) {
+      return res.status(404).json({ 
+        success: false,
+        message: 'Store not found',
+        services: []
+      });
     }
 
-    return res.status(200).json({ services });
+    // If user is authenticated and is a merchant, verify ownership
+    if (req.user && (req.user.type === 'merchant' || req.user.role === 'merchant')) {
+      const merchantId = req.user.id || req.user.userId;
+      console.log('🔐 Verifying store ownership for merchant:', merchantId);
+      
+      if (store.merchant_id !== merchantId) {
+        console.log('❌ Store ownership verification failed');
+        return res.status(403).json({ 
+          success: false,
+          message: 'Access denied. You can only access your own store services.',
+          services: []
+        });
+      }
+      console.log('✅ Store ownership verified');
+    }
+
+    // Fetch services for this specific store
+    const services = await Service.findAll({
+      where: {
+        store_id: storeId, // This is the key - ensure we're filtering by store_id
+      },
+      include: [
+        {
+          model: Store,
+          attributes: ['id', 'name', 'location'],
+          required: false
+        },
+        // Include staff assignments if needed
+        {
+          model: Staff,
+          through: { 
+            attributes: ['isActive', 'assignedAt'] 
+          },
+          attributes: ['id', 'name', 'email', 'status'],
+          as: 'Staff',
+          required: false
+        }
+      ],
+      order: [['createdAt', 'DESC']]
+    });
+
+    console.log(`✅ Found ${services.length} services for store ${storeId}`);
+
+    // Log the first few services for debugging
+    if (services.length > 0) {
+      console.log('📋 Sample services store_ids:', 
+        services.slice(0, 3).map(s => `${s.name}: ${s.store_id}`).join(', '));
+    }
+
+    return res.status(200).json({ 
+      success: true,
+      services,
+      storeInfo: {
+        id: store.id,
+        name: store.name,
+        location: store.location
+      },
+      count: services.length
+    });
   } catch (err) {
-    console.error(err);
-    return res.status(500).json({ message: 'Error fetching services for this store' });
+    console.error('❌ Error fetching services for store:', err);
+    return res.status(500).json({ 
+      success: false,
+      message: 'Error fetching services for this store',
+      services: [],
+      error: process.env.NODE_ENV === 'development' ? err.message : undefined
+    });
   }
 };
 
@@ -439,8 +515,9 @@ exports.getServicesByMerchantId = async (req, res) => {
 exports.getMerchantServices = async (req, res) => {
   try {
     const merchantId = req.user.id || req.user.userId;
+    console.log('🔍 Getting all services for merchant:', merchantId);
     
-    // Get all stores for this merchant
+    // Get all stores for this merchant first
     const merchantStores = await Store.findAll({
       where: { merchant_id: merchantId },
       attributes: ['id', 'name', 'location']
@@ -450,35 +527,66 @@ exports.getMerchantServices = async (req, res) => {
       return res.status(200).json({ 
         success: true,
         message: 'No stores found. Please create a store first.',
-        services: []
+        services: [],
+        stores: []
       });
     }
 
     const storeIds = merchantStores.map(store => store.id);
+    console.log('🏪 Found stores:', storeIds);
 
+    // Fetch services only for these stores
     const services = await Service.findAll({
       where: {
         store_id: {
           [Op.in]: storeIds
         }
       },
-      include: [{
-        model: Store,
-        attributes: ['id', 'name', 'location'],
-        required: false
-      }],
+      include: [
+        {
+          model: Store,
+          attributes: ['id', 'name', 'location'],
+          required: true // Ensure service has a valid store
+        },
+        {
+          model: Staff,
+          through: { 
+            attributes: ['isActive', 'assignedAt'] 
+          },
+          attributes: ['id', 'name', 'status'],
+          as: 'Staff',
+          required: false
+        }
+      ],
       order: [['createdAt', 'DESC']]
     });
 
+    console.log(`✅ Found ${services.length} total services across ${merchantStores.length} stores`);
+
+    // Group services by store for debugging
+    const servicesByStore = services.reduce((acc, service) => {
+      const storeId = service.store_id;
+      if (!acc[storeId]) acc[storeId] = [];
+      acc[storeId].push(service.name);
+      return acc;
+    }, {});
+
+    console.log('📊 Services by store:', Object.entries(servicesByStore).map(
+      ([storeId, serviceNames]) => `Store ${storeId}: ${serviceNames.length} services`
+    ).join(', '));
+
     return res.status(200).json({ 
       success: true,
-      services
+      services,
+      stores: merchantStores,
+      servicesByStore: Object.keys(servicesByStore).length
     });
   } catch (err) {
-    console.error('Error fetching merchant services:', err);
+    console.error('❌ Error fetching merchant services:', err);
     return res.status(500).json({ 
       success: false,
-      message: 'Error fetching services'
+      message: 'Error fetching services',
+      services: []
     });
   }
 };
@@ -650,4 +758,39 @@ exports.updateServiceStatus = async (req, res) => {
     message: 'Update service status functionality coming soon',
     serviceId: req.params.id
   });
+};
+exports.debugServices = async (req, res) => {
+  try {
+    const merchantId = req.user.id || req.user.userId;
+    
+    // Get all services and their store associations
+    const allServices = await Service.findAll({
+      include: [{
+        model: Store,
+        attributes: ['id', 'name', 'merchant_id'],
+        required: false
+      }]
+    });
+
+    const merchantServices = allServices.filter(service => 
+      service.Store && service.Store.merchant_id === merchantId
+    );
+
+    const debug = {
+      merchant_id: merchantId,
+      total_services_in_db: allServices.length,
+      merchant_services: merchantServices.length,
+      service_details: merchantServices.map(s => ({
+        id: s.id,
+        name: s.name,
+        store_id: s.store_id,
+        store_name: s.Store?.name,
+        store_merchant_id: s.Store?.merchant_id
+      }))
+    };
+
+    return res.status(200).json(debug);
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
 };
