@@ -1,0 +1,120 @@
+const jwt = require('jsonwebtoken');
+const bcrypt = require('bcryptjs');
+const User = require('../../models/index').sequelize.models.User;
+const authService = require('../../services/admin/authService');
+const { sendErrorResponse, sendSuccessResponse } = require('../../utils/responses');
+
+const login = async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    const user = await User.findByEmail(email);
+    if (!user) return sendErrorResponse(res, 401, 'Invalid credentials');
+
+    const isMatch = await authService.comparePassword(password, user.password);
+    if (!isMatch) return sendErrorResponse(res, 401, 'Invalid credentials');
+
+    const token = authService.generateJWT(user);
+    return sendSuccessResponse(res, 200, { token, user: user.toJSON() });
+  } catch (error) {
+    return sendErrorResponse(res, 500, 'Server error', error.message);
+  }
+};
+
+const register = async (req, res) => {
+  try {
+    const { email, password, name } = req.body;
+    const existingUser = await User.findByEmail(email);
+    if (existingUser) return sendErrorResponse(res, 400, 'Email already exists');
+
+    const hashedPassword = await authService.hashPassword(password);
+    const user = await User.create({ email, password: hashedPassword, name });
+    await authService.sendVerificationEmail(user);
+
+    const token = authService.generateJWT(user);
+    return sendSuccessResponse(res, 201, { token, user: user.toJSON() });
+  } catch (error) {
+    return sendErrorResponse(res, 500, 'Server error', error.message);
+  }
+};
+
+const logout = async (req, res) => {
+  return sendSuccessResponse(res, 200, { message: 'Logged out successfully' });
+};
+
+const refreshToken = async (req, res) => {
+  try {
+    const { token } = req.body;
+    const decoded = await authService.validateToken(token);
+    const user = await User.findById(decoded.id);
+    if (!user) return sendErrorResponse(res, 401, 'Invalid token');
+
+    const newToken = authService.generateJWT(user);
+    return sendSuccessResponse(res, 200, { token: newToken });
+  } catch (error) {
+    return sendErrorResponse(res, 401, 'Invalid or expired token', error.message);
+  }
+};
+
+const forgotPassword = async (req, res) => {
+  try {
+    const { email } = req.body;
+    const user = await User.findByEmail(email);
+    if (!user) return sendErrorResponse(res, 404, 'User not found');
+
+    const resetToken = authService.generateResetToken();
+    user.resetToken = resetToken;
+    user.resetTokenExpiry = Date.now() + 3600000;
+    await user.save();
+
+    await authService.sendResetPasswordEmail(user, resetToken);
+    return sendSuccessResponse(res, 200, { message: 'Reset password email sent' });
+  } catch (error) {
+    return sendErrorResponse(res, 500, 'Server error', error.message);
+  }
+};
+
+const resetPassword = async (req, res) => {
+  try {
+    const { token, newPassword } = req.body;
+    const user = await User.findOne({
+      resetToken: token,
+      resetTokenExpiry: { $gt: Date.now() },
+    });
+    if (!user) return sendErrorResponse(res, 400, 'Invalid or expired token');
+
+    user.password = await authService.hashPassword(newPassword);
+    user.resetToken = null;
+    user.resetTokenExpiry = null;
+    await user.save();
+
+    return sendSuccessResponse(res, 200, { message: 'Password reset successful' });
+  } catch (error) {
+    return sendErrorResponse(res, 500, 'Server error', error.message);
+  }
+};
+
+const verifyEmail = async (req, res) => {
+  try {
+    const { token } = req.query;
+    const user = await User.findOne({ emailVerificationToken: token });
+    if (!user) return sendErrorResponse(res, 400, 'Invalid or expired token');
+
+    user.isEmailVerified = true;
+    user.emailVerificationToken = null;
+    await user.save();
+
+    return sendSuccessResponse(res, 200, { message: 'Email verified successfully' });
+  } catch (error) {
+    return sendErrorResponse(res, 500, 'Server error', error.message);
+  }
+};
+
+module.exports = {
+  login,
+  register,
+  logout,
+  refreshToken,
+  forgotPassword,
+  resetPassword,
+  verifyEmail,
+};

@@ -14,11 +14,23 @@ const outputFile = path.join(__dirname, 'swagger_output.json'); // Output file t
 const endpointsFiles = [
   path.join(__dirname, 'routes/userRoutes.js'),
   path.join(__dirname, 'routes/merchantRoutes.js'),
-  path.join(__dirname, 'routes/storeRoutes.js'),
+  path.join(__dirname, 'routes/storesRoutes.js'),
   path.join(__dirname, 'routes/serviceRoutes.js'),
   path.join(__dirname, 'routes/upload.js'),
   path.join(__dirname, 'routes/paymentRoutes.js'),
-  // Add all other route files here
+  // Admin endpoints
+  path.join(__dirname, 'routes/admin/auth.js'),
+  path.join(__dirname, 'routes/admin/dashboard.js'),
+  path.join(__dirname, 'routes/admin/users.js'),
+  path.join(__dirname, 'routes/admin/merchants.js'),
+  path.join(__dirname, 'routes/admin/stores.js'),
+  path.join(__dirname, 'routes/admin/services.js'),
+  path.join(__dirname, 'routes/admin/bookings.js'),
+  path.join(__dirname, 'routes/admin/offers.js'),
+  path.join(__dirname, 'routes/admin/promos.js'),
+  path.join(__dirname, 'routes/admin/serviceRequests.js'),
+  path.join(__dirname, 'routes/admin/payments.js'),
+  path.join(__dirname, 'routes/admin/account.js'),
 ];
 
 // Generate the Swagger documentation

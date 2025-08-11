@@ -12,7 +12,7 @@ module.exports = (sequelize, DataTypes) => {
       merchant_id: {
         type: DataTypes.UUID,
         allowNull: false,
-        references: { model: 'Merchants', key: 'id' },
+        references: { model: 'merchants', key: 'id' },
       },
       name: {
         type: DataTypes.STRING,
@@ -85,12 +85,12 @@ module.exports = (sequelize, DataTypes) => {
       created_by: {
         type: DataTypes.UUID,
         allowNull: false,
-        references: { model: 'Merchants', key: 'id' },
+        references: { model: 'merchants', key: 'id' },
       },
       updated_by: {
         type: DataTypes.UUID,
         allowNull: true,
-        references: { model: 'Merchants', key: 'id' },
+        references: { model: 'merchants', key: 'id' },
       },
       is_active: {
         type: DataTypes.BOOLEAN,

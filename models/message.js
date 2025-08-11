@@ -12,7 +12,7 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.UUID,
       allowNull: false,
       references: {
-        model: 'Chats',
+        model: 'chats',
         key: 'id'
       },
       comment: 'Customer↔Store conversation this message belongs to'
@@ -51,7 +51,7 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.UUID,
       allowNull: true,
       references: {
-        model: 'Messages',
+        model: 'messages',
         key: 'id'
       },
       comment: 'Message this is replying to (for threaded conversations)'

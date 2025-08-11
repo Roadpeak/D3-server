@@ -25,10 +25,10 @@ const Staff = require('./staff')(sequelize, DataTypes);
 const Offer = require('./offer')(sequelize, DataTypes);
 const Payment = require('./payment')(sequelize, DataTypes);
 const ServiceForm = require('./serviceform')(sequelize, DataTypes);
-const Social = require('./social')(sequelize, DataTypes);
+const Social = require('./Social')(sequelize, DataTypes);
 const Review = require('./review')(sequelize, DataTypes);
 const Form = require('./form')(sequelize, DataTypes);
-const FormField = require('./formfield')(sequelize, DataTypes);
+const FormField = require('./formField')(sequelize, DataTypes);
 const FormResponse = require('./formresponse')(sequelize, DataTypes);
 const Quote = require('./quote')(sequelize, DataTypes);
 const Invoice = require('./invoice')(sequelize, DataTypes);
@@ -36,7 +36,7 @@ const Follow = require('./follow')(sequelize, DataTypes);
 const Category = require('./category')(sequelize, DataTypes);
 const Chat = require('./chat')(sequelize, DataTypes);
 const Message = require('./message')(sequelize, DataTypes);
-const StoreSubscription = require('./storesubscription')(sequelize, DataTypes);
+const StoreSubscription = require('./StoreSubscription')(sequelize, DataTypes);
 
 // ADD NEW BRANCH MODEL
 const Branch = require('./Branch')(sequelize, DataTypes);
@@ -54,7 +54,6 @@ Store.hasMany(Service, { foreignKey: 'store_id', as: 'services' });
 
 // ServiceForm-Service
 ServiceForm.belongsTo(Service, { foreignKey: 'service_id', as: 'service', onDelete: 'CASCADE' });
-Service.hasMany(ServiceForm, { foreignKey: 'service_id', as: 'serviceForms' });
 
 // FormResponse-ServiceForm
 FormResponse.belongsTo(ServiceForm, { foreignKey: 'service_form_id', as: 'serviceForm', onDelete: 'CASCADE' });
@@ -169,16 +168,6 @@ Follow.belongsTo(User, { foreignKey: 'following_id', as: 'following', onDelete: 
 User.hasMany(Follow, { foreignKey: 'follower_id', as: 'following' });
 User.hasMany(Follow, { foreignKey: 'following_id', as: 'followers' });
 
-// Category-Service
-Category.hasMany(Service, {
-  foreignKey: 'category_id',
-  as: 'services',
-});
-
-Service.belongsTo(Category, {
-  foreignKey: 'category_id',
-  as: 'serviceCategory',
-});
 
 // Social-Store
 Social.belongsTo(Store, { foreignKey: 'store_id', as: 'store', onDelete: 'CASCADE' });

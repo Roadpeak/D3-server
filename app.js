@@ -1,4 +1,5 @@
 const express = require('express');
+const path = require('path');
 const cors = require('cors');
 const http = require('http');
 const storesRoutes = require('./routes/storesRoutes');
@@ -28,10 +29,6 @@ const heroRoutes = require('./routes/heroRoutes');
 const { socketManager } = require('./socket/websocket');
 const homedealsstores = require('./routes/homedealsstoresRoutes');
 const serviceRequestRoutes = require('./routes/serviceRequestRoutes');
-const swaggerUi = require('swagger-ui-express');
-const fs = require('fs');
-const path = require('path');
-const swaggerFile = path.join(__dirname, 'swagger_output.json');
 
 // Import API key middleware
 const { apiKeyMiddleware } = require('./middleware/apiKey');
@@ -42,26 +39,29 @@ const app = express();
 
 // CORS Configuration - FIXED VERSION
 const corsOptions = {
-  origin: function (origin, callback) {
-    // Allow requests with no origin (like mobile apps or curl requests)
-    if (!origin) return callback(null, true);
-
-    const allowedOrigins = process.env.CORS_ORIGINS?.split(',') || [
-      'http://localhost:3000',
-      'http://localhost:5173',
-      'http://localhost:5174',
-      'https://discoun3ree.com',
-      'https://merchants.discoun3ree.com',
-      'https://admin.discoun3ree.com'
-    ];
-
-    if (allowedOrigins.indexOf(origin) !== -1) {
-      callback(null, true);
-    } else {
-      console.log(`CORS blocked origin: ${origin}`);
-      callback(new Error('Not allowed by CORS'));
-    }
-  },
+origin: function (origin, callback) {
+  // Allow same origin requests and localhost
+  if (!origin || origin.startsWith('http://localhost:')) {
+    return callback(null, true);
+  }
+  // Add your other allowed origins here
+  const allowedOrigins = [
+    'http://localhost:3000',
+    'http://localhost:3001',
+    'http://localhost:4000', // Add this
+    'http://localhost:5173',
+    'http://localhost:5174',
+    'https://discoun3ree.com',
+    'https://merchants.discoun3ree.com',
+    'https://admin.discoun3ree.com'
+  ];
+  if (allowedOrigins.includes(origin)) {
+    callback(null, true);
+  } else {
+    console.log(`CORS blocked origin: ${origin}`);
+    callback(new Error('Not allowed by CORS'));
+  }
+},
   credentials: true, // Allow cookies to be sent
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: [
@@ -87,6 +87,13 @@ const corsOptions = {
 
 // Apply CORS middleware FIRST
 app.use(cors(corsOptions));
+
+
+// Serve static files for swagger
+
+// Serve admin swagger only
+app.use('/admin-swagger.yaml', express.static('admin-swagger.yaml'));
+app.use('/admin-docs', express.static('public/swagger'));
 
 // Handle preflight requests explicitly
 app.options('*', cors(corsOptions));
@@ -205,18 +212,38 @@ app.use('/api/v1/form-fields', formFieldRoutes);
 app.use('/api/v1/form-responses', formResponseRoutes);
 app.use('/api/v1/request-service', serviceRequestRoutes);
 
+// ✅ ADD ADMIN ROUTES
+const adminAuthRoutes = require('./routes/admin/auth');
+const adminDashboardRoutes = require('./routes/admin/dashboard');
+const adminUserRoutes = require('./routes/admin/users');
+const adminMerchantRoutes = require('./routes/admin/merchants');
+const adminStoreRoutes = require('./routes/admin/stores');
+const adminServiceRoutes = require('./routes/admin/services');
+const adminBookingRoutes = require('./routes/admin/bookings');
+const adminOfferRoutes = require('./routes/admin/offers');
+const adminPromoRoutes = require('./routes/admin/promos');
+const adminServiceRequestRoutes = require('./routes/admin/serviceRequests');
+const adminPaymentRoutes = require('./routes/admin/payments');
+const adminAccountRoutes = require('./routes/admin/account');
+
+app.use('/api/v1/admin/auth', adminAuthRoutes);
+app.use('/api/v1/admin/dashboard', adminDashboardRoutes);
+app.use('/api/v1/admin/users', adminUserRoutes);
+app.use('/api/v1/admin/merchants', adminMerchantRoutes);
+app.use('/api/v1/admin/stores', adminStoreRoutes);
+app.use('/api/v1/admin/services', adminServiceRoutes);
+app.use('/api/v1/admin/bookings', adminBookingRoutes);
+app.use('/api/v1/admin/offers', adminOfferRoutes);
+app.use('/api/v1/admin/promos', adminPromoRoutes);
+app.use('/api/v1/admin/service-requests', adminServiceRequestRoutes);
+app.use('/api/v1/admin/payments', adminPaymentRoutes);
+app.use('/api/v1/admin/account', adminAccountRoutes);
+
 // Static file serving
 app.use('/qrcodes', express.static(path.join(__dirname, 'public', 'qrcodes')));
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // API Documentation
-if (fs.existsSync(swaggerFile)) {
-  app.use(
-    '/api/v1/api-docs',
-    swaggerUi.serve,
-    swaggerUi.setup(JSON.parse(fs.readFileSync(swaggerFile, 'utf8')))
-  );
-}
 
 // Add this function before your database sync
 // async function dropProblematicTables() {

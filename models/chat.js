@@ -12,7 +12,7 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.UUID,
       allowNull: false,
       references: {
-        model: 'Users', // Customer
+        model: 'users', // Customer
         key: 'id'
       },
       comment: 'Customer who is chatting with the store'
@@ -21,7 +21,7 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.UUID,
       allowNull: false,
       references: {
-        model: 'Stores', // Store being contacted
+        model: 'stores', // Store being contacted
         key: 'id'
       },
       comment: 'Store that the customer is chatting with'

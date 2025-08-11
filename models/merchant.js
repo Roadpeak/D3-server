@@ -137,15 +137,7 @@ module.exports = (sequelize) => {
       {
         unique: true,
         fields: ['email_address'],
-        name: 'merchants_email_unique'
-      },
-      {
-        unique: true,
         fields: ['phone_number'],
-        name: 'merchants_phone_unique'
-      },
-      {
-        fields: ['verification_status'],
         name: 'merchants_verification_status_index'
       },
       {

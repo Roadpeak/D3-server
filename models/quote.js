@@ -10,7 +10,7 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.UUID,
       allowNull: false,
       references: {
-        model: 'FormResponses',
+        model: 'form_responses',
         key: 'id',
       },
     },
@@ -23,7 +23,7 @@ module.exports = (sequelize, DataTypes) => {
       defaultValue: 'pending',
     },
   }, {
-    tableName: 'Quotes',
+    tableName: 'quotes',
     timestamps: true,
   });
 

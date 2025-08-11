@@ -10,7 +10,7 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.UUID,
       allowNull: false,
       references: {
-        model: 'Forms',
+        model: 'forms',
         key: 'id',
       },
     },
@@ -19,7 +19,7 @@ module.exports = (sequelize, DataTypes) => {
       allowNull: false,
     },
   }, {
-    tableName: 'FormResponses',
+    tableName: 'form_responses',
     timestamps: true,
   });
 

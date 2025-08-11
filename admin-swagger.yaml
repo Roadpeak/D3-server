@@ -1,0 +1,1616 @@
+openapi: 3.0.3
+info:
+  title: Discoun3 Admin API
+  description: Administrative API for Discoun3 platform management
+  version: 1.0.0
+  contact:
+    name: Discoun3 Backend Team
+    email: admin@discoun3.com
+
+servers:
+  - url: http://localhost:4000/api/v1
+    description: Development server
+  - url: https://api.discoun3.com/api/v1
+    description: Production server
+
+tags:
+  - name: Authentication
+    description: Admin authentication and session management
+  - name: Dashboard
+    description: Administrative dashboard and analytics
+  - name: User Management
+    description: User administration and oversight
+  - name: Merchant Management
+    description: Merchant administration and approval
+  - name: Store Management
+    description: Store administration and management
+  - name: Service Management
+    description: Service administration and oversight
+  - name: Booking Management
+    description: Booking administration and management
+  - name: Offer Management
+    description: Offer and promotion management
+  - name: Promo Management
+    description: Promotional campaigns management
+  - name: Payment Management
+    description: Payment and billing administration
+  - name: Service Requests
+    description: Service request administration
+  - name: Account Settings
+    description: Admin account management
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        message:
+          type: string
+        error:
+          type: string
+
+    Success:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+        data:
+          type: object
+
+paths:
+  # AUTHENTICATION
+  /admin/auth/login:
+    post:
+      tags:
+        - Authentication
+      summary: Admin login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+                - password
+              properties:
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+      responses:
+        '200':
+          description: Login successful
+        '401':
+          description: Invalid credentials
+
+  /admin/auth/register:
+    post:
+      tags:
+        - Authentication
+      summary: Register admin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+                firstName:
+                  type: string
+                lastName:
+                  type: string
+      responses:
+        '201':
+          description: Admin registered successfully
+
+  /admin/auth/logout:
+    post:
+      tags:
+        - Authentication
+      summary: Admin logout
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Logout successful
+
+  /admin/auth/refresh:
+    post:
+      tags:
+        - Authentication
+      summary: Refresh access token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                refreshToken:
+                  type: string
+      responses:
+        '200':
+          description: Token refreshed successfully
+
+  /admin/auth/forgot-password:
+    post:
+      tags:
+        - Authentication
+      summary: Request password reset
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+                  format: email
+      responses:
+        '200':
+          description: Password reset email sent
+
+  /admin/auth/reset-password:
+    post:
+      tags:
+        - Authentication
+      summary: Reset password
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                token:
+                  type: string
+                password:
+                  type: string
+      responses:
+        '200':
+          description: Password reset successful
+
+  /admin/auth/verify-email:
+    get:
+      tags:
+        - Authentication
+      summary: Verify email address
+      parameters:
+        - name: token
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Email verified successfully
+
+  # DASHBOARD
+  /admin/dashboard/stats:
+    get:
+      tags:
+        - Dashboard
+      summary: Get dashboard statistics
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Stats retrieved successfully
+
+  /admin/dashboard/top-stats:
+    get:
+      tags:
+        - Dashboard
+      summary: Get top statistics
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Top stats retrieved successfully
+
+  /admin/dashboard/all-stats:
+    get:
+      tags:
+        - Dashboard
+      summary: Get all statistics
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: All stats retrieved successfully
+
+  /admin/dashboard/activities:
+    get:
+      tags:
+        - Dashboard
+      summary: Get recent activities
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Activities retrieved successfully
+
+  /admin/dashboard/analytics:
+    get:
+      tags:
+        - Dashboard
+      summary: Get analytics data
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Analytics retrieved successfully
+
+  # USER MANAGEMENT
+  /admin/users:
+    get:
+      tags:
+        - User Management
+      summary: Get all users
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+        - name: limit
+          in: query
+          schema:
+            type: integer
+        - name: search
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Users retrieved successfully
+
+    post:
+      tags:
+        - User Management
+      summary: Create user
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+                firstName:
+                  type: string
+                lastName:
+                  type: string
+                phoneNumber:
+                  type: string
+      responses:
+        '201':
+          description: User created successfully
+
+  /admin/users/search:
+    get:
+      tags:
+        - User Management
+      summary: Search users
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: q
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Search results retrieved
+
+  /admin/users/{id}:
+    get:
+      tags:
+        - User Management
+      summary: Get user by ID
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: User retrieved successfully
+
+    put:
+      tags:
+        - User Management
+      summary: Update user
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                firstName:
+                  type: string
+                lastName:
+                  type: string
+                email:
+                  type: string
+                status:
+                  type: string
+      responses:
+        '200':
+          description: User updated successfully
+
+    delete:
+      tags:
+        - User Management
+      summary: Delete user
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: User deleted successfully
+
+  /admin/users/{id}/stats:
+    get:
+      tags:
+        - User Management
+      summary: Get user statistics
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: User stats retrieved successfully
+
+  # MERCHANT MANAGEMENT
+  /admin/merchants:
+    get:
+      tags:
+        - Merchant Management
+      summary: Get all merchants
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+        - name: limit
+          in: query
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Merchants retrieved successfully
+
+    post:
+      tags:
+        - Merchant Management
+      summary: Create merchant
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+                businessName:
+                  type: string
+                contactPerson:
+                  type: string
+      responses:
+        '201':
+          description: Merchant created successfully
+
+  /admin/merchants/search:
+    get:
+      tags:
+        - Merchant Management
+      summary: Search merchants
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: q
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Search results retrieved
+
+  /admin/merchants/{id}:
+    get:
+      tags:
+        - Merchant Management
+      summary: Get merchant by ID
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Merchant retrieved successfully
+
+    put:
+      tags:
+        - Merchant Management
+      summary: Update merchant
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                businessName:
+                  type: string
+                status:
+                  type: string
+      responses:
+        '200':
+          description: Merchant updated successfully
+
+    delete:
+      tags:
+        - Merchant Management
+      summary: Delete merchant
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Merchant deleted successfully
+
+  /admin/merchants/{id}/stats:
+    get:
+      tags:
+        - Merchant Management
+      summary: Get merchant statistics
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Merchant stats retrieved successfully
+
+  /admin/merchants/{id}/approve:
+    put:
+      tags:
+        - Merchant Management
+      summary: Approve merchant
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Merchant approved successfully
+
+  # STORE MANAGEMENT
+  /admin/stores:
+    get:
+      tags:
+        - Store Management
+      summary: Get all stores
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Stores retrieved successfully
+
+    post:
+      tags:
+        - Store Management
+      summary: Create store
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                merchantId:
+                  type: string
+                category:
+                  type: string
+      responses:
+        '201':
+          description: Store created successfully
+
+  /admin/stores/search:
+    get:
+      tags:
+        - Store Management
+      summary: Search stores
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: q
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Search results retrieved
+
+  /admin/stores/merchant/{id}:
+    get:
+      tags:
+        - Store Management
+      summary: Get stores by merchant
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Stores retrieved successfully
+
+  /admin/stores/{id}:
+    get:
+      tags:
+        - Store Management
+      summary: Get store by ID
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Store retrieved successfully
+
+    put:
+      tags:
+        - Store Management
+      summary: Update store
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Store updated successfully
+
+    delete:
+      tags:
+        - Store Management
+      summary: Delete store
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Store deleted successfully
+
+  # SERVICE MANAGEMENT
+  /admin/services:
+    get:
+      tags:
+        - Service Management
+      summary: Get all services
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Services retrieved successfully
+
+    post:
+      tags:
+        - Service Management
+      summary: Create service
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                storeId:
+                  type: string
+                price:
+                  type: number
+      responses:
+        '201':
+          description: Service created successfully
+
+  /admin/services/search:
+    get:
+      tags:
+        - Service Management
+      summary: Search services
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: q
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Search results retrieved
+
+  /admin/services/store/{id}:
+    get:
+      tags:
+        - Service Management
+      summary: Get services by store
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Services retrieved successfully
+
+  /admin/services/{id}:
+    get:
+      tags:
+        - Service Management
+      summary: Get service by ID
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Service retrieved successfully
+
+    put:
+      tags:
+        - Service Management
+      summary: Update service
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Service updated successfully
+
+    delete:
+      tags:
+        - Service Management
+      summary: Delete service
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Service deleted successfully
+
+  # BOOKING MANAGEMENT
+  /admin/bookings:
+    get:
+      tags:
+        - Booking Management
+      summary: Get all bookings
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Bookings retrieved successfully
+
+    post:
+      tags:
+        - Booking Management
+      summary: Create booking
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                userId:
+                  type: string
+                serviceId:
+                  type: string
+                bookingDate:
+                  type: string
+                  format: date
+      responses:
+        '201':
+          description: Booking created successfully
+
+  /admin/bookings/search:
+    get:
+      tags:
+        - Booking Management
+      summary: Search bookings
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: q
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Search results retrieved
+
+  /admin/bookings/{id}:
+    get:
+      tags:
+        - Booking Management
+      summary: Get booking by ID
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Booking retrieved successfully
+
+    put:
+      tags:
+        - Booking Management
+      summary: Update booking
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Booking updated successfully
+
+    delete:
+      tags:
+        - Booking Management
+      summary: Delete booking
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Booking deleted successfully
+
+  /admin/bookings/{id}/confirm:
+    put:
+      tags:
+        - Booking Management
+      summary: Confirm booking
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Booking confirmed successfully
+
+  /admin/bookings/{id}/cancel:
+    put:
+      tags:
+        - Booking Management
+      summary: Cancel booking
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Booking cancelled successfully
+
+  # OFFER MANAGEMENT
+  /admin/offers:
+    get:
+      tags:
+        - Offer Management
+      summary: Get all offers
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Offers retrieved successfully
+
+    post:
+      tags:
+        - Offer Management
+      summary: Create offer
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title:
+                  type: string
+                discount:
+                  type: number
+                storeId:
+                  type: string
+      responses:
+        '201':
+          description: Offer created successfully
+
+  /admin/offers/search:
+    get:
+      tags:
+        - Offer Management
+      summary: Search offers
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: q
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Search results retrieved
+
+  /admin/offers/{id}:
+    get:
+      tags:
+        - Offer Management
+      summary: Get offer by ID
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Offer retrieved successfully
+
+    put:
+      tags:
+        - Offer Management
+      summary: Update offer
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Offer updated successfully
+
+    delete:
+      tags:
+        - Offer Management
+      summary: Delete offer
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Offer deleted successfully
+
+  /admin/offers/{id}/activate:
+    put:
+      tags:
+        - Offer Management
+      summary: Activate offer
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Offer activated successfully
+
+  /admin/offers/{id}/deactivate:
+    put:
+      tags:
+        - Offer Management
+      summary: Deactivate offer
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Offer deactivated successfully
+
+  # PROMO MANAGEMENT
+  /admin/promos:
+    get:
+      tags:
+        - Promo Management
+      summary: Get all promos
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Promos retrieved successfully
+
+    post:
+      tags:
+        - Promo Management
+      summary: Create promo
+      security:
+        - BearerAuth: []
+      responses:
+        '201':
+          description: Promo created successfully
+
+  /admin/promos/search:
+    get:
+      tags:
+        - Promo Management
+      summary: Search promos
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: q
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Search results retrieved
+
+  /admin/promos/{id}:
+    get:
+      tags:
+        - Promo Management
+      summary: Get promo by ID
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Promo retrieved successfully
+
+    put:
+      tags:
+        - Promo Management
+      summary: Update promo
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Promo updated successfully
+
+    delete:
+      tags:
+        - Promo Management
+      summary: Delete promo
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Promo deleted successfully
+
+  /admin/promos/{id}/activate:
+    put:
+      tags:
+        - Promo Management
+      summary: Activate promo
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Promo activated successfully
+
+  /admin/promos/{id}/deactivate:
+    put:
+      tags:
+        - Promo Management
+      summary: Deactivate promo
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Promo deactivated successfully
+
+  # PAYMENT MANAGEMENT
+  /admin/payments/billing:
+    get:
+      tags:
+        - Payment Management
+      summary: Get all billing payments
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Billing payments retrieved successfully
+
+    post:
+      tags:
+        - Payment Management
+      summary: Create billing payment
+      security:
+        - BearerAuth: []
+      responses:
+        '201':
+          description: Billing payment created successfully
+
+  /admin/payments/billing/search:
+    get:
+      tags:
+        - Payment Management
+      summary: Search billing payments
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: q
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Search results retrieved
+
+  /admin/payments/billing/{id}:
+    get:
+      tags:
+        - Payment Management
+      summary: Get billing payment by ID
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Billing payment retrieved successfully
+
+    put:
+      tags:
+        - Payment Management
+      summary: Update billing payment
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Billing payment updated successfully
+
+  /admin/payments/billing/{id}/process:
+    post:
+      tags:
+        - Payment Management
+      summary: Process billing payment
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Billing payment processed successfully
+
+  /admin/payments/billing/{id}/refund:
+    post:
+      tags:
+        - Payment Management
+      summary: Refund billing payment
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Billing payment refunded successfully
+
+  /admin/payments/offers:
+    get:
+      tags:
+        - Payment Management
+      summary: Get all offer payments
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Offer payments retrieved successfully
+
+    post:
+      tags:
+        - Payment Management
+      summary: Create offer payment
+      security:
+        - BearerAuth: []
+      responses:
+        '201':
+          description: Offer payment created successfully
+
+  /admin/payments/offers/search:
+    get:
+      tags:
+        - Payment Management
+      summary: Search offer payments
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: q
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Search results retrieved
+
+  /admin/payments/offers/{id}:
+    get:
+      tags:
+        - Payment Management
+      summary: Get offer payment by ID
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Offer payment retrieved successfully
+
+    put:
+      tags:
+        - Payment Management
+      summary: Update offer payment
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Offer payment updated successfully
+
+  /admin/payments/offers/{id}/process:
+    post:
+      tags:
+        - Payment Management
+      summary: Process offer payment
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Offer payment processed successfully
+
+  /admin/payments/offers/{id}/refund:
+    post:
+      tags:
+        - Payment Management
+      summary: Refund offer payment
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Offer payment refunded successfully
+
+  # SERVICE REQUESTS
+  /admin/service-requests:
+    get:
+      tags:
+        - Service Requests
+      summary: Get all service requests
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Service requests retrieved successfully
+
+    post:
+      tags:
+        - Service Requests
+      summary: Create service request
+      security:
+        - BearerAuth: []
+      responses:
+        '201':
+          description: Service request created successfully
+
+  /admin/service-requests/search:
+    get:
+      tags:
+        - Service Requests
+      summary: Search service requests
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: q
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Search results retrieved
+
+  /admin/service-requests/{id}:
+    get:
+      tags:
+        - Service Requests
+      summary: Get service request by ID
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Service request retrieved successfully
+
+    put:
+      tags:
+        - Service Requests
+      summary: Update service request
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Service request updated successfully
+
+    delete:
+      tags:
+        - Service Requests
+      summary: Delete service request
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Service request deleted successfully
+
+  /admin/service-requests/{id}/assign:
+    put:
+      tags:
+        - Service Requests
+      summary: Assign service request
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Service request assigned successfully
+
+  /admin/service-requests/{id}/status:
+    put:
+      tags:
+        - Service Requests
+      summary: Update service request status
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Service request status updated successfully
+
+  # ACCOUNT SETTINGS
+  /admin/account/profile:
+    get:
+      tags:
+        - Account Settings
+      summary: Get admin profile
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Profile retrieved successfully
+
+    put:
+      tags:
+        - Account Settings
+      summary: Update admin profile
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Profile updated successfully
+
+  /admin/account/password:
+    put:
+      tags:
+        - Account Settings
+      summary: Change password
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                currentPassword:
+                  type: string
+                newPassword:
+                  type: string
+      responses:
+        '200':
+          description: Password changed successfully
+
+  /admin/account/avatar:
+    post:
+      tags:
+        - Account Settings
+      summary: Upload avatar
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                avatar:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          description: Avatar uploaded successfully
+
+  /admin/account/settings:
+    get:
+      tags:
+        - Account Settings
+      summary: Get account settings
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Settings retrieved successfully
+
+    put:
+      tags:
+        - Account Settings
+      summary: Update account settings
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Settings updated successfully
+
+  /admin/account:
+    delete:
+      tags:
+        - Account Settings
+      summary: Delete admin account
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Account deleted successfully
+
+security:
+  - BearerAuth: []
