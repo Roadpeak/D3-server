@@ -27,6 +27,7 @@ const heroRoutes = require('./routes/heroRoutes');
 const merchantServiceRoutes = require('./routes/merchantServiceRoutes');
 const { socketManager } = require('./socket/websocket');
 const homedealsstores = require('./routes/homedealsstoresRoutes');
+// ✅ FIXED: Import service request routes
 const serviceRequestRoutes = require('./routes/serviceRequestRoutes');
 const swaggerUi = require('swagger-ui-express');
 const fs = require('fs');
@@ -40,16 +41,20 @@ require('dotenv').config();
 
 const app = express();
 
-// CORS Configuration - FIXED VERSION
+// ===============================
+// 🌐 ENHANCED CORS CONFIGURATION FOR SERVICE REQUESTS
+// ===============================
+
 const corsOptions = {
   origin: function (origin, callback) {
     // Allow requests with no origin (like mobile apps or curl requests)
     if (!origin) return callback(null, true);
 
     const allowedOrigins = process.env.CORS_ORIGINS?.split(',') || [
-      'http://localhost:3000',
-      'http://localhost:5173',
-      'http://localhost:5174',
+      'http://localhost:3000',     // User React app
+      'http://localhost:5173',     // Merchant Vite app (dev)
+      'http://localhost:5174',     // Alternative Vite port
+      'http://localhost:4173',     // Merchant Vite app (preview)
       'https://discoun3ree.com',
       'https://merchants.discoun3ree.com',
       'https://admin.discoun3ree.com'
@@ -58,7 +63,7 @@ const corsOptions = {
     if (allowedOrigins.indexOf(origin) !== -1) {
       callback(null, true);
     } else {
-      console.log(`CORS blocked origin: ${origin}`);
+      console.log(`❌ CORS blocked origin: ${origin}`);
       callback(new Error('Not allowed by CORS'));
     }
   },
@@ -101,6 +106,7 @@ app.use((req, res, next) => {
     'http://localhost:3000',
     'http://localhost:5173',
     'http://localhost:5174',
+    'http://localhost:4173',
     'https://discoun3ree.com',
     'https://merchants.discoun3ree.com',
     'https://admin.discoun3ree.com'
@@ -144,15 +150,28 @@ app.use((req, res, next) => {
   next();
 });
 
-// Request logging (development only)
+// ✅ ENHANCED: Request logging for service requests (development only)
 if (process.env.NODE_ENV === 'development') {
   app.use((req, res, next) => {
-    console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
+    const timestamp = new Date().toISOString();
+    console.log(`${timestamp} - ${req.method} ${req.path}`);
+    
     if (req.method === 'OPTIONS') {
       console.log('  - PREFLIGHT REQUEST');
       console.log('  - Origin:', req.headers.origin);
       console.log('  - Requested Headers:', req.headers['access-control-request-headers']);
     }
+    
+    // ✅ Log service request related routes specifically
+    if (req.path.includes('/request-service') || req.path.includes('/merchant')) {
+      console.log('🏪 Service Request API Call:', {
+        method: req.method,
+        path: req.path,
+        hasAuth: !!req.headers.authorization,
+        userAgent: req.headers['user-agent']?.substring(0, 50)
+      });
+    }
+    
     next();
   });
 }
@@ -163,27 +182,44 @@ app.get('/health', (req, res) => {
     status: 'OK',
     timestamp: new Date().toISOString(),
     environment: process.env.NODE_ENV || 'development',
-    database: 'connected'
+    database: 'connected',
+    features: {
+      serviceRequests: true,
+      storeBasedOffers: true,
+      merchantDashboard: true
+    }
   });
 });
 
-// CORS test endpoint
+// ✅ ENHANCED: CORS test endpoint with service request info
 app.get('/api/v1/cors-test', (req, res) => {
   res.status(200).json({
     message: 'CORS is working!',
     origin: req.headers.origin,
     method: req.method,
     headers: req.headers,
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
+    serviceRequestsEnabled: true
   });
 });
 
-// API Routes
+// ===============================
+// 🔗 API ROUTES - PROPERLY ORDERED FOR SERVICE REQUESTS
+// ===============================
+
+// ✅ CRITICAL: Core user and merchant routes first
 app.use('/api/v1/users', userRoutes);
 app.use('/api/v1/merchants', merchantRoutes);
+
+// ✅ CRITICAL: Service request routes (MUST be before generic routes)
+app.use('/api/v1/request-service', serviceRequestRoutes);
 app.use('/api/v1/merchant', merchantServiceRoutes);
+
+// ✅ Store and service routes
 app.use('/api/v1/stores', storesRoutes);
 app.use('/api/v1/services', serviceRoutes);
+
+// ✅ Other feature routes
 app.use('/api/v1/upload', uploadRoutes);
 app.use('/api/v1/payments', paymentRoutes);
 app.use('/api/v1/staff', staffRoutes);
@@ -203,7 +239,6 @@ app.use('/api/v1/likes', likeRoutes);
 app.use('/api/v1/forms', formRoutes);
 app.use('/api/v1/form-fields', formFieldRoutes);
 app.use('/api/v1/form-responses', formResponseRoutes);
-app.use('/api/v1/request-service', serviceRequestRoutes);
 
 // Static file serving
 app.use('/qrcodes', express.static(path.join(__dirname, 'public', 'qrcodes')));
@@ -219,7 +254,7 @@ if (fs.existsSync(swaggerFile)) {
 }
 
 // ===============================
-// 🔥 ENHANCED DATABASE INITIALIZATION - FIXED FOR COMPLEX REVIEW MODEL
+// 🔥 ENHANCED DATABASE INITIALIZATION FOR SERVICE REQUESTS
 // ===============================
 
 async function initializeDatabase() {
@@ -227,12 +262,12 @@ async function initializeDatabase() {
     const isDevelopment = process.env.NODE_ENV === 'development' || !process.env.NODE_ENV;
 
     if (isDevelopment) {
-      console.log('🔄 Development mode: Syncing database with complex Review model...');
+      console.log('🔄 Development mode: Syncing database with service request models...');
       
-      // ✅ FIXED: Sync models in dependency order to avoid foreign key issues
+      // ✅ FIXED: Sync models in dependency order including service request models
       await syncModelsInOrder();
       
-      console.log('✅ Database synced successfully with complex models!');
+      console.log('✅ Database synced successfully with service request models!');
 
       // Add test data in development
       await seedTestData();
@@ -245,7 +280,6 @@ async function initializeDatabase() {
         console.log('✅ Database synced successfully!');
       } catch (prodError) {
         console.error('❌ Production sync error:', prodError);
-        // In production, we want to fail fast
         throw prodError;
       }
     }
@@ -253,8 +287,12 @@ async function initializeDatabase() {
   } catch (err) {
     console.error('❌ Error syncing database:', err);
     
-    // Enhanced error handling for specific Review model issues
-    if (err.message.includes('user_id') && err.message.includes('SET NULL')) {
+    // Enhanced error handling for service request models
+    if (err.message.includes('ServiceRequest') || err.message.includes('ServiceOffer')) {
+      console.log('💡 Service request model issue detected.');
+      console.log('🔧 Attempting service request model fix...');
+      await attemptServiceRequestModelFix();
+    } else if (err.message.includes('user_id') && err.message.includes('SET NULL')) {
       console.log('💡 Review model foreign key issue detected.');
       console.log('🔧 Attempting automatic fix...');
       await attemptReviewModelFix();
@@ -262,36 +300,31 @@ async function initializeDatabase() {
       console.log('💡 Index creation issue detected.');
       console.log('🔧 Attempting to continue without complex indexes...');
       await attemptSimpleSync();
-    } else if (err.message.includes('Reviews') && err.message.includes('incompatible')) {
-      console.log('💡 Foreign key compatibility issue detected.');
-      console.log('🔧 Attempting Reviews table recreation...');
-      await recreateReviewsTable();
     }
     
-    // Don't exit in development - let the server run
+    // Don't exit in development
     if (process.env.NODE_ENV !== 'development') {
       process.exit(1);
     } else {
       console.log('⚠️ Continuing in development mode despite sync errors...');
-      console.log('💡 You may need to run: node setup-complex-reviews.js');
     }
   }
 }
 
-// ✅ NEW: Sync models in proper dependency order
+// ✅ UPDATED: Sync models in proper dependency order including service requests
 async function syncModelsInOrder() {
   console.log('📋 Step 1: Syncing core dependency models...');
   
-  // Get all models
   const models = sequelize.models;
   
-  // Define sync order - dependencies first
+  // ✅ UPDATED: Define sync order with service request models
   const syncOrder = [
-    'User',
-    'Merchant', 
-    'Store',
-    'Review', // ✅ Review comes after its dependencies
-    // Add other models in dependency order
+    'User',           // Core user model
+    'Merchant',       // Merchant model  
+    'Store',          // Store model (needed for service offers)
+    'ServiceRequest', // ✅ Service request model
+    'ServiceOffer',   // ✅ Service offer model (depends on Store and ServiceRequest)
+    'Review',         // Review comes after its dependencies
     'Service',
     'Offer',
     'Branch',
@@ -307,8 +340,7 @@ async function syncModelsInOrder() {
     'Staff',
     'Form',
     'FormField',
-    'FormResponse',
-    'ServiceRequest'
+    'FormResponse'
   ];
 
   // Sync models in order
@@ -320,6 +352,9 @@ async function syncModelsInOrder() {
         if (modelName === 'Review') {
           // Special handling for Review model
           await syncReviewModel(models[modelName]);
+        } else if (modelName === 'ServiceRequest' || modelName === 'ServiceOffer') {
+          // ✅ Special handling for service request models
+          await syncServiceRequestModel(models[modelName], modelName);
         } else {
           await models[modelName].sync({ alter: true });
         }
@@ -328,8 +363,11 @@ async function syncModelsInOrder() {
       } catch (modelError) {
         console.error(`❌ ${modelName} sync failed:`, modelError.message);
         
-        // For Review model, try alternative approaches
-        if (modelName === 'Review') {
+        // For service request models, try alternative approaches
+        if (modelName === 'ServiceRequest' || modelName === 'ServiceOffer') {
+          console.log(`🔄 Attempting ${modelName} model fix...`);
+          await handleServiceRequestSyncError(models[modelName], modelError, modelName);
+        } else if (modelName === 'Review') {
           console.log('🔄 Attempting Review model fix...');
           await handleReviewSyncError(models[modelName], modelError);
         } else {
@@ -352,42 +390,168 @@ async function syncModelsInOrder() {
   }
 }
 
-// ✅ NEW: Special Review model sync handling
-async function syncReviewModel(ReviewModel) {
+// ✅ NEW: Special service request model sync handling
+async function syncServiceRequestModel(Model, modelName) {
   try {
     // Try normal sync first
+    await Model.sync({ alter: true });
+  } catch (error) {
+    console.log(`⚠️ Normal ${modelName} sync failed, trying alternatives...`);
+    
+    if (error.message.includes('foreign key') || error.message.includes('constraint')) {
+      console.log(`🔧 Fixing ${modelName} foreign key constraints...`);
+      await fixServiceRequestForeignKeys(Model, modelName);
+    } else if (error.message.includes('column') || error.message.includes('incompatible')) {
+      console.log(`🔧 Fixing ${modelName} column compatibility...`);
+      await recreateServiceRequestTable(Model, modelName);
+    } else {
+      console.log(`🔄 Attempting force sync for ${modelName}...`);
+      await Model.sync({ force: true });
+    }
+  }
+}
+
+// ✅ NEW: Handle service request sync errors
+async function handleServiceRequestSyncError(Model, error, modelName) {
+  try {
+    if (error.message.includes('foreign key') || error.message.includes('constraint')) {
+      console.log(`🔧 Fixing ${modelName} constraint issue...`);
+      await fixServiceRequestForeignKeys(Model, modelName);
+    } else {
+      console.log(`⚠️ Using fallback ${modelName} sync...`);
+      await fallbackServiceRequestSync(Model, modelName);
+    }
+  } catch (fixError) {
+    console.error(`❌ ${modelName} fix also failed:`, fixError.message);
+    console.log('💡 Manual intervention may be required');
+  }
+}
+
+// ✅ NEW: Fix service request foreign key constraints
+async function fixServiceRequestForeignKeys(Model, modelName) {
+  try {
+    console.log(`🔧 Fixing ${modelName} foreign keys...`);
+    
+    if (modelName === 'ServiceOffer') {
+      // Drop and recreate ServiceOffer table with correct constraints
+      await sequelize.query('SET FOREIGN_KEY_CHECKS = 0;');
+      await sequelize.query('DROP TABLE IF EXISTS ServiceOffers;');
+      await sequelize.query('DROP TABLE IF EXISTS service_offers;');
+      await sequelize.query('SET FOREIGN_KEY_CHECKS = 1;');
+      
+      // Recreate with force
+      await Model.sync({ force: true });
+    } else if (modelName === 'ServiceRequest') {
+      // Drop and recreate ServiceRequest table
+      await sequelize.query('SET FOREIGN_KEY_CHECKS = 0;');
+      await sequelize.query('DROP TABLE IF EXISTS ServiceRequests;');
+      await sequelize.query('DROP TABLE IF EXISTS service_requests;');
+      await sequelize.query('SET FOREIGN_KEY_CHECKS = 1;');
+      
+      // Recreate with force
+      await Model.sync({ force: true });
+    }
+    
+    console.log(`✅ ${modelName} foreign keys fixed`);
+  } catch (fkError) {
+    console.error(`❌ ${modelName} foreign key fix failed:`, fkError.message);
+    throw fkError;
+  }
+}
+
+// ✅ NEW: Recreate service request tables
+async function recreateServiceRequestTable(Model, modelName) {
+  try {
+    console.log(`🔧 Recreating ${modelName} table...`);
+    
+    await sequelize.query('SET FOREIGN_KEY_CHECKS = 0;');
+    
+    if (modelName === 'ServiceRequest') {
+      await sequelize.query('DROP TABLE IF EXISTS ServiceRequests;');
+      await sequelize.query('DROP TABLE IF EXISTS service_requests;');
+    } else if (modelName === 'ServiceOffer') {
+      await sequelize.query('DROP TABLE IF EXISTS ServiceOffers;');
+      await sequelize.query('DROP TABLE IF EXISTS service_offers;');
+    }
+    
+    await sequelize.query('SET FOREIGN_KEY_CHECKS = 1;');
+    
+    // Recreate with force
+    await Model.sync({ force: true });
+    
+    console.log(`✅ ${modelName} table recreated`);
+  } catch (recreateError) {
+    console.error(`❌ ${modelName} table recreation failed:`, recreateError.message);
+    throw recreateError;
+  }
+}
+
+// ✅ NEW: Fallback service request sync
+async function fallbackServiceRequestSync(Model, modelName) {
+  try {
+    console.log(`🔄 Attempting fallback ${modelName} sync...`);
+    
+    // Try simple sync without constraints
+    await sequelize.query('SET FOREIGN_KEY_CHECKS = 0;');
+    await Model.sync({ force: true });
+    await sequelize.query('SET FOREIGN_KEY_CHECKS = 1;');
+    
+    console.log(`✅ Fallback ${modelName} sync completed`);
+  } catch (fallbackError) {
+    console.error(`❌ Fallback ${modelName} sync failed:`, fallbackError.message);
+  }
+}
+
+// ✅ NEW: Attempt service request model fix
+async function attemptServiceRequestModelFix() {
+  try {
+    console.log('🔧 Attempting automatic service request model fix...');
+    
+    const { ServiceRequest, ServiceOffer } = sequelize.models;
+    
+    if (ServiceRequest) {
+      await fallbackServiceRequestSync(ServiceRequest, 'ServiceRequest');
+    }
+    
+    if (ServiceOffer) {
+      await fallbackServiceRequestSync(ServiceOffer, 'ServiceOffer');
+    }
+    
+    console.log('✅ Service request model fix completed');
+  } catch (fixError) {
+    console.error('❌ Automatic service request fix failed:', fixError.message);
+  }
+}
+
+// Keep existing Review model functions...
+async function syncReviewModel(ReviewModel) {
+  try {
     await ReviewModel.sync({ alter: true });
   } catch (error) {
     console.log('⚠️ Normal Review sync failed, trying alternatives...');
     
     if (error.message.includes('SET NULL') || error.message.includes('NOT NULL')) {
-      // Foreign key constraint issue
       console.log('🔧 Fixing foreign key constraints...');
       await fixReviewForeignKeys(ReviewModel);
     } else if (error.message.includes('incompatible')) {
-      // Column type mismatch
       console.log('🔧 Fixing column compatibility...');
       await recreateReviewsTable();
     } else {
-      // Try force sync as last resort
       console.log('🔄 Attempting force sync for Reviews...');
       await ReviewModel.sync({ force: true });
     }
   }
 }
 
-// ✅ NEW: Handle Review sync errors
 async function handleReviewSyncError(ReviewModel, error) {
   try {
     if (error.message.includes('user_id') && error.message.includes('SET NULL')) {
       console.log('🔧 Fixing user_id constraint issue...');
       
-      // Drop and recreate Reviews table with correct constraints
       await sequelize.query('SET FOREIGN_KEY_CHECKS = 0;');
       await sequelize.query('DROP TABLE IF EXISTS Reviews;');
       await sequelize.query('SET FOREIGN_KEY_CHECKS = 1;');
       
-      // Recreate with force
       await ReviewModel.sync({ force: true });
       
       console.log('✅ Review model recreated successfully');
@@ -397,14 +561,11 @@ async function handleReviewSyncError(ReviewModel, error) {
     }
   } catch (fixError) {
     console.error('❌ Review fix also failed:', fixError.message);
-    console.log('💡 Manual intervention may be required');
   }
 }
 
-// ✅ NEW: Fix Review foreign key constraints
 async function fixReviewForeignKeys(ReviewModel) {
   try {
-    // Check existing table structure
     const [storesStructure] = await sequelize.query('DESCRIBE Stores;');
     const [usersStructure] = await sequelize.query('DESCRIBE Users;');
     
@@ -413,11 +574,9 @@ async function fixReviewForeignKeys(ReviewModel) {
     
     console.log(`🔍 Store ID type: ${storeIdType}, User ID type: ${userIdType}`);
     
-    // Drop existing Reviews table
     await sequelize.query('SET FOREIGN_KEY_CHECKS = 0;');
     await sequelize.query('DROP TABLE IF EXISTS Reviews;');
     
-    // Create compatible table
     const createSQL = `
       CREATE TABLE Reviews (
         id ${storeIdType} PRIMARY KEY,
@@ -452,7 +611,6 @@ async function fixReviewForeignKeys(ReviewModel) {
   }
 }
 
-// ✅ NEW: Recreate Reviews table with proper structure
 async function recreateReviewsTable() {
   try {
     console.log('🔧 Recreating Reviews table...');
@@ -460,7 +618,6 @@ async function recreateReviewsTable() {
     await sequelize.query('SET FOREIGN_KEY_CHECKS = 0;');
     await sequelize.query('DROP TABLE IF EXISTS Reviews;');
     
-    // Create minimal compatible table
     const minimalSQL = `
       CREATE TABLE Reviews (
         id VARCHAR(255) PRIMARY KEY,
@@ -492,12 +649,10 @@ async function recreateReviewsTable() {
   }
 }
 
-// ✅ NEW: Fallback Review sync
 async function fallbackReviewSync() {
   try {
     console.log('🔄 Attempting fallback Review sync...');
     
-    // Create very simple Reviews table
     await sequelize.query('SET FOREIGN_KEY_CHECKS = 0;');
     await sequelize.query('DROP TABLE IF EXISTS Reviews;');
     
@@ -522,7 +677,6 @@ async function fallbackReviewSync() {
   }
 }
 
-// ✅ NEW: Attempt automatic Review model fix
 async function attemptReviewModelFix() {
   try {
     console.log('🔧 Attempting automatic Review model fix...');
@@ -537,12 +691,10 @@ async function attemptReviewModelFix() {
   }
 }
 
-// ✅ NEW: Attempt simple sync without complex features
 async function attemptSimpleSync() {
   try {
     console.log('🔄 Attempting simple database sync...');
     
-    // Sync all models except Review first
     const models = sequelize.models;
     const modelNames = Object.keys(models).filter(name => name !== 'Review');
     
@@ -555,7 +707,6 @@ async function attemptSimpleSync() {
       }
     }
     
-    // Try Review last with fallback
     if (models.Review) {
       await fallbackReviewSync();
     }
@@ -566,10 +717,10 @@ async function attemptSimpleSync() {
   }
 }
 
-// ✅ ENHANCED: Seed test data with Review model support
+// ✅ ENHANCED: Seed test data with service request support
 async function seedTestData() {
   try {
-    const { User, Store, Review, Merchant } = sequelize.models;
+    const { User, Store, Review, Merchant, ServiceRequest, ServiceOffer } = sequelize.models;
 
     // Check if data already exists
     if (User) {
@@ -580,7 +731,7 @@ async function seedTestData() {
       }
     }
 
-    console.log('🌱 Seeding test data with Review support...');
+    console.log('🌱 Seeding test data with service request support...');
 
     // Create test users
     let testUser = null;
@@ -617,12 +768,12 @@ async function seedTestData() {
     if (Store && testMerchant) {
       try {
         testStore = await Store.create({
-          name: 'Test Store',
+          name: 'Test Home Services Store',
           merchant_id: testMerchant.id,
-          location: 'Test Location',
+          location: 'Test Location, Nairobi',
           primary_email: 'store@test.com',
-          description: 'A test store for review testing',
-          category: 'General',
+          description: 'A test store for home services',
+          category: 'Home Services', // ✅ Important for service request matching
           opening_time: '09:00',
           closing_time: '18:00',
           working_days: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'],
@@ -636,17 +787,68 @@ async function seedTestData() {
       }
     }
 
-    // Create test review with complex model support
+    // ✅ NEW: Create test service request
+    let testServiceRequest = null;
+    if (ServiceRequest && testUser) {
+      try {
+        testServiceRequest = await ServiceRequest.create({
+          title: 'Kitchen Plumbing Repair',
+          description: 'Need professional plumber to fix leaky kitchen sink and replace faucet',
+          category: 'Home Services', // ✅ Matches store category
+          location: 'Downtown Nairobi',
+          budgetMin: 100,
+          budgetMax: 300,
+          timeline: 'thisweek',
+          priority: 'high',
+          postedBy: testUser.id,
+          status: 'open',
+          requirements: JSON.stringify(['Licensed plumber', 'Same day service'])
+        });
+        
+        console.log('✅ Test service request created');
+      } catch (serviceRequestError) {
+        console.log('⚠️ Service request creation warning:', serviceRequestError.message);
+      }
+    }
+
+    // ✅ NEW: Create test service offer
+    if (ServiceOffer && testServiceRequest && testStore && testMerchant) {
+      try {
+        const testServiceOffer = await ServiceOffer.create({
+          requestId: testServiceRequest.id,
+          storeId: testStore.id,
+          providerId: testMerchant.id,
+          quotedPrice: 200,
+          message: 'Professional plumbing service with 5 years experience. Can fix your kitchen sink today!',
+          availability: 'Available today at 2 PM',
+          estimatedDuration: '2-3 hours',
+          includesSupplies: true,
+          status: 'pending'
+        });
+        
+        console.log('✅ Test service offer created');
+        
+        // Update service request stats
+        if (typeof testServiceRequest.updateOfferStats === 'function') {
+          await testServiceRequest.updateOfferStats();
+          console.log('✅ Service request stats updated');
+        }
+        
+      } catch (serviceOfferError) {
+        console.log('⚠️ Service offer creation warning:', serviceOfferError.message);
+      }
+    }
+
+    // Create test review
     if (Review && testUser && testStore) {
       try {
         const reviewData = {
           store_id: testStore.id,
           user_id: testUser.id,
           rating: 5,
-          text: 'Great store! Excellent service and quality products.'
+          text: 'Excellent plumbing service! Fixed my kitchen sink perfectly.'
         };
         
-        // Add complex fields if they exist in the model
         const reviewAttributes = Review.getTableName ? Object.keys(Review.rawAttributes || {}) : [];
         
         if (reviewAttributes.includes('is_verified')) {
@@ -660,82 +862,27 @@ async function seedTestData() {
         }
         
         const testReview = await Review.create(reviewData);
-        
         console.log('✅ Test review created');
-        
-        // Test Review model methods if they exist
-        if (typeof testReview.getCustomerName === 'function') {
-          console.log('🧪 Testing Review methods:');
-          console.log('  - Customer name:', testReview.getCustomerName());
-          console.log('  - Time ago:', testReview.getTimeAgo?.() || 'Method not available');
-          console.log('  - Can edit:', testReview.canEdit?.(testUser.id) || 'Method not available');
-        }
-        
-        // Test static methods if they exist
-        if (typeof Review.getStoreStats === 'function') {
-          const stats = await Review.getStoreStats(testStore.id);
-          console.log('  - Store stats:', stats);
-        }
         
       } catch (reviewError) {
         console.log('⚠️ Test review creation warning:', reviewError.message);
-        console.log('💡 Review model might be using simple structure');
       }
     }
 
-    console.log('🌱 Test data seeded successfully!');
+    console.log('🌱 Test data with service requests seeded successfully!');
 
   } catch (error) {
     console.error('❌ Error seeding test data:', error);
   }
 }
 
-// ✅ NEW: Check Review model health
-async function checkReviewModelHealth() {
-  try {
-    const { Review, Store, User } = sequelize.models;
-    
-    if (!Review) {
-      console.log('❌ Review model not found');
-      return false;
-    }
-    
-    console.log('🔍 Checking Review model health...');
-    
-    // Test basic operations
-    const reviewCount = await Review.count();
-    console.log(`📊 Review count: ${reviewCount}`);
-    
-    // Test associations if they exist
-    try {
-      const reviewWithAssociations = await Review.findOne({
-        include: [
-          { model: Store, as: 'store', required: false },
-          { model: User, as: 'user', required: false }
-        ]
-      });
-      console.log('✅ Review associations working');
-    } catch (assocError) {
-      console.log('⚠️ Review associations may not be fully configured');
-    }
-    
-    // Test static methods if they exist
-    if (typeof Review.getStoreStats === 'function') {
-      const testStats = await Review.getStoreStats('test-id');
-      console.log('✅ Review static methods working');
-    }
-    
-    return true;
-  } catch (error) {
-    console.error('❌ Review model health check failed:', error);
-    return false;
-  }
-}
-
 // Initialize database
 initializeDatabase();
 
-// Error handling middleware
+// ===============================
+// 🛡️ ENHANCED ERROR HANDLING FOR SERVICE REQUESTS
+// ===============================
+
 app.use((err, req, res, next) => {
   console.error('Unhandled error:', err);
 
@@ -743,6 +890,25 @@ app.use((err, req, res, next) => {
   if (err.message === 'Not allowed by CORS') {
     return res.status(403).json({
       message: 'CORS policy violation',
+      errors: {}
+    });
+  }
+
+  // ✅ Service request specific error handling
+  if (err.message.includes('ServiceRequest') || err.message.includes('ServiceOffer')) {
+    return res.status(400).json({
+      success: false,
+      message: 'Service request error',
+      error: process.env.NODE_ENV === 'development' ? err.message : 'Service request operation failed',
+      errors: {}
+    });
+  }
+
+  // Authentication errors
+  if (err.name === 'JsonWebTokenError' || err.name === 'TokenExpiredError') {
+    return res.status(401).json({
+      success: false,
+      message: 'Authentication failed',
       errors: {}
     });
   }
@@ -766,24 +932,41 @@ app.use('*', (req, res) => {
 });
 
 // ===============================
-// 🧪 TEMPORARY DEBUG ROUTES FOR TESTING (Development Only)
+// 🧪 ENHANCED DEBUG ROUTES FOR SERVICE REQUESTS (Development Only)
 // ===============================
 
 if (process.env.NODE_ENV === 'development') {
   const jwt = require('jsonwebtoken');
 
-  // Test endpoints for debugging
-  app.get('/api/v1/users/test', (req, res) => {
-    res.json({ message: 'User routes are working via app.js!', timestamp: new Date().toISOString() });
-  });
-
-  // Review model health check endpoint
-  app.get('/api/v1/debug/review-health', async (req, res) => {
+  // ✅ Service request health check
+  app.get('/api/v1/debug/service-requests-health', async (req, res) => {
     try {
-      const health = await checkReviewModelHealth();
+      const { ServiceRequest, ServiceOffer, Store, User } = sequelize.models;
+      
+      const health = {
+        models: {
+          ServiceRequest: !!ServiceRequest,
+          ServiceOffer: !!ServiceOffer,
+          Store: !!Store,
+          User: !!User
+        },
+        counts: {}
+      };
+      
+      if (ServiceRequest) {
+        health.counts.serviceRequests = await ServiceRequest.count();
+      }
+      if (ServiceOffer) {
+        health.counts.serviceOffers = await ServiceOffer.count();
+      }
+      if (Store) {
+        health.counts.stores = await Store.count();
+      }
+      
       res.json({
         success: true,
-        reviewModelHealthy: health,
+        serviceRequestsHealthy: Object.values(health.models).every(Boolean),
+        health,
         timestamp: new Date().toISOString()
       });
     } catch (error) {
@@ -794,7 +977,78 @@ if (process.env.NODE_ENV === 'development') {
     }
   });
 
-  // Database sync status endpoint
+  // ✅ Test merchant authentication for service requests
+  app.get('/api/v1/debug/test-merchant-auth', async (req, res) => {
+    try {
+      // Try to load middleware
+      const { authenticateMerchant } = require('./middleware/Merchantauth');
+      
+      res.json({
+        success: true,
+        message: 'Merchant auth middleware loaded successfully',
+        middlewareExists: !!authenticateMerchant
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        message: 'Merchant auth middleware error',
+        error: error.message
+      });
+    }
+  });
+
+  // ✅ Test user authentication for service requests
+  app.get('/api/v1/debug/test-user-auth', async (req, res) => {
+    try {
+      const { authenticateToken } = require('./middleware/requestservice');
+      
+      res.json({
+        success: true,
+        message: 'User auth middleware loaded successfully',
+        middlewareExists: !!authenticateToken
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        message: 'User auth middleware error',
+        error: error.message
+      });
+    }
+  });
+
+  // Enhanced test endpoints
+  app.get('/api/v1/users/test', (req, res) => {
+    res.json({ message: 'User routes are working via app.js!', timestamp: new Date().toISOString() });
+  });
+
+  app.get('/api/v1/debug/review-health', async (req, res) => {
+    try {
+      const { Review, Store, User } = sequelize.models;
+      
+      if (!Review) {
+        return res.json({
+          success: false,
+          reviewModelHealthy: false,
+          message: 'Review model not found'
+        });
+      }
+      
+      const reviewCount = await Review.count();
+      
+      res.json({
+        success: true,
+        reviewModelHealthy: true,
+        reviewCount,
+        timestamp: new Date().toISOString()
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: error.message
+      });
+    }
+  });
+
   app.get('/api/v1/debug/db-status', async (req, res) => {
     try {
       const models = sequelize.models;
@@ -822,7 +1076,7 @@ if (process.env.NODE_ENV === 'development') {
     }
   });
 
-  // Test OTP endpoints
+  // Enhanced test authentication endpoints
   app.post('/api/v1/users/verify-otp', (req, res) => {
     console.log('OTP verification request:', req.body);
     const { phone, otp } = req.body;
@@ -849,7 +1103,7 @@ if (process.env.NODE_ENV === 'development') {
     });
   });
 
-  // Test login routes
+  // Enhanced user login for service requests
   app.post('/api/v1/users/login', (req, res) => {
     console.log('Login attempt:', req.body);
     const { email, password } = req.body;
@@ -863,9 +1117,11 @@ if (process.env.NODE_ENV === 'development') {
 
     const token = jwt.sign(
       {
-        userId: 1,
+        userId: 'user-test-123',
+        id: 'user-test-123',
         email: email,
-        type: 'user'
+        type: 'user',
+        userType: 'customer'
       },
       process.env.JWT_SECRET || 'your-secret-key',
       { expiresIn: '30d' }
@@ -874,7 +1130,7 @@ if (process.env.NODE_ENV === 'development') {
     return res.status(200).json({
       message: 'Login successful',
       user: {
-        id: 1,
+        id: 'user-test-123',
         firstName: 'Test',
         lastName: 'User',
         email: email,
@@ -893,9 +1149,11 @@ if (process.env.NODE_ENV === 'development') {
 
     const token = jwt.sign(
       {
-        userId: 2,
+        userId: 'user-test-456',
+        id: 'user-test-456',
         email: email,
-        type: 'user'
+        type: 'user',
+        userType: 'customer'
       },
       process.env.JWT_SECRET || 'your-secret-key',
       { expiresIn: '30d' }
@@ -904,7 +1162,7 @@ if (process.env.NODE_ENV === 'development') {
     return res.status(201).json({
       message: 'Registration successful',
       user: {
-        id: 2,
+        id: 'user-test-456',
         firstName: firstName,
         lastName: lastName,
         email: email,
@@ -915,7 +1173,6 @@ if (process.env.NODE_ENV === 'development') {
     });
   });
 
-  // Test profile route for debugging auth
   app.get('/api/v1/users/profile', (req, res) => {
     const authHeader = req.headers.authorization;
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -931,12 +1188,12 @@ if (process.env.NODE_ENV === 'development') {
       return res.status(200).json({
         success: true,
         user: {
-          id: decoded.userId,
+          id: decoded.userId || decoded.id,
           firstName: 'Test',
           lastName: 'User',
           email: decoded.email,
           phoneNumber: '+1234567890',
-          userType: 'customer'
+          userType: decoded.userType || 'customer'
         }
       });
     } catch (error) {
@@ -947,7 +1204,7 @@ if (process.env.NODE_ENV === 'development') {
     }
   });
 
-  // Merchant test routes
+  // Enhanced merchant test routes for service requests
   app.post('/api/v1/merchants/login', (req, res) => {
     console.log('🏪 Merchant login attempt:', req.body);
     const { email, password } = req.body;
@@ -984,6 +1241,14 @@ if (process.env.NODE_ENV === 'development') {
         isPhoneVerified: true,
       },
       access_token: token,
+      // ✅ NEW: Include merchant-specific data for service requests
+      merchant: {
+        id: 'merchant-test-123',
+        first_name: 'Test',
+        last_name: 'Merchant',
+        email_address: email,
+        phone_number: '+1234567890'
+      }
     });
   });
 }
@@ -991,13 +1256,14 @@ if (process.env.NODE_ENV === 'development') {
 // Create HTTP Server
 const server = http.createServer(app);
 
-// WebSocket Setup with CORS
+// ✅ ENHANCED: WebSocket Setup with service request support
 socketManager.initialize(server, {
   cors: {
     origin: process.env.SOCKET_CORS_ORIGINS?.split(',') || [
       'http://localhost:3000',
       'http://localhost:5173',
       'http://localhost:5174',
+      'http://localhost:4173',
       'https://discoun3ree.com',
       'https://merchants.discoun3ree.com'
     ],
@@ -1017,10 +1283,17 @@ server.listen(PORT, () => {
   console.log(`💬 Chat API: http://localhost:${PORT}/api/v1/chat/*`);
   console.log(`📝 Review API: http://localhost:${PORT}/api/v1/reviews/*`);
   
+  // ✅ NEW: Service request specific endpoints
+  console.log(`🔧 Service Request API: http://localhost:${PORT}/api/v1/request-service/*`);
+  console.log(`🏪 Merchant Service API: http://localhost:${PORT}/api/v1/merchant/*`);
+  
   if (process.env.NODE_ENV === 'development') {
     console.log(`🔍 Debug Endpoints:`);
     console.log(`  - Review Health: http://localhost:${PORT}/api/v1/debug/review-health`);
     console.log(`  - DB Status: http://localhost:${PORT}/api/v1/debug/db-status`);
+    console.log(`  - Service Request Health: http://localhost:${PORT}/api/v1/debug/service-requests-health`);
+    console.log(`  - Test Merchant Auth: http://localhost:${PORT}/api/v1/debug/test-merchant-auth`);
+    console.log(`  - Test User Auth: http://localhost:${PORT}/api/v1/debug/test-user-auth`);
   }
 });
 

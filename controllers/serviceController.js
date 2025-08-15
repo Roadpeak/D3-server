@@ -395,22 +395,23 @@ exports.getServicesByStoreId = async (req, res) => {
     // Fetch services for this specific store
     const services = await Service.findAll({
       where: {
-        store_id: storeId, // This is the key - ensure we're filtering by store_id
+        store_id: storeId,
       },
       include: [
         {
           model: Store,
+          as: 'store', // ✅ FIXED: Use the correct alias from your Service model
           attributes: ['id', 'name', 'location'],
           required: false
         },
         // Include staff assignments if needed
         {
           model: Staff,
+          as: 'staff', // ✅ FIXED: Use lowercase 'staff' to match your Service model alias
           through: { 
             attributes: ['isActive', 'assignedAt'] 
           },
           attributes: ['id', 'name', 'email', 'status'],
-          as: 'Staff',
           required: false
         }
       ],
@@ -486,11 +487,23 @@ exports.getServicesByMerchantId = async (req, res) => {
           [Op.in]: storeIds
         }
       },
-      include: [{
-        model: Store,
-        attributes: ['id', 'name', 'location'],
-        required: false
-      }],
+      include: [
+        {
+          model: Store,
+          as: 'store', // ✅ FIXED: Use the correct alias from your Service model
+          attributes: ['id', 'name', 'location'],
+          required: false
+        },
+        {
+          model: Staff,
+          as: 'staff', // ✅ FIXED: Use lowercase 'staff' to match your Service model alias
+          through: { 
+            attributes: ['isActive', 'assignedAt'] 
+          },
+          attributes: ['id', 'name', 'status'],
+          required: false
+        }
+      ],
       order: [['createdAt', 'DESC']]
     });
 
@@ -545,6 +558,7 @@ exports.getMerchantServices = async (req, res) => {
       include: [
         {
           model: Store,
+          as: 'store', // ✅ FIXED: Use lowercase 'store' to match Service model alias
           attributes: ['id', 'name', 'location'],
           required: true // Ensure service has a valid store
         },
@@ -554,7 +568,7 @@ exports.getMerchantServices = async (req, res) => {
             attributes: ['isActive', 'assignedAt'] 
           },
           attributes: ['id', 'name', 'status'],
-          as: 'Staff',
+          as: 'staff', // ✅ FIXED: Use lowercase 'staff' to match Service model alias
           required: false
         }
       ],
@@ -597,55 +611,97 @@ exports.getServicesByStoreId = async (req, res) => {
     const { storeId } = req.params;
     
     console.log('🔍 Getting services for store:', storeId);
+    console.log('🔍 Authenticated user:', req.user);
+    
+    // Validate storeId parameter
+    if (!storeId || storeId === 'undefined' || storeId === 'null') {
+      return res.status(400).json({ 
+        success: false,
+        message: 'Valid store ID is required',
+        services: []
+      });
+    }
     
     // Check if store exists
     const store = await Store.findByPk(storeId);
     if (!store) {
       return res.status(404).json({ 
         success: false,
-        message: 'Store not found' 
+        message: 'Store not found',
+        services: []
       });
     }
 
-    // If user is authenticated and is a merchant, check ownership
-    if (req.user && req.user.type === 'merchant') {
+    // If user is authenticated and is a merchant, verify ownership
+    if (req.user && (req.user.type === 'merchant' || req.user.role === 'merchant')) {
       const merchantId = req.user.id || req.user.userId;
+      console.log('🔐 Verifying store ownership for merchant:', merchantId);
+      
       if (store.merchant_id !== merchantId) {
+        console.log('❌ Store ownership verification failed');
         return res.status(403).json({ 
           success: false,
-          message: 'Access denied. You can only access your own store services.' 
+          message: 'Access denied. You can only access your own store services.',
+          services: []
         });
       }
+      console.log('✅ Store ownership verified');
     }
 
+    // Fetch services for this specific store
     const services = await Service.findAll({
       where: {
         store_id: storeId,
       },
-      include: [{
-        model: Store,
-        attributes: ['id', 'name', 'location'],
-        required: false
-      }],
+      include: [
+        {
+          model: Store,
+          as: 'store', // ✅ FIXED: Use the correct alias from your Service model
+          attributes: ['id', 'name', 'location'],
+          required: false
+        },
+        // Include staff assignments if needed
+        {
+          model: Staff,
+          as: 'staff', // ✅ FIXED: Use lowercase 'staff' to match your Service model alias
+          through: { 
+            attributes: ['isActive', 'assignedAt'] 
+          },
+          attributes: ['id', 'name', 'email', 'status'],
+          required: false
+        }
+      ],
       order: [['createdAt', 'DESC']]
     });
 
     console.log(`✅ Found ${services.length} services for store ${storeId}`);
 
+    // Log the first few services for debugging
+    if (services.length > 0) {
+      console.log('📋 Sample services store_ids:', 
+        services.slice(0, 3).map(s => `${s.name}: ${s.store_id}`).join(', '));
+    }
+
     return res.status(200).json({ 
       success: true,
-      services 
+      services,
+      storeInfo: {
+        id: store.id,
+        name: store.name,
+        location: store.location
+      },
+      count: services.length
     });
   } catch (err) {
-    console.error('Error fetching services for store:', err);
+    console.error('❌ Error fetching services for store:', err);
     return res.status(500).json({ 
       success: false,
       message: 'Error fetching services for this store',
+      services: [],
       error: process.env.NODE_ENV === 'development' ? err.message : undefined
     });
   }
 };
-
 // Placeholder functions for the other routes (implement as needed)
 exports.getServiceAnalytics = async (req, res) => {
   try {

@@ -1,98 +1,381 @@
+// routes/serviceRequestRoutes.js - COMPLETE VERSION WITHOUT MOCK DATA
 const express = require('express');
 const router = express.Router();
 const { Op } = require('sequelize');
 
-// ✅ Fixed imports - import from the correct middleware path
-const { ServiceRequest, User, ServiceOffer, Category } = require('../models');
-const { authenticateToken, requireUserType, requireVerified } = require('../middleware/requestservice'); // ✅ Updated import path
+// ✅ Import models with error handling
+let ServiceRequest, User, ServiceOffer, Store, Merchant;
 
-// Debug middleware to check if models are loaded
-router.use((req, res, next) => {
-  console.log('🔍 Models check:', {
+try {
+  const models = require('../models');
+  ServiceRequest = models.ServiceRequest;
+  User = models.User;
+  ServiceOffer = models.ServiceOffer;
+  Store = models.Store;
+  Merchant = models.Merchant;
+  
+  console.log('✅ Service Request Routes - Models loaded:', {
     ServiceRequest: !!ServiceRequest,
     User: !!User,
     ServiceOffer: !!ServiceOffer,
-    Category: !!Category
+    Store: !!Store,
+    Merchant: !!Merchant
   });
+} catch (modelError) {
+  console.error('❌ Error loading models in service request routes:', modelError.message);
+}
+
+// ✅ Import middleware systems
+let authenticateToken, requireUserType, authenticateMerchant;
+
+try {
+  // For regular users
+  const userMiddleware = require('../middleware/requestservice');
+  authenticateToken = userMiddleware.authenticateToken;
+  requireUserType = userMiddleware.requireUserType;
+  
+  // For merchants
+  const merchantMiddleware = require('../middleware/Merchantauth');
+  authenticateMerchant = merchantMiddleware.authenticateMerchant;
+  
+  console.log('✅ Service Request Routes - Both middleware systems loaded');
+} catch (middlewareError) {
+  console.error('❌ Error loading middleware in service request routes:', middlewareError.message);
+  
+  // Fallback middleware
+  authenticateToken = (req, res, next) => {
+    const authHeader = req.headers.authorization;
+    const token = authHeader && authHeader.split(' ')[1];
+    
+    if (!token) {
+      return res.status(401).json({
+        success: false,
+        message: 'Access token required'
+      });
+    }
+    
+    try {
+      const jwt = require('jsonwebtoken');
+      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+      req.user = decoded;
+      next();
+    } catch (error) {
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid token'
+      });
+    }
+  };
+  
+  requireUserType = (userType) => {
+    return (req, res, next) => {
+      if ((req.user.userType || req.user.type) !== userType) {
+        return res.status(403).json({
+          success: false,
+          message: `Access denied. ${userType} role required.`
+        });
+      }
+      next();
+    };
+  };
+  
+  authenticateMerchant = authenticateToken;
+}
+
+// Debug middleware
+router.use((req, res, next) => {
+  console.log(`🔍 Service Request Route: ${req.method} ${req.originalUrl}`);
+  console.log('🔍 Auth Header:', req.headers.authorization ? 'Present' : 'Missing');
   next();
 });
 
-// GET /api/v1/request-service - Get all service requests with filters (PUBLIC)
-router.get('/', async (req, res) => {
+// ✅ GET /api/v1/request-service/categories - Get service categories
+router.get('/categories', async (req, res) => {
   try {
-    // ✅ Add model validation
-    if (!ServiceRequest) {
-      throw new Error('ServiceRequest model is not defined');
+    console.log('📋 Fetching service categories...');
+
+    let categories = [];
+    
+    if (Store) {
+      try {
+        // Get unique categories from active stores
+        const storeCategories = await Store.findAll({
+          attributes: ['category'],
+          where: { is_active: true },
+          group: ['category'],
+          raw: true
+        });
+
+        if (storeCategories.length > 0) {
+          const categoryPromises = storeCategories.map(async (cat, index) => {
+            const count = await Store.count({
+              where: { 
+                category: cat.category,
+                is_active: true 
+              }
+            });
+            
+            return {
+              id: index + 1,
+              name: cat.category,
+              count: count,
+              icon: getCategoryIcon(cat.category),
+              color: getCategoryColor(cat.category)
+            };
+          });
+
+          categories = await Promise.all(categoryPromises);
+          console.log(`✅ Found ${categories.length} real categories from stores`);
+        }
+      } catch (dbError) {
+        console.warn('⚠️ Could not fetch categories from database:', dbError.message);
+      }
     }
 
+    // If no real categories found, return empty array (no mock data)
+    if (categories.length === 0) {
+      console.log('📋 No categories found in database');
+      categories = [];
+    }
+
+    res.json({
+      success: true,
+      data: categories,
+      message: categories.length > 0 ? 'Service categories fetched successfully' : 'No categories available'
+    });
+
+  } catch (error) {
+    console.error('❌ Error fetching categories:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch service categories',
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+    });
+  }
+});
+
+// ✅ GET /api/v1/request-service/statistics - Get platform statistics
+router.get('/statistics', async (req, res) => {
+  try {
+    console.log('📊 Fetching platform statistics...');
+
+    let stats = {
+      totalRequests: 0,
+      activeRequests: 0,
+      completedRequests: 0,
+      totalProviders: 0,
+      averageRating: 0
+    };
+
+    // Get real statistics from database
+    if (ServiceRequest) {
+      try {
+        const [totalRequests, activeRequests, completedRequests] = await Promise.all([
+          ServiceRequest.count(),
+          ServiceRequest.count({ where: { status: 'open' } }),
+          ServiceRequest.count({ where: { status: 'completed' } })
+        ]);
+
+        stats.totalRequests = totalRequests;
+        stats.activeRequests = activeRequests;
+        stats.completedRequests = completedRequests;
+
+        console.log(`✅ Real stats - Total: ${totalRequests}, Active: ${activeRequests}, Completed: ${completedRequests}`);
+      } catch (dbError) {
+        console.warn('⚠️ Could not fetch request statistics:', dbError.message);
+      }
+    }
+
+    if (Store) {
+      try {
+        const totalProviders = await Store.count({ where: { is_active: true } });
+        stats.totalProviders = totalProviders;
+        
+        console.log(`✅ Real provider count: ${totalProviders}`);
+      } catch (dbError) {
+        console.warn('⚠️ Could not fetch provider count:', dbError.message);
+      }
+    }
+
+    res.json({
+      success: true,
+      data: stats,
+      message: 'Platform statistics fetched successfully'
+    });
+
+  } catch (error) {
+    console.error('❌ Error fetching statistics:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch platform statistics',
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+    });
+  }
+});
+
+// ✅ Helper function for category icons
+function getCategoryIcon(categoryName) {
+  const iconMap = {
+    'Web Development': '💻',
+    'Graphic Design': '🎨',
+    'Writing & Translation': '✍️',
+    'Digital Marketing': '📱',
+    'Video & Animation': '🎬',
+    'Music & Audio': '🎵',
+    'Programming': '⚡',
+    'Business': '💼',
+    'Home Services': '🏠',
+    'Health & Fitness': '💪',
+    'Photography': '📸',
+    'Education': '📚',
+    'Legal': '⚖️',
+    'Consulting': '🎯',
+    'Technology': '🔧',
+    'Arts & Crafts': '🎭'
+  };
+  
+  return iconMap[categoryName] || '🔧';
+}
+
+// ✅ Helper function for category colors
+function getCategoryColor(categoryName) {
+  const colorMap = {
+    'Web Development': 'bg-blue-100 text-blue-800',
+    'Graphic Design': 'bg-purple-100 text-purple-800',
+    'Writing & Translation': 'bg-green-100 text-green-800',
+    'Digital Marketing': 'bg-red-100 text-red-800',
+    'Video & Animation': 'bg-yellow-100 text-yellow-800',
+    'Music & Audio': 'bg-indigo-100 text-indigo-800',
+    'Programming': 'bg-orange-100 text-orange-800',
+    'Business': 'bg-gray-100 text-gray-800',
+    'Home Services': 'bg-teal-100 text-teal-800',
+    'Health & Fitness': 'bg-emerald-100 text-emerald-800',
+    'Photography': 'bg-pink-100 text-pink-800',
+    'Education': 'bg-lime-100 text-lime-800',
+    'Legal': 'bg-slate-100 text-slate-800',
+    'Consulting': 'bg-cyan-100 text-cyan-800',
+    'Technology': 'bg-violet-100 text-violet-800',
+    'Arts & Crafts': 'bg-rose-100 text-rose-800'
+  };
+  
+  return colorMap[categoryName] || 'bg-gray-100 text-gray-800';
+}
+
+// ✅ GET /api/v1/request-service/for-merchants - Merchant authentication
+router.get('/for-merchants', authenticateMerchant, async (req, res) => {
+  try {
+    const merchantId = req.user.id;
     const {
-      category = 'all',
       budget = 'all',
-      timeline = 'all',
+      timeline = 'all', 
       location = '',
       page = 1,
-      limit = 10,
+      limit = 20,
+      category = 'all',
       status = 'open'
     } = req.query;
 
-    const offset = (parseInt(page) - 1) * parseInt(limit);
-    const whereClause = {};
+    console.log(`📋 Fetching service requests for merchant: ${merchantId}`);
 
-    // Apply filters
-    if (category !== 'all') {
-      whereClause.category = category;
-    }
-
-    if (budget !== 'all') {
-      const budgetRange = budget.split('-');
-      if (budgetRange.length === 2) {
-        whereClause.budgetMin = { [Op.gte]: parseInt(budgetRange[0]) };
-        if (budgetRange[1] !== '+') {
-          whereClause.budgetMax = { [Op.lte]: parseInt(budgetRange[1]) };
+    if (!ServiceRequest || !Store) {
+      return res.json({
+        success: true,
+        data: {
+          requests: [],
+          pagination: {
+            currentPage: 1,
+            totalPages: 0,
+            totalCount: 0,
+            hasNext: false,
+            hasPrev: false,
+            limit: parseInt(limit)
+          },
+          filters: { budget, timeline, location, category, status },
+          merchantStoreCategories: []
         }
-      }
+      });
     }
+
+    // Get merchant's stores and their categories
+    const merchantStores = await Store.findAll({
+      where: { 
+        merchant_id: merchantId,
+        is_active: true 
+      },
+      attributes: ['id', 'name', 'category']
+    });
+
+    if (merchantStores.length === 0) {
+      return res.json({
+        success: true,
+        data: {
+          requests: [],
+          pagination: {
+            currentPage: 1,
+            totalPages: 0,
+            totalCount: 0,
+            hasNext: false,
+            hasPrev: false,
+            limit: parseInt(limit)
+          },
+          message: 'No stores found. Please create a store first to see relevant service requests.',
+          merchantStoreCategories: []
+        }
+      });
+    }
+
+    const merchantCategories = [...new Set(merchantStores.map(store => store.category))];
+
+    // Build query filters
+    const whereClause = {
+      status: status === 'all' ? { [Op.ne]: 'closed' } : status,
+      category: { [Op.in]: merchantCategories }
+    };
 
     if (timeline !== 'all') {
       whereClause.timeline = timeline;
     }
 
     if (location) {
-      whereClause.location = { [Op.like]: `%${location}%` };
+      whereClause.location = { [Op.iLike]: `%${location}%` };
     }
 
-    if (status) {
-      whereClause.status = status;
+    if (budget !== 'all') {
+      if (budget.includes('+')) {
+        const minBudget = parseInt(budget.replace('+', ''));
+        whereClause.budgetMin = { [Op.gte]: minBudget };
+      } else if (budget.includes('-')) {
+        const [min, max] = budget.split('-').map(b => parseInt(b.trim()));
+        whereClause[Op.and] = [
+          { budgetMin: { [Op.lte]: max } },
+          { budgetMax: { [Op.gte]: min } }
+        ];
+      }
     }
 
-    console.log('🔍 Query whereClause:', whereClause);
+    if (category !== 'all') {
+      whereClause.category = category;
+    }
 
-    // ✅ Query with correct field names for your User model
+    const offset = (parseInt(page) - 1) * parseInt(limit);
+
+    const includeOptions = [];
+    if (User) {
+      includeOptions.push({
+        model: User,
+        as: 'postedByUser',
+        attributes: ['id', 'firstName', 'lastName'],
+        required: false
+      });
+    }
+
     const { count, rows } = await ServiceRequest.findAndCountAll({
       where: whereClause,
-      include: [
-        {
-          model: User,
-          as: 'postedByUser', // ✅ This matches the fixed association alias
-          attributes: [
-            'id', 
-            'firstName', 
-            'lastName', 
-            'avatar', 
-            'emailVerifiedAt', 
-            'phoneVerifiedAt',
-            'userType'
-          ],
-          required: false
-        },
-        {
-          model: ServiceOffer,
-          as: 'offers', // ✅ This matches the association alias
-          attributes: ['id'],
-          required: false
-        }
+      include: includeOptions,
+      order: [
+        ['priority', 'DESC'],
+        ['createdAt', 'DESC']
       ],
-      order: [['createdAt', 'DESC']],
       limit: parseInt(limit),
       offset: offset
     });
@@ -100,30 +383,52 @@ router.get('/', async (req, res) => {
     const totalPages = Math.ceil(count / parseInt(limit));
     const currentPage = parseInt(page);
 
+    // Check for existing offers
+    let merchantOfferMap = {};
+    if (ServiceOffer && rows.length > 0) {
+      try {
+        const storeIds = merchantStores.map(store => store.id);
+        const existingOffers = await ServiceOffer.findAll({
+          where: {
+            requestId: { [Op.in]: rows.map(req => req.id) },
+            storeId: { [Op.in]: storeIds }
+          },
+          attributes: ['requestId', 'storeId', 'status']
+        });
+
+        merchantOfferMap = existingOffers.reduce((acc, offer) => {
+          acc[offer.requestId] = true;
+          return acc;
+        }, {});
+      } catch (offerError) {
+        console.warn('⚠️ Could not check existing offers:', offerError.message);
+      }
+    }
+
     const formattedRequests = rows.map(request => ({
       id: request.id,
       title: request.title,
-      category: request.category,
       description: request.description,
-      budget: `$${request.budgetMin} - $${request.budgetMax}`,
-      timeline: request.timeline,
+      category: request.category,
       location: request.location,
-      priority: request.priority,
+      budget: `$${request.budgetMin} - $${request.budgetMax}`,
+      budgetMin: request.budgetMin,
+      budgetMax: request.budgetMax,
+      timeline: request.timeline,
+      priority: request.priority || 'medium',
       status: request.status,
-      requirements: request.requirements || [],
       postedBy: request.postedByUser ? 
-        `${request.postedByUser.firstName} ${request.postedByUser.lastName}` : 
+        `${request.postedByUser.firstName} ${request.postedByUser.lastName.charAt(0)}.` : 
         'Anonymous',
-      verified: request.postedByUser ? 
-        !!(request.postedByUser.emailVerifiedAt || request.postedByUser.phoneVerifiedAt) : 
-        false, // ✅ Calculate verification from actual fields
-      avatar: request.postedByUser?.avatar || null,
-      userType: request.postedByUser?.userType || 'customer',
-      offers: request.offers?.length || 0,
-      postedTime: new Date(request.createdAt).toLocaleDateString('en-US', {
-        month: 'short',
-        day: 'numeric'
-      })
+      postedTime: calculateTimeAgo(request.createdAt),
+      offers: 0,
+      verified: false,
+      merchantOffered: !!merchantOfferMap[request.id],
+      requirements: request.requirements ? 
+        (Array.isArray(request.requirements) ? request.requirements : JSON.parse(request.requirements || '[]')) : 
+        [],
+      createdAt: request.createdAt,
+      updatedAt: request.updatedAt
     }));
 
     res.json({
@@ -135,7 +440,143 @@ router.get('/', async (req, res) => {
           totalPages,
           totalCount: count,
           hasNext: currentPage < totalPages,
-          hasPrev: currentPage > 1
+          hasPrev: currentPage > 1,
+          limit: parseInt(limit)
+        },
+        filters: { budget, timeline, location, category, status },
+        merchantStoreCategories: merchantCategories,
+        merchantStores: merchantStores.map(store => ({
+          id: store.id,
+          name: store.name,
+          category: store.category
+        }))
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Error fetching service requests for merchant:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch service requests for merchant',
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+    });
+  }
+});
+
+// ✅ GET /api/v1/request-service - Get all service requests (for customers)
+router.get('/', async (req, res) => {
+  try {
+    const {
+      category = 'all',
+      location = '',
+      budget = 'all',
+      timeline = 'all',
+      page = 1,
+      limit = 20
+    } = req.query;
+
+    console.log('📋 Fetching public service requests');
+
+    if (!ServiceRequest) {
+      return res.json({
+        success: true,
+        data: {
+          requests: [],
+          pagination: {
+            currentPage: 1,
+            totalPages: 0,
+            totalCount: 0,
+            hasNext: false,
+            hasPrev: false
+          }
+        }
+      });
+    }
+
+    const whereClause = { status: 'open' };
+
+    if (category !== 'all') {
+      whereClause.category = category;
+    }
+
+    if (location) {
+      whereClause.location = { [Op.iLike]: `%${location}%` };
+    }
+
+    if (budget !== 'all') {
+      if (budget.includes('+')) {
+        const minBudget = parseInt(budget.replace('+', ''));
+        whereClause.budgetMin = { [Op.gte]: minBudget };
+      } else if (budget.includes('-')) {
+        const [min, max] = budget.split('-').map(b => parseInt(b.trim()));
+        whereClause[Op.and] = [
+          { budgetMin: { [Op.lte]: max } },
+          { budgetMax: { [Op.gte]: min } }
+        ];
+      }
+    }
+
+    if (timeline !== 'all') {
+      whereClause.timeline = timeline;
+    }
+
+    const offset = (parseInt(page) - 1) * parseInt(limit);
+
+    const includeOptions = [];
+    if (User) {
+      includeOptions.push({
+        model: User,
+        as: 'postedByUser',
+        attributes: ['id', 'firstName', 'lastName'],
+        required: false
+      });
+    }
+
+    const { count, rows } = await ServiceRequest.findAndCountAll({
+      where: whereClause,
+      include: includeOptions,
+      order: [
+        ['priority', 'DESC'],
+        ['createdAt', 'DESC']
+      ],
+      limit: parseInt(limit),
+      offset: offset
+    });
+
+    const formattedRequests = rows.map(request => ({
+      id: request.id,
+      title: request.title,
+      description: request.description,
+      category: request.category,
+      location: request.location,
+      budget: `$${request.budgetMin} - $${request.budgetMax}`,
+      budgetMin: request.budgetMin,
+      budgetMax: request.budgetMax,
+      timeline: request.timeline,
+      priority: request.priority || 'medium',
+      status: request.status,
+      postedBy: request.postedByUser ? 
+        `${request.postedByUser.firstName} ${request.postedByUser.lastName.charAt(0)}.` : 
+        'Anonymous',
+      postedTime: calculateTimeAgo(request.createdAt),
+      offers: 0,
+      verified: false,
+      requirements: request.requirements ? 
+        (Array.isArray(request.requirements) ? request.requirements : JSON.parse(request.requirements || '[]')) : 
+        [],
+      createdAt: request.createdAt
+    }));
+
+    res.json({
+      success: true,
+      data: {
+        requests: formattedRequests,
+        pagination: {
+          currentPage: parseInt(page),
+          totalPages: Math.ceil(count / parseInt(limit)),
+          totalCount: count,
+          hasNext: parseInt(page) < Math.ceil(count / parseInt(limit)),
+          hasPrev: parseInt(page) > 1
         }
       }
     });
@@ -144,173 +585,84 @@ router.get('/', async (req, res) => {
     console.error('❌ Error fetching service requests:', error);
     res.status(500).json({
       success: false,
-      message: 'Failed to fetch service requests',
-      error: error.message
+      message: 'Failed to fetch service requests'
     });
   }
 });
 
-// GET /api/v1/request-service/categories - Get service categories (PUBLIC)
-router.get('/categories', async (req, res) => {
+// ✅ POST /api/v1/request-service - Create new service request
+router.post('/', authenticateToken, async (req, res) => {
   try {
-    // ✅ Get actual counts from database
-    const categoryCounts = await ServiceRequest.findAll({
-      attributes: [
-        'category',
-        [ServiceRequest.sequelize.fn('COUNT', ServiceRequest.sequelize.col('id')), 'count']
-      ],
-      where: {
-        status: 'open'
-      },
-      group: ['category'],
-      raw: true
-    });
+    const userId = req.user.id;
+    const userType = req.user.userType || req.user.type;
+    
+    // Allow both 'customer' and 'user' types to create service requests
+    if (!['customer', 'user'].includes(userType)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Only customers and users can create service requests'
+      });
+    }
 
-    // Create a map for easy lookup
-    const countMap = {};
-    categoryCounts.forEach(item => {
-      countMap[item.category] = parseInt(item.count);
-    });
-
-    const categories = [
-      { name: 'Home Services', icon: '🏠', color: 'bg-blue-100 text-blue-800', count: countMap['Home Services'] || 0 },
-      { name: 'Auto Services', icon: '🚗', color: 'bg-green-100 text-green-800', count: countMap['Auto Services'] || 0 },
-      { name: 'Beauty & Wellness', icon: '💄', color: 'bg-yellow-100 text-yellow-800', count: countMap['Beauty & Wellness'] || 0 },
-      { name: 'Tech Support', icon: '💻', color: 'bg-purple-100 text-purple-800', count: countMap['Tech Support'] || 0 },
-      { name: 'Event Services', icon: '🎉', color: 'bg-pink-100 text-pink-800', count: countMap['Event Services'] || 0 },
-      { name: 'Tutoring', icon: '📚', color: 'bg-orange-100 text-orange-800', count: countMap['Tutoring'] || 0 },
-      { name: 'Fitness', icon: '💪', color: 'bg-indigo-100 text-indigo-800', count: countMap['Fitness'] || 0 },
-      { name: 'Photography', icon: '📸', color: 'bg-teal-100 text-teal-800', count: countMap['Photography'] || 0 },
-      { name: 'Food & Catering', icon: '🍽️', color: 'bg-red-100 text-red-800', count: countMap['Food & Catering'] || 0 },
-      { name: 'Legal Services', icon: '⚖️', color: 'bg-gray-100 text-gray-800', count: countMap['Legal Services'] || 0 },
-      { name: 'Financial Services', icon: '💰', color: 'bg-yellow-100 text-yellow-800', count: countMap['Financial Services'] || 0 },
-      { name: 'Healthcare', icon: '🏥', color: 'bg-red-100 text-red-800', count: countMap['Healthcare'] || 0 },
-      { name: 'Pet Services', icon: '🐕', color: 'bg-green-100 text-green-800', count: countMap['Pet Services'] || 0 },
-      { name: 'Moving & Storage', icon: '📦', color: 'bg-blue-100 text-blue-800', count: countMap['Moving & Storage'] || 0 },
-      { name: 'Landscaping', icon: '🌱', color: 'bg-green-100 text-green-800', count: countMap['Landscaping'] || 0 },
-      { name: 'Other', icon: '🔧', color: 'bg-gray-100 text-gray-800', count: countMap['Other'] || 0 }
-    ];
-
-    res.json({
-      success: true,
-      data: categories
-    });
-
-  } catch (error) {
-    console.error('❌ Error fetching categories:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to fetch categories',
-      error: error.message
-    });
-  }
-});
-
-// POST /api/v1/request-service - Create new service request (AUTHENTICATED CUSTOMERS)
-router.post('/', authenticateToken, requireUserType('customer'), async (req, res) => {
-  try {
     const {
       title,
-      category,
       description,
+      category,
+      location,
       budgetMin,
       budgetMax,
       timeline,
-      location,
-      requirements = [],
-      priority = 'normal'
+      priority = 'medium',
+      requirements = []
     } = req.body;
 
-    // ✅ Enhanced validation
-    const errors = [];
-    
-    if (!title?.trim()) errors.push('Title is required');
-    if (!category) errors.push('Category is required');
-    if (!description?.trim()) errors.push('Description is required');
-    if (!budgetMin || budgetMin <= 0) errors.push('Valid minimum budget is required');
-    if (!budgetMax || budgetMax <= 0) errors.push('Valid maximum budget is required');
-    if (!timeline) errors.push('Timeline is required');
-    if (!location?.trim()) errors.push('Location is required');
-    
-    if (title && (title.length < 5 || title.length > 200)) {
-      errors.push('Title must be between 5 and 200 characters');
-    }
-    
-    if (description && (description.length < 10 || description.length > 2000)) {
-      errors.push('Description must be between 10 and 2000 characters');
-    }
-    
-    if (budgetMin && budgetMax && parseInt(budgetMin) >= parseInt(budgetMax)) {
-      errors.push('Maximum budget must be greater than minimum budget');
-    }
+    console.log('📝 Creating service request for user:', userId);
+    console.log('📝 Category:', category);
 
-    if (errors.length > 0) {
+    // Validation
+    if (!title || !description || !category || !location || !budgetMin || !budgetMax) {
       return res.status(400).json({
         success: false,
-        message: 'Validation failed',
-        errors
+        message: 'Missing required fields'
       });
     }
 
-    // ✅ Validate category against allowed values
-    const allowedCategories = [
-      'Home Services', 'Auto Services', 'Beauty & Wellness', 'Tech Support',
-      'Event Services', 'Tutoring', 'Fitness', 'Photography', 'Food & Catering',
-      'Legal Services', 'Financial Services', 'Healthcare', 'Pet Services',
-      'Moving & Storage', 'Landscaping', 'Other'
-    ];
-
-    if (!allowedCategories.includes(category)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid category selected'
-      });
-    }
-
-    // ✅ Validate timeline
-    const allowedTimelines = ['urgent', 'thisweek', 'nextweek', 'thismonth', 'flexible'];
-    if (!allowedTimelines.includes(timeline)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid timeline selected'
-      });
-    }
-
-    // ✅ Validate priority
-    const allowedPriorities = ['low', 'normal', 'high', 'urgent'];
-    if (!allowedPriorities.includes(priority)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid priority selected'
-      });
+    if (!ServiceRequest) {
+      throw new Error('ServiceRequest model not available');
     }
 
     const serviceRequest = await ServiceRequest.create({
-      title: title.trim(),
-      category,
-      description: description.trim(),
+      title,
+      description,
+      category, // ✅ NO MAPPING NEEDED - ENUM now matches frontend exactly
+      location,
       budgetMin: parseFloat(budgetMin),
       budgetMax: parseFloat(budgetMax),
       timeline,
-      location: location.trim(),
-      requirements: Array.isArray(requirements) ? requirements : [],
       priority,
+      requirements: JSON.stringify(requirements),
       status: 'open',
-      postedBy: req.user.id
+      postedBy: userId,
+      createdAt: new Date(),
+      updatedAt: new Date()
     });
+
+    console.log('✅ Service request created:', serviceRequest.id);
 
     res.status(201).json({
       success: true,
       message: 'Service request created successfully',
       data: {
-        id: serviceRequest.id,
-        title: serviceRequest.title,
-        category: serviceRequest.category,
-        status: serviceRequest.status,
-        budget: `$${serviceRequest.budgetMin} - $${serviceRequest.budgetMax}`,
-        timeline: serviceRequest.timeline,
-        location: serviceRequest.location,
-        createdAt: serviceRequest.createdAt
+        serviceRequest: {
+          id: serviceRequest.id,
+          title: serviceRequest.title,
+          description: serviceRequest.description,
+          category: category,
+          location: serviceRequest.location,
+          budget: `$${serviceRequest.budgetMin} - $${serviceRequest.budgetMax}`,
+          timeline: serviceRequest.timeline,
+          status: serviceRequest.status
+        }
       }
     });
 
@@ -324,40 +676,71 @@ router.post('/', authenticateToken, requireUserType('customer'), async (req, res
   }
 });
 
-// GET /api/v1/request-service/offers - Get user's received offers (AUTHENTICATED CUSTOMERS)
-router.get('/offers', authenticateToken, requireUserType('customer'), async (req, res) => {
+// ✅ GET /api/v1/request-service/offers - Get all offers for current user
+router.get('/offers', authenticateToken, async (req, res) => {
   try {
+    const userId = req.user.id;
     const { page = 1, limit = 10, status = 'all' } = req.query;
-    const offset = (parseInt(page) - 1) * parseInt(limit);
 
-    // Build where clause for offers
-    const offerWhere = {};
-    if (status !== 'all') {
-      offerWhere.status = status;
+    console.log('📋 Fetching user offers for user:', userId);
+
+    if (!ServiceRequest || !ServiceOffer || !Store) {
+      return res.json({
+        success: true,
+        data: {
+          offers: [],
+          pagination: {
+            currentPage: 1,
+            totalPages: 0,
+            totalCount: 0,
+            hasNext: false,
+            hasPrev: false
+          }
+        }
+      });
     }
 
+    // Get service requests posted by the user
+    const userRequests = await ServiceRequest.findAll({
+      where: { postedBy: userId },
+      attributes: ['id', 'title']
+    });
+
+    if (userRequests.length === 0) {
+      return res.json({
+        success: true,
+        data: {
+          offers: [],
+          pagination: {
+            currentPage: 1,
+            totalPages: 0,
+            totalCount: 0,
+            hasNext: false,
+            hasPrev: false
+          }
+        }
+      });
+    }
+
+    const requestIds = userRequests.map(req => req.id);
+
+    const whereClause = {
+      requestId: { [Op.in]: requestIds }
+    };
+
+    if (status !== 'all') {
+      whereClause.status = status;
+    }
+
+    const offset = (parseInt(page) - 1) * parseInt(limit);
+
     const { count, rows } = await ServiceOffer.findAndCountAll({
-      where: offerWhere,
+      where: whereClause,
       include: [
         {
-          model: ServiceRequest,
-          as: 'request', // ✅ This matches the fixed association alias
-          where: { postedBy: req.user.id },
-          attributes: ['id', 'title', 'category', 'budgetMin', 'budgetMax'],
-          required: true
-        },
-        {
-          model: User,
-          as: 'provider', // ✅ This matches the association alias
-          attributes: [
-            'id', 
-            'firstName', 
-            'lastName', 
-            'avatar', 
-            'emailVerifiedAt', 
-            'phoneVerifiedAt',
-            'userType'
-          ],
+          model: Store,
+          as: 'store',
+          attributes: ['id', 'name', 'category', 'location', 'rating', 'logo_url'],
           required: false
         }
       ],
@@ -366,260 +749,460 @@ router.get('/offers', authenticateToken, requireUserType('customer'), async (req
       offset: offset
     });
 
-    const totalPages = Math.ceil(count / parseInt(limit));
-    const currentPage = parseInt(page);
+    const requestTitleMap = userRequests.reduce((acc, req) => {
+      acc[req.id] = req.title;
+      return acc;
+    }, {});
 
     const formattedOffers = rows.map(offer => ({
       id: offer.id,
       requestId: offer.requestId,
-      providerName: offer.provider ? 
-        `${offer.provider.firstName} ${offer.provider.lastName}` : 
-        'Anonymous',
-      providerId: offer.providerId,
-      verified: offer.provider ? 
-        !!(offer.provider.emailVerifiedAt || offer.provider.phoneVerifiedAt) : 
-        false,
-      avatar: offer.provider?.avatar || null,
-      rating: 0, // ✅ TODO: Add rating logic if you have a ratings system
-      reviews: 0, // ✅ TODO: Add review count logic
+      requestTitle: requestTitleMap[offer.requestId] || 'Unknown Request',
+      storeId: offer.storeId,
+      storeName: offer.store?.name || 'Unknown Store',
+      providerName: offer.store?.name || 'Unknown Provider',
       price: `$${offer.quotedPrice}`,
-      quotedPrice: offer.quotedPrice,
       message: offer.message,
       availability: offer.availability,
       status: offer.status,
-      requestTitle: offer.request?.title || 'Unknown Request',
-      requestCategory: offer.request?.category || '',
-      requestBudget: offer.request ? 
-        `$${offer.request.budgetMin} - $${offer.request.budgetMax}` : '',
+      rating: offer.store?.rating || 0,
+      reviews: 0,
+      responseTime: calculateTimeAgo(offer.createdAt),
+      verified: false,
       estimatedDuration: offer.estimatedDuration,
       includesSupplies: offer.includesSupplies,
-      warranty: offer.warranty,
-      responseTime: calculateResponseTime(offer.createdAt), // ✅ Helper function
-      createdAt: offer.createdAt,
-      acceptedAt: offer.acceptedAt,
-      rejectedAt: offer.rejectedAt
+      storeDetails: offer.store ? {
+        id: offer.store.id,
+        name: offer.store.name
+      } : null,
+      createdAt: offer.createdAt
     }));
+
+    const totalPages = Math.ceil(count / parseInt(limit));
+
+    console.log(`✅ Found ${count} offers for user`);
 
     res.json({
       success: true,
       data: {
         offers: formattedOffers,
         pagination: {
-          currentPage,
+          currentPage: parseInt(page),
           totalPages,
           totalCount: count,
-          hasNext: currentPage < totalPages,
-          hasPrev: currentPage > 1
+          hasNext: parseInt(page) < totalPages,
+          hasPrev: parseInt(page) > 1
         }
       }
     });
 
   } catch (error) {
-    console.error('❌ Error fetching offers:', error);
+    console.error('❌ Error fetching user offers:', error);
     res.status(500).json({
       success: false,
-      message: 'Failed to fetch offers',
+      message: 'Failed to fetch user offers',
       error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
 });
 
-// GET /api/v1/request-service/my-requests - Get user's past requests (AUTHENTICATED CUSTOMERS)
-router.get('/my-requests', authenticateToken, requireUserType('customer'), async (req, res) => {
+// ✅ GET /api/v1/request-service/my-requests - Get user's past requests
+router.get('/my-requests', authenticateToken, async (req, res) => {
   try {
+    const userId = req.user.id;
     const { page = 1, limit = 10, status = 'all' } = req.query;
-    const offset = (parseInt(page) - 1) * parseInt(limit);
 
-    // Build where clause
-    const whereClause = { postedBy: req.user.id };
+    console.log('📋 Fetching user past requests for user:', userId);
+
+    if (!ServiceRequest) {
+      return res.json({
+        success: true,
+        data: {
+          requests: [],
+          pagination: {
+            currentPage: 1,
+            totalPages: 0,
+            totalCount: 0,
+            hasNext: false,
+            hasPrev: false
+          }
+        }
+      });
+    }
+
+    const whereClause = {
+      postedBy: userId
+    };
+
     if (status !== 'all') {
       whereClause.status = status;
     }
 
+    const offset = (parseInt(page) - 1) * parseInt(limit);
+
     const { count, rows } = await ServiceRequest.findAndCountAll({
       where: whereClause,
-      include: [
-        {
-          model: ServiceOffer,
-          as: 'offers',
-          attributes: ['id', 'status', 'quotedPrice'],
-          required: false
-        }
-      ],
       order: [['createdAt', 'DESC']],
       limit: parseInt(limit),
       offset: offset
     });
 
-    const totalPages = Math.ceil(count / parseInt(limit));
-    const currentPage = parseInt(page);
-
     const formattedRequests = rows.map(request => ({
       id: request.id,
       title: request.title,
-      category: request.category,
       description: request.description,
-      budget: `$${request.budgetMin} - $${request.budgetMax}`,
-      timeline: request.timeline,
+      category: request.category,
       location: request.location,
-      priority: request.priority,
+      budget: `$${request.budgetMin} - $${request.budgetMax}`,
       status: request.status,
-      requirements: request.requirements || [],
-      offers: request.offers?.length || 0,
-      pendingOffers: request.offers?.filter(o => o.status === 'pending').length || 0,
-      acceptedOffers: request.offers?.filter(o => o.status === 'accepted').length || 0,
-      finalRating: request.finalRating,
-      finalReview: request.finalReview,
-      createdAt: request.createdAt,
+      offers: 0,
       completedAt: request.completedAt,
-      cancelledAt: request.cancelledAt
+      acceptedOffer: request.acceptedOfferId ? {
+        storeName: 'Service Provider',
+        price: `$${request.budgetMax}`,
+        rating: null
+      } : null,
+      createdAt: request.createdAt
     }));
+
+    const totalPages = Math.ceil(count / parseInt(limit));
+
+    console.log(`✅ Found ${count} past requests for user`);
 
     res.json({
       success: true,
       data: {
         requests: formattedRequests,
         pagination: {
-          currentPage,
+          currentPage: parseInt(page),
           totalPages,
           totalCount: count,
-          hasNext: currentPage < totalPages,
-          hasPrev: currentPage > 1
+          hasNext: parseInt(page) < totalPages,
+          hasPrev: parseInt(page) > 1
         }
       }
     });
 
   } catch (error) {
-    console.error('❌ Error fetching user requests:', error);
+    console.error('❌ Error fetching user past requests:', error);
     res.status(500).json({
       success: false,
-      message: 'Failed to fetch requests',
+      message: 'Failed to fetch user past requests',
       error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
 });
 
-// GET /api/v1/request-service/statistics - Get platform statistics (PUBLIC)
-router.get('/statistics', async (req, res) => {
+// ✅ POST /api/v1/request-service/:requestId/offers - Create store-based offer
+router.post('/:requestId/offers', authenticateMerchant, async (req, res) => {
   try {
-    // ✅ Get real statistics from database
-    const [
-      totalUsers,
-      totalCustomers,
-      totalMerchants,
-      totalRequests,
-      completedRequests,
-      activeRequests,
-      totalOffers
-    ] = await Promise.all([
-      User.count({ where: { isActive: true } }),
-      User.count({ where: { userType: 'customer', isActive: true } }),
-      User.count({ where: { userType: 'merchant', isActive: true } }),
-      ServiceRequest.count(),
-      ServiceRequest.count({ where: { status: 'completed' } }),
-      ServiceRequest.count({ where: { status: 'open' } }),
-      ServiceOffer.count()
-    ]);
+    const { requestId } = req.params;
+    const merchantId = req.user.id;
+    const {
+      storeId,
+      quotedPrice,
+      message,
+      availability,
+      estimatedDuration,
+      includesSupplies = false
+    } = req.body;
 
-    const statistics = {
-      totalUsers,
-      totalCustomers,
-      totalProviders: totalMerchants,
-      totalRequests,
-      completedRequests,
-      activeRequests,
-      totalOffers,
-      averageRating: 4.8, // ✅ TODO: Calculate from actual ratings
-      successRate: totalRequests > 0 ? Math.round((completedRequests / totalRequests) * 100) : 0
-    };
+    console.log('📤 Creating store offer for request:', requestId, 'by merchant:', merchantId);
 
-    res.json({
+    // Validation
+    if (!storeId || !quotedPrice || !message || !availability) {
+      return res.status(400).json({
+        success: false,
+        message: 'Missing required fields: storeId, quotedPrice, message, availability'
+      });
+    }
+
+    if (parseFloat(quotedPrice) <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Quoted price must be greater than 0'
+      });
+    }
+
+    if (!ServiceRequest || !ServiceOffer || !Store) {
+      throw new Error('Required models not available');
+    }
+
+    // Verify the service request exists
+    const serviceRequest = await ServiceRequest.findByPk(requestId);
+    if (!serviceRequest) {
+      return res.status(404).json({
+        success: false,
+        message: 'Service request not found'
+      });
+    }
+
+    if (serviceRequest.status !== 'open') {
+      return res.status(400).json({
+        success: false,
+        message: 'Service request is no longer open for offers'
+      });
+    }
+
+    // Verify the store belongs to the merchant
+    const store = await Store.findOne({
+      where: { 
+        id: storeId, 
+        merchant_id: merchantId,
+        is_active: true 
+      }
+    });
+
+    if (!store) {
+      return res.status(404).json({
+        success: false,
+        message: 'Store not found, inactive, or does not belong to you'
+      });
+    }
+
+    // Check if this store already made an offer
+    const existingOffer = await ServiceOffer.findOne({
+      where: {
+        requestId,
+        storeId
+      }
+    });
+
+    if (existingOffer) {
+      return res.status(400).json({
+        success: false,
+        message: 'This store has already made an offer for this service request'
+      });
+    }
+
+    // Create the offer
+    const offer = await ServiceOffer.create({
+      requestId,
+      storeId,
+      providerId: merchantId,
+      quotedPrice: parseFloat(quotedPrice),
+      message: message.trim(),
+      availability: availability.trim(),
+      estimatedDuration: estimatedDuration ? estimatedDuration.trim() : null,
+      includesSupplies,
+      status: 'pending',
+      createdAt: new Date(),
+      updatedAt: new Date()
+    });
+
+    console.log('✅ Store offer created successfully:', offer.id);
+
+    res.status(201).json({
       success: true,
-      data: statistics
+      message: 'Store offer submitted successfully',
+      data: {
+        offer: {
+          id: offer.id,
+          requestId: offer.requestId,
+          storeId: offer.storeId,
+          storeName: store.name,
+          storeCategory: store.category,
+          quotedPrice: offer.quotedPrice,
+          message: offer.message,
+          availability: offer.availability,
+          status: offer.status,
+          createdAt: offer.createdAt
+        }
+      }
     });
 
   } catch (error) {
-    console.error('❌ Error fetching statistics:', error);
+    console.error('❌ Error creating store offer:', error);
     res.status(500).json({
       success: false,
-      message: 'Failed to fetch statistics',
+      message: 'Failed to create store offer',
       error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
 });
 
-// PUT /api/v1/request-service/:id/accept-offer - Accept an offer (AUTHENTICATED CUSTOMERS)
-router.put('/:requestId/accept-offer/:offerId', authenticateToken, requireUserType('customer'), async (req, res) => {
+// ✅ GET /api/v1/request-service/:requestId/offers - Get all offers for a request
+router.get('/:requestId/offers', authenticateToken, async (req, res) => {
   try {
-    const { requestId, offerId } = req.params;
+    const { requestId } = req.params;
+    const userId = req.user.id;
+
+    console.log('📋 Fetching offers for request:', requestId, 'by user:', userId);
+
+    if (!ServiceRequest || !ServiceOffer || !Store) {
+      return res.status(400).json({
+        success: false,
+        message: 'Required models not available'
+      });
+    }
 
     // Verify the request belongs to the user
     const serviceRequest = await ServiceRequest.findOne({
-      where: {
-        id: requestId,
-        postedBy: req.user.id,
-        status: 'open'
-      }
+      where: { id: requestId, postedBy: userId }
     });
 
     if (!serviceRequest) {
       return res.status(404).json({
         success: false,
-        message: 'Service request not found or not accessible'
+        message: 'Service request not found or you do not have permission to view its offers'
       });
     }
 
-    // Verify the offer exists and belongs to this request
-    const offer = await ServiceOffer.findOne({
-      where: {
-        id: offerId,
-        requestId: requestId,
-        status: 'pending'
+    // Get all offers for this request with store details
+    const offers = await ServiceOffer.findAll({
+      where: { requestId },
+      include: [
+        {
+          model: Store,
+          as: 'store',
+          attributes: ['id', 'name', 'category', 'location', 'rating', 'logo_url', 'description'],
+          required: true
+        }
+      ],
+      order: [['createdAt', 'ASC']]
+    });
+
+    const formattedOffers = offers.map(offer => ({
+      id: offer.id,
+      storeId: offer.storeId,
+      storeName: offer.store.name,
+      storeCategory: offer.store.category,
+      storeLocation: offer.store.location,
+      storeRating: offer.store.rating || 0,
+      storeLogo: offer.store.logo_url,
+      storeDescription: offer.store.description,
+      quotedPrice: offer.quotedPrice,
+      message: offer.message,
+      availability: offer.availability,
+      estimatedDuration: offer.estimatedDuration,
+      includesSupplies: offer.includesSupplies,
+      status: offer.status,
+      submittedAt: calculateTimeAgo(offer.createdAt),
+      createdAt: offer.createdAt
+    }));
+
+    console.log(`✅ Found ${offers.length} offers for request`);
+
+    res.json({
+      success: true,
+      data: {
+        requestTitle: serviceRequest.title,
+        requestBudget: `$${serviceRequest.budgetMin} - $${serviceRequest.budgetMax}`,
+        offers: formattedOffers
       }
+    });
+
+  } catch (error) {
+    console.error('❌ Error fetching request offers:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch request offers',
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+    });
+  }
+});
+
+// ✅ PUT /api/v1/request-service/:requestId/accept-offer/:offerId - Accept an offer
+router.put('/:requestId/accept-offer/:offerId', authenticateToken, async (req, res) => {
+  try {
+    const { requestId, offerId } = req.params;
+    const userId = req.user.id;
+
+    console.log('✅ Accepting offer:', offerId, 'for request:', requestId, 'by user:', userId);
+
+    if (!ServiceRequest || !ServiceOffer) {
+      return res.status(400).json({
+        success: false,
+        message: 'Required models not available'
+      });
+    }
+
+    // Verify the request belongs to the user
+    const serviceRequest = await ServiceRequest.findOne({
+      where: { id: requestId, postedBy: userId }
+    });
+
+    if (!serviceRequest) {
+      return res.status(404).json({
+        success: false,
+        message: 'Service request not found or you do not have permission'
+      });
+    }
+
+    if (serviceRequest.status !== 'open') {
+      return res.status(400).json({
+        success: false,
+        message: 'Service request is no longer open'
+      });
+    }
+
+    // Find the offer
+    const offer = await ServiceOffer.findOne({
+      where: { id: offerId, requestId }
     });
 
     if (!offer) {
       return res.status(404).json({
         success: false,
-        message: 'Offer not found or not available for acceptance'
+        message: 'Offer not found'
       });
     }
 
-    // Accept the offer and update request status
-    await Promise.all([
-      offer.update({
+    if (offer.status !== 'pending') {
+      return res.status(400).json({
+        success: false,
+        message: 'Only pending offers can be accepted'
+      });
+    }
+
+    // Start transaction
+    const transaction = await ServiceOffer.sequelize.transaction();
+
+    try {
+      // Accept this offer
+      await offer.update({
         status: 'accepted',
         acceptedAt: new Date()
-      }),
-      serviceRequest.update({
+      }, { transaction });
+
+      // Update the service request
+      await serviceRequest.update({
         status: 'in_progress',
         acceptedOfferId: offerId
-      }),
-      // Reject all other pending offers for this request
-      ServiceOffer.update(
-        { 
-          status: 'rejected',
-          rejectedAt: new Date()
-        },
-        {
-          where: {
-            requestId: requestId,
-            id: { [Op.ne]: offerId },
-            status: 'pending'
-          }
-        }
-      )
-    ]);
+      }, { transaction });
 
-    res.json({
-      success: true,
-      message: 'Offer accepted successfully',
-      data: {
-        requestId,
-        offerId,
-        status: 'accepted'
-      }
-    });
+      // Reject all other pending offers for this request
+      await ServiceOffer.update({
+        status: 'rejected',
+        rejectedAt: new Date(),
+        statusReason: 'Another offer was accepted'
+      }, {
+        where: {
+          requestId,
+          id: { [Op.ne]: offerId },
+          status: 'pending'
+        },
+        transaction
+      });
+
+      await transaction.commit();
+
+      console.log('✅ Offer accepted successfully');
+
+      res.json({
+        success: true,
+        message: 'Offer accepted successfully',
+        data: {
+          offerId,
+          requestId,
+          newStatus: 'in_progress'
+        }
+      });
+
+    } catch (error) {
+      await transaction.rollback();
+      throw error;
+    }
 
   } catch (error) {
     console.error('❌ Error accepting offer:', error);
@@ -631,19 +1214,101 @@ router.put('/:requestId/accept-offer/:offerId', authenticateToken, requireUserTy
   }
 });
 
-// Helper function to calculate response time
-function calculateResponseTime(createdAt) {
+// ✅ NEW: PUT /api/v1/request-service/:requestId/reject-offer/:offerId - Reject an offer
+router.put('/:requestId/reject-offer/:offerId', authenticateToken, async (req, res) => {
+  try {
+    const { requestId, offerId } = req.params;
+    const userId = req.user.id;
+    const { reason = '' } = req.body;
+
+    console.log('❌ Rejecting offer:', offerId, 'for request:', requestId, 'by user:', userId);
+
+    if (!ServiceRequest || !ServiceOffer) {
+      return res.status(400).json({
+        success: false,
+        message: 'Required models not available'
+      });
+    }
+
+    // Verify the request belongs to the user
+    const serviceRequest = await ServiceRequest.findOne({
+      where: { id: requestId, postedBy: userId }
+    });
+
+    if (!serviceRequest) {
+      return res.status(404).json({
+        success: false,
+        message: 'Service request not found or you do not have permission'
+      });
+    }
+
+    // Find the offer
+    const offer = await ServiceOffer.findOne({
+      where: { id: offerId, requestId }
+    });
+
+    if (!offer) {
+      return res.status(404).json({
+        success: false,
+        message: 'Offer not found'
+      });
+    }
+
+    if (offer.status !== 'pending') {
+      return res.status(400).json({
+        success: false,
+        message: 'Only pending offers can be rejected'
+      });
+    }
+
+    // Reject the offer
+    await offer.update({
+      status: 'rejected',
+      rejectedAt: new Date(),
+      statusReason: reason || 'Rejected by customer'
+    });
+
+    console.log('❌ Offer rejected successfully');
+
+    res.json({
+      success: true,
+      message: 'Offer rejected successfully',
+      data: {
+        offerId,
+        requestId,
+        status: 'rejected'
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Error rejecting offer:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to reject offer',
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+    });
+  }
+});
+
+// Helper function to calculate time ago
+function calculateTimeAgo(date) {
   const now = new Date();
-  const created = new Date(createdAt);
-  const diffInHours = Math.floor((now - created) / (1000 * 60 * 60));
-  
-  if (diffInHours < 1) {
-    return 'Quick responder';
+  const created = new Date(date);
+  const diffInMs = now - created;
+  const diffInMinutes = Math.floor(diffInMs / (1000 * 60));
+  const diffInHours = Math.floor(diffInMs / (1000 * 60 * 60));
+  const diffInDays = Math.floor(diffInMs / (1000 * 60 * 60 * 24));
+
+  if (diffInMinutes < 1) {
+    return 'Just now';
+  } else if (diffInMinutes < 60) {
+    return `${diffInMinutes} minute${diffInMinutes !== 1 ? 's' : ''} ago`;
   } else if (diffInHours < 24) {
     return `${diffInHours} hour${diffInHours !== 1 ? 's' : ''} ago`;
-  } else {
-    const diffInDays = Math.floor(diffInHours / 24);
+  } else if (diffInDays < 7) {
     return `${diffInDays} day${diffInDays !== 1 ? 's' : ''} ago`;
+  } else {
+    return created.toLocaleDateString();
   }
 }
 

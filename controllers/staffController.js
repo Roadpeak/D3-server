@@ -1,4 +1,4 @@
-// controllers/StaffController.js - Complete Updated Version
+// controllers/StaffController.js - Complete Updated Version with Fixed Associations
 const { Staff, Service, StaffService, Store, Booking, Offer, User, sequelize } = require('../models');
 const bcrypt = require('bcryptjs');
 const fs = require('fs');
@@ -139,91 +139,74 @@ const StaffController = {
       const { page = 1, limit = 50, status, storeId, branchId, role } = req.query;
       
       console.log('🔍 Staff getAll called with params:', { page, limit, status, storeId, branchId, role });
+      console.log('👤 Current merchant:', req.user?.id);
       
+      const merchantId = req.user?.id || req.user?.merchantId;
+      if (!merchantId) {
+        return res.status(401).json({ error: 'Merchant not found in request' });
+      }
+
+      // ✅ FIXED: Build whereClause with merchant store filtering
       const whereClause = {};
       if (status) whereClause.status = status;
-      if (storeId) whereClause.storeId = storeId;
       if (branchId) whereClause.branchId = branchId;
       if (role) whereClause.role = role;
+
+      // If specific storeId provided, verify it belongs to the merchant
+      if (storeId) {
+        const store = await Store.findOne({
+          where: { 
+            id: storeId, 
+            merchant_id: merchantId 
+          }
+        });
+        
+        if (!store) {
+          return res.status(403).json({ 
+            error: 'Store not found or does not belong to your account' 
+          });
+        }
+        
+        whereClause.storeId = storeId;
+      }
 
       console.log('📋 Staff query filters:', whereClause);
 
       const offset = (parseInt(page) - 1) * parseInt(limit);
 
-      // Try to get staff with store info, but handle association errors gracefully
-      let includeOptions = [];
+      // ✅ FIXED: Include store filter to only show staff from merchant's stores
+      const includeOptions = [
+        {
+          model: Store,
+          as: 'store',
+          attributes: ['id', 'name', 'location'],
+          where: {
+            merchant_id: merchantId // ← Only include stores belonging to this merchant
+          },
+          required: true // ← Inner join to ensure staff must belong to merchant's stores
+        }
+      ];
       
-      try {
-        // First try with Store include
-        includeOptions = [
-          {
-            model: Store,
-            attributes: ['id', 'name', 'address']
-          }
-        ];
-        
-        const { count, rows: staff } = await Staff.findAndCountAll({
-          where: whereClause,
-          include: includeOptions,
-          attributes: { exclude: ['password'] },
+      const { count, rows: staff } = await Staff.findAndCountAll({
+        where: whereClause,
+        include: includeOptions,
+        attributes: { exclude: ['password'] },
+        limit: parseInt(limit),
+        offset: offset,
+        order: [['createdAt', 'DESC']]
+      });
+
+      console.log('✅ Found staff members for merchant:', count, 'staff returned');
+
+      res.status(200).json({
+        staff,
+        pagination: {
+          total: count,
+          page: parseInt(page),
           limit: parseInt(limit),
-          offset: offset,
-          order: [['createdAt', 'DESC']]
-        });
-
-        console.log('✅ Found staff members:', count, 'staff returned');
-
-        res.status(200).json({
-          staff,
-          pagination: {
-            total: count,
-            page: parseInt(page),
-            limit: parseInt(limit),
-            totalPages: Math.ceil(count / parseInt(limit))
-          }
-        });
-        
-      } catch (associationError) {
-        console.log('⚠️ Association error, trying without Store include:', associationError.message);
-        
-        // Fallback: Get staff without store include
-        const { count, rows: staff } = await Staff.findAndCountAll({
-          where: whereClause,
-          attributes: { exclude: ['password'] },
-          limit: parseInt(limit),
-          offset: offset,
-          order: [['createdAt', 'DESC']]
-        });
-
-        console.log('✅ Found staff members (fallback):', count);
-
-        // Manually add store info if needed
-        const staffWithStores = await Promise.all(
-          staff.map(async (staffMember) => {
-            try {
-              const store = await Store.findByPk(staffMember.storeId, {
-                attributes: ['id', 'name', 'address']
-              });
-              return {
-                ...staffMember.toJSON(),
-                Store: store
-              };
-            } catch (err) {
-              return staffMember.toJSON();
-            }
-          })
-        );
-
-        res.status(200).json({
-          staff: staffWithStores,
-          pagination: {
-            total: count,
-            page: parseInt(page),
-            limit: parseInt(limit),
-            totalPages: Math.ceil(count / parseInt(limit))
-          }
-        });
-      }
+          totalPages: Math.ceil(count / parseInt(limit))
+        }
+      });
       
     } catch (error) {
       console.error('❌ Get all staff error:', error);
@@ -237,46 +220,32 @@ const StaffController = {
   async getStaffById(req, res) {
     try {
       const { id } = req.params;
-
-      // Try with includes first, fallback if associations fail
-      let staff;
+      const merchantId = req.user?.id || req.user?.merchantId;
       
-      try {
-        staff = await Staff.findByPk(id, {
-          include: [
-            {
-              model: Store,
-              attributes: ['id', 'name', 'address']
-            }
-          ],
-          attributes: { exclude: ['password'] }
-        });
-      } catch (associationError) {
-        console.log('⚠️ Association error, trying basic fetch:', associationError.message);
-        
-        // Fallback: Basic fetch without includes
-        staff = await Staff.findByPk(id, {
-          attributes: { exclude: ['password'] }
-        });
-        
-        if (staff) {
-          // Manually add store info
-          try {
-            const store = await Store.findByPk(staff.storeId, {
-              attributes: ['id', 'name', 'address']
-            });
-            staff = {
-              ...staff.toJSON(),
-              Store: store
-            };
-          } catch (storeError) {
-            console.log('Could not fetch store info:', storeError.message);
-          }
-        }
+      if (!merchantId) {
+        return res.status(401).json({ error: 'Merchant not found in request' });
       }
 
+      // ✅ FIXED: Include merchant store filter to ensure staff belongs to merchant
+      const staff = await Staff.findByPk(id, {
+        include: [
+          {
+            model: Store,
+            as: 'store',
+            attributes: ['id', 'name', 'location'],
+            where: {
+              merchant_id: merchantId // ← Only allow access to staff from merchant's stores
+            },
+            required: true // ← Inner join to ensure staff must belong to merchant's stores
+          }
+        ],
+        attributes: { exclude: ['password'] }
+      });
+
       if (!staff) {
-        return res.status(404).json({ error: 'Staff member not found' });
+        return res.status(404).json({ 
+          error: 'Staff member not found or does not belong to your stores' 
+        });
       }
 
       res.status(200).json({ staff });
@@ -293,11 +262,24 @@ const StaffController = {
     try {
       const { storeId } = req.params;
       const { branchId, role, status } = req.query;
+      const merchantId = req.user?.id || req.user?.merchantId;
+      
+      if (!merchantId) {
+        return res.status(401).json({ error: 'Merchant not found in request' });
+      }
 
-      // Verify store exists
-      const store = await Store.findByPk(storeId);
+      // ✅ FIXED: Verify store exists AND belongs to the merchant
+      const store = await Store.findOne({
+        where: { 
+          id: storeId,
+          merchant_id: merchantId // ← Ensure store belongs to merchant
+        }
+      });
+      
       if (!store) {
-        return res.status(404).json({ error: 'Store not found' });
+        return res.status(404).json({ 
+          error: 'Store not found or does not belong to your account' 
+        });
       }
 
       // Build where clause for filtering
@@ -306,24 +288,25 @@ const StaffController = {
       if (role) whereClause.role = role;
       if (status) whereClause.status = status;
 
-      // Get staff without includes first, then try to add store info
+      // ✅ FIXED: Use proper include with alias and merchant verification
       const staff = await Staff.findAll({
         where: whereClause,
+        include: [
+          {
+            model: Store,
+            as: 'store',
+            attributes: ['id', 'name', 'location'],
+            where: {
+              merchant_id: merchantId // ← Double-check store ownership
+            },
+            required: true
+          }
+        ],
         attributes: { exclude: ['password'] },
         order: [['createdAt', 'DESC']]
       });
 
-      // Add store info to each staff member
-      const staffWithStores = staff.map(staffMember => ({
-        ...staffMember.toJSON(),
-        Store: {
-          id: store.id,
-          name: store.name,
-          address: store.address
-        }
-      }));
-
-      res.status(200).json(staffWithStores);
+      res.status(200).json(staff);
     } catch (error) {
       console.error('❌ Get staff by store error:', error);
       res.status(500).json({ 
@@ -337,25 +320,60 @@ const StaffController = {
     try {
       const { id } = req.params;
       const { email, name, phoneNumber, status, storeId, branchId, role } = req.body;
+      const merchantId = req.user?.id || req.user?.merchantId;
 
       console.log('🔄 Updating staff ID:', id);
       console.log('📋 Update data:', req.body);
+      console.log('👤 Merchant ID:', merchantId);
 
-      const staff = await Staff.findByPk(id);
-      if (!staff) {
-        return res.status(404).json({ error: 'Staff member not found' });
+      if (!merchantId) {
+        return res.status(401).json({ error: 'Merchant not found in request' });
       }
 
-      // If email is being changed, check for conflicts
+      // ✅ FIXED: Ensure staff belongs to merchant's stores
+      const staff = await Staff.findOne({
+        where: { id },
+        include: [
+          {
+            model: Store,
+            as: 'store',
+            where: {
+              merchant_id: merchantId // ← Ensure staff belongs to merchant's stores
+            },
+            required: true
+          }
+        ]
+      });
+
+      if (!staff) {
+        return res.status(404).json({ 
+          error: 'Staff member not found or does not belong to your stores' 
+        });
+      }
+
+      // If email is being changed, check for conflicts within merchant's stores
       if (email && email !== staff.email) {
         const targetStoreId = storeId || staff.storeId;
+        
+        // ✅ FIXED: Only check for conflicts within merchant's stores
         const emailExists = await Staff.findOne({
           where: { 
             email, 
             storeId: targetStoreId,
-            id: { [require('sequelize').Op.ne]: id } // Exclude current staff member
+            id: { [require('sequelize').Op.ne]: id }
           },
+          include: [
+            {
+              model: Store,
+              as: 'store',
+              where: {
+                merchant_id: merchantId // ← Only check within merchant's stores
+              },
+              required: true
+            }
+          ]
         });
+        
         if (emailExists) {
           return res.status(400).json({ 
             error: 'A staff member with this email already exists in this store' 
@@ -363,11 +381,19 @@ const StaffController = {
         }
       }
 
-      // If store is being changed, verify it exists
+      // If store is being changed, verify it exists and belongs to merchant
       if (storeId && storeId !== staff.storeId) {
-        const newStore = await Store.findByPk(storeId);
+        const newStore = await Store.findOne({
+          where: { 
+            id: storeId,
+            merchant_id: merchantId // ← Ensure target store belongs to merchant
+          }
+        });
+        
         if (!newStore) {
-          return res.status(404).json({ error: 'Target store not found' });
+          return res.status(404).json({ 
+            error: 'Target store not found or does not belong to your account' 
+          });
         }
       }
 
@@ -395,23 +421,21 @@ const StaffController = {
 
       await staff.update(updatedData);
 
-      // Fetch updated staff - basic fetch first
-      let updatedStaff = await Staff.findByPk(id, {
+      // ✅ FIXED: Fetch updated staff with proper include and merchant filter
+      const updatedStaff = await Staff.findByPk(id, {
+        include: [
+          {
+            model: Store,
+            as: 'store',
+            attributes: ['id', 'name', 'location'],
+            where: {
+              merchant_id: merchantId
+            },
+            required: true
+          }
+        ],
         attributes: { exclude: ['password'] }
       });
-
-      // Try to add store info
-      try {
-        const store = await Store.findByPk(updatedStaff.storeId, {
-          attributes: ['id', 'name', 'address']
-        });
-        updatedStaff = {
-          ...updatedStaff.toJSON(),
-          Store: store
-        };
-      } catch (storeError) {
-        console.log('Could not fetch store info for updated staff:', storeError.message);
-      }
 
       res.status(200).json({ 
         message: 'Staff member updated successfully', 
@@ -429,10 +453,31 @@ const StaffController = {
   async delete(req, res) {
     try {
       const { id } = req.params;
+      const merchantId = req.user?.id || req.user?.merchantId;
 
-      const staff = await Staff.findByPk(id);
+      if (!merchantId) {
+        return res.status(401).json({ error: 'Merchant not found in request' });
+      }
+
+      // ✅ FIXED: Ensure staff belongs to merchant's stores before deletion
+      const staff = await Staff.findOne({
+        where: { id },
+        include: [
+          {
+            model: Store,
+            as: 'store',
+            where: {
+              merchant_id: merchantId // ← Ensure staff belongs to merchant's stores
+            },
+            required: true
+          }
+        ]
+      });
+
       if (!staff) {
-        return res.status(404).json({ error: 'Staff member not found' });
+        return res.status(404).json({ 
+          error: 'Staff member not found or does not belong to your stores' 
+        });
       }
 
       // Check if staff has any active bookings or service assignments
@@ -589,7 +634,7 @@ const StaffController = {
 
       console.log('🔍 Getting services for staff:', staffId);
 
-      // Try multiple approaches to get staff services
+      // ✅ IMPROVED: Use association with proper error handling
       let services = [];
       
       try {
@@ -612,7 +657,6 @@ const StaffController = {
             include: [
               {
                 model: Service,
-                as: 'Service',
                 attributes: ['id', 'name', 'description', 'duration', 'price', 'store_id']
               }
             ]
@@ -627,12 +671,12 @@ const StaffController = {
           try {
             // Method 3: Raw query
             console.log('📋 Trying Method 3: Raw query');
-            const [results] = await sequelize.query(`
+            const results = await sequelize.query(`
               SELECT s.* FROM services s
               INNER JOIN staff_services ss ON s.id = ss.serviceId
-              WHERE ss.staffId = ?
+              WHERE ss.staffId = :staffId
             `, {
-              replacements: [staffId],
+              replacements: { staffId },
               type: sequelize.QueryTypes.SELECT
             });
             
@@ -671,14 +715,13 @@ const StaffController = {
 
       console.log('✅ Service found:', service.name);
 
-      // Try multiple approaches to get staff
+      // ✅ IMPROVED: Use better query approach
       let staff = [];
       
       try {
         // Method 1: Try using the Service association
         console.log('📋 Trying Method 1: service.getStaff()');
         
-        // First check if the service has a getStaff method
         if (typeof service.getStaff === 'function') {
           staff = await service.getStaff({
             attributes: { exclude: ['password'] },
@@ -700,7 +743,6 @@ const StaffController = {
             include: [
               {
                 model: Staff,
-                as: 'Staff',
                 attributes: { exclude: ['password'] }
               }
             ]
@@ -715,13 +757,13 @@ const StaffController = {
           try {
             // Method 3: Raw query as last resort
             console.log('📋 Trying Method 3: Raw query');
-            const [results] = await sequelize.query(`
+            const results = await sequelize.query(`
               SELECT s.id, s.name, s.email, s.role, s.status, s.phoneNumber, s.storeId, s.branchId
               FROM staff s
               INNER JOIN staff_services ss ON s.id = ss.staffId
-              WHERE ss.serviceId = ?
+              WHERE ss.serviceId = :serviceId
             `, {
-              replacements: [serviceId],
+              replacements: { serviceId },
               type: sequelize.QueryTypes.SELECT
             });
             
