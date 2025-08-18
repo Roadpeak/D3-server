@@ -139,14 +139,23 @@ const StaffController = {
       const { page = 1, limit = 50, status, storeId, branchId, role } = req.query;
       
       console.log('🔍 Staff getAll called with params:', { page, limit, status, storeId, branchId, role });
-      console.log('👤 Current merchant:', req.user?.id);
+      console.log('👤 req.user:', req.user);
       
-      const merchantId = req.user?.id || req.user?.merchantId;
+      const merchantId = req.user?.id || req.user?.merchantId || req.user?.userId;
+      console.log('🔑 Extracted merchant ID:', merchantId);
+      
       if (!merchantId) {
         return res.status(401).json({ error: 'Merchant not found in request' });
       }
 
-      // ✅ FIXED: Build whereClause with merchant store filtering
+      // Debug: Let's see what stores this merchant has
+      const merchantStores = await Store.findAll({
+        where: { merchant_id: merchantId },
+        attributes: ['id', 'name', 'merchant_id']
+      });
+      console.log('🏪 Merchant stores found:', merchantStores.length, merchantStores.map(s => ({ id: s.id, name: s.name })));
+
+      // ✅ Build whereClause with optional merchant store filtering
       const whereClause = {};
       if (status) whereClause.status = status;
       if (branchId) whereClause.branchId = branchId;
@@ -168,22 +177,35 @@ const StaffController = {
         }
         
         whereClause.storeId = storeId;
+      } else {
+        // If no specific store, filter by all merchant's stores
+        const merchantStoreIds = merchantStores.map(store => store.id);
+        if (merchantStoreIds.length > 0) {
+          whereClause.storeId = { [require('sequelize').Op.in]: merchantStoreIds };
+        } else {
+          // No stores found for merchant, return empty result
+          return res.status(200).json({
+            staff: [],
+            pagination: {
+              total: 0,
+              page: parseInt(page),
+              limit: parseInt(limit),
+              totalPages: 0
+            }
+          });
+        }
       }
 
-      console.log('📋 Staff query filters:', whereClause);
+      console.log('📋 Final staff query filters:', whereClause);
 
       const offset = (parseInt(page) - 1) * parseInt(limit);
 
-      // ✅ FIXED: Include store filter to only show staff from merchant's stores
+      // ✅ Simplified approach: Use whereClause for storeId filtering
       const includeOptions = [
         {
           model: Store,
           as: 'store',
-          attributes: ['id', 'name', 'location'],
-          where: {
-            merchant_id: merchantId // ← Only include stores belonging to this merchant
-          },
-          required: true // ← Inner join to ensure staff must belong to merchant's stores
+          attributes: ['id', 'name', 'location', 'merchant_id']
         }
       ];
       
@@ -197,6 +219,13 @@ const StaffController = {
       });
 
       console.log('✅ Found staff members for merchant:', count, 'staff returned');
+      console.log('📊 Staff details:', staff.map(s => ({ 
+        id: s.id, 
+        name: s.name, 
+        storeId: s.storeId,
+        storeName: s.store?.name,
+        storeMerchantId: s.store?.merchant_id
+      })));
 
       res.status(200).json({
         staff,

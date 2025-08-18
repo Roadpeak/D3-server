@@ -1337,4 +1337,27 @@ process.on('unhandledRejection', (reason, promise) => {
   gracefulShutdown('unhandledRejection');
 });
 
+async function removeProblematicConstraints() {
+  try {
+    const [results] = await sequelize.query(`
+      SELECT CONSTRAINT_NAME 
+      FROM information_schema.KEY_COLUMN_USAGE 
+      WHERE TABLE_SCHEMA = 'discoun3' 
+        AND TABLE_NAME = 'messages' 
+        AND COLUMN_NAME = 'sender_id'
+        AND REFERENCED_TABLE_NAME = 'users'
+    `);
+    
+    for (const constraint of results) {
+      await sequelize.query(`ALTER TABLE messages DROP FOREIGN KEY ${constraint.CONSTRAINT_NAME}`);
+      console.log(`Dropped problematic constraint: ${constraint.CONSTRAINT_NAME}`);
+    }
+  } catch (error) {
+    console.log('No problematic constraints to remove:', error.message);
+  }
+}
+
+// Call this on server startup
+removeProblematicConstraints();
+
 module.exports = app;

@@ -89,7 +89,7 @@ config/
     darajaConfig.js
     multer.js
 controllers/
-    bookingController.js
+   enhancedBookingController.js
     merchantController.js
     offerController.js
     paymentController.js

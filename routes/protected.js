@@ -8,7 +8,7 @@ const { authenticateToken } = require('../middleware/auth');
 router.post('/create', authenticateToken, async (req, res) => {
   try {
     const { amount, currency, method, phoneNumber, bookingId, offerId, description } = req.body;
-    
+
     // Validate required fields
     if (!amount || !phoneNumber) {
       return res.status(400).json({
@@ -37,7 +37,7 @@ router.post('/create', authenticateToken, async (req, res) => {
     };
 
     const result = await paymentService.createBookingPayment(paymentData);
-    
+
     if (result.success) {
       res.status(201).json({
         success: true,
@@ -61,7 +61,7 @@ router.post('/create', authenticateToken, async (req, res) => {
 router.post('/mpesa/stkpush', authenticateToken, async (req, res) => {
   try {
     const { phoneNumber, amount, bookingId, description } = req.body;
-    
+
     // Validate required fields
     if (!phoneNumber || !amount) {
       return res.status(400).json({
@@ -119,15 +119,15 @@ router.post('/mpesa/stkpush', authenticateToken, async (req, res) => {
 router.post('/mpesa/callback', async (req, res) => {
   try {
     console.log('📨 M-Pesa callback received:', JSON.stringify(req.body, null, 2));
-    
+
     const result = await paymentService.processMpesaCallback(req.body);
-    
+
     if (result.success) {
       console.log('✅ Callback processed successfully');
-      
+
       // Here you can add additional logic like updating booking status
-      // Example: await BookingController.updateBookingPaymentStatus(result.payment);
-      
+      // Example: awaitenhancedBookingController.updateBookingPaymentStatus(result.payment);
+
       res.status(200).json({
         ResultCode: 0,
         ResultDesc: 'Success'
@@ -153,9 +153,9 @@ router.post('/mpesa/callback', async (req, res) => {
 router.get('/mpesa/status/:checkoutRequestId', authenticateToken, async (req, res) => {
   try {
     const { checkoutRequestId } = req.params;
-    
+
     const result = await paymentService.querySTKPushStatus(checkoutRequestId);
-    
+
     if (result.success) {
       res.status(200).json({
         success: true,
@@ -179,9 +179,9 @@ router.get('/mpesa/status/:checkoutRequestId', authenticateToken, async (req, re
 router.get('/:paymentId/status', authenticateToken, async (req, res) => {
   try {
     const { paymentId } = req.params;
-    
+
     const result = await paymentService.checkPaymentStatus(paymentId);
-    
+
     if (result.success) {
       res.status(200).json({
         success: true,
@@ -206,18 +206,18 @@ router.get('/history', authenticateToken, async (req, res) => {
   try {
     const { page = 1, limit = 10, status, method } = req.query;
     const userId = req.user.id;
-    
+
     const { Payment } = require('../models');
-    
+
     const whereClause = {
       'metadata.userId': userId
     };
-    
+
     if (status) whereClause.status = status;
     if (method) whereClause.method = method;
-    
+
     const offset = (parseInt(page) - 1) * parseInt(limit);
-    
+
     const { count, rows: payments } = await Payment.findAndCountAll({
       where: whereClause,
       order: [['createdAt', 'DESC']],
@@ -252,15 +252,15 @@ const { authenticateAdmin } = require('../middleware/auth');
 router.get('/admin/summary', authenticateAdmin, async (req, res) => {
   try {
     const { startDate, endDate, status, method } = req.query;
-    
+
     const filters = {};
     if (startDate) filters.startDate = startDate;
     if (endDate) filters.endDate = endDate;
     if (status) filters.status = status;
     if (method) filters.method = method;
-    
+
     const result = await paymentService.getPaymentSummary(filters);
-    
+
     if (result.success) {
       res.status(200).json({
         success: true,
@@ -283,32 +283,32 @@ router.get('/admin/summary', authenticateAdmin, async (req, res) => {
 // Get all payments for admin
 router.get('/admin/all', authenticateAdmin, async (req, res) => {
   try {
-    const { 
-      page = 1, 
-      limit = 20, 
-      status, 
-      method, 
-      startDate, 
+    const {
+      page = 1,
+      limit = 20,
+      status,
+      method,
+      startDate,
       endDate,
-      search 
+      search
     } = req.query;
-    
+
     const { Payment, Booking, User } = require('../models');
     const { Op } = require('sequelize');
-    
+
     const whereClause = {};
-    
+
     if (status) whereClause.status = status;
     if (method) whereClause.method = method;
-    
+
     if (startDate && endDate) {
       whereClause.createdAt = {
         [Op.between]: [new Date(startDate), new Date(endDate)]
       };
     }
-    
+
     const offset = (parseInt(page) - 1) * parseInt(limit);
-    
+
     const { count, rows: payments } = await Payment.findAndCountAll({
       where: whereClause,
       include: [

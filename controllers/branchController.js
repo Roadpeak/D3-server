@@ -1,9 +1,46 @@
-// controllers/branchController.js - Fixed version with correct associations
+// Fixed branchController.js - Add these utility functions and updated methods
 
 const { Branch, Store, Merchant } = require('../models');
 const { Op } = require('sequelize');
 
-// Get all branches for a store (including store as main branch)
+// ==================== UTILITY FUNCTIONS ====================
+
+// Convert working days to frontend format (capitalized)
+const convertWorkingDaysToFrontendFormat = (workingDays) => {
+  if (!workingDays) return ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  
+  let days = workingDays;
+  
+  // If it's a JSON string, parse it
+  if (typeof workingDays === 'string') {
+    try {
+      days = JSON.parse(workingDays);
+    } catch (e) {
+      console.warn('Failed to parse working_days JSON:', workingDays);
+      return ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    }
+  }
+  
+  if (!Array.isArray(days)) return ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  
+  return days.map(day => {
+    if (!day) return '';
+    const dayStr = day.toString().toLowerCase().trim();
+    return dayStr.charAt(0).toUpperCase() + dayStr.slice(1);
+  }).filter(Boolean);
+};
+
+// Convert working days to database format (lowercase)
+const convertWorkingDaysToDbFormat = (workingDays) => {
+  if (!workingDays || !Array.isArray(workingDays)) {
+    return ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+  }
+  return workingDays.map(day => day.toString().toLowerCase().trim()).filter(Boolean);
+};
+
+// ==================== UPDATED CONTROLLER METHODS ====================
+
+// FIXED: Get all branches for a store (including store as main branch)
 exports.getBranchesByStore = async (req, res) => {
   try {
     const { storeId } = req.params;
@@ -42,7 +79,7 @@ exports.getBranchesByStore = async (req, res) => {
       include: [
         {
           model: Store,
-          as: 'Store', // Use the alias you defined
+          as: 'Store',
           attributes: ['id', 'name']
         }
       ],
@@ -52,18 +89,20 @@ exports.getBranchesByStore = async (req, res) => {
       ]
     });
 
-    // Create main branch object from store information
+    // FIXED: Create main branch object from store information with proper working days
+    const storeWorkingDays = convertWorkingDaysToFrontendFormat(store.working_days);
+    
     const mainBranch = {
-      id: `store-${store.id}`, // Special ID to indicate this is the store
+      id: `store-${store.id}`,
       name: `${store.name} - Main Branch`,
       address: store.location,
       phone: store.phone_number,
       email: store.primary_email,
-      manager: '', // Can be added to store model if needed
+      manager: '',
       status: store.status || 'Active',
       openingTime: store.opening_time,
       closingTime: store.closing_time,
-      workingDays: store.working_days || ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'],
+      workingDays: storeWorkingDays, // FIXED: Properly formatted working days
       latitude: null,
       longitude: null,
       description: store.description,
@@ -76,24 +115,32 @@ exports.getBranchesByStore = async (req, res) => {
         id: store.id,
         name: store.name
       },
-      isStoreMainBranch: true // Flag to identify this as store-based branch
+      isStoreMainBranch: true
     };
 
+    // FIXED: Format additional branches with proper working days
+    const formattedAdditionalBranches = additionalBranches.map(branch => {
+      const branchData = branch.toJSON();
+      branchData.workingDays = convertWorkingDaysToFrontendFormat(branchData.workingDays);
+      return branchData;
+    });
+
     // Combine main branch (from store) with additional branches
-    const allBranches = [mainBranch, ...additionalBranches];
+    const allBranches = [mainBranch, ...formattedAdditionalBranches];
 
     console.log('✅ Found', allBranches.length, 'branches total');
+    console.log('🏪 Main branch working days:', mainBranch.workingDays);
 
     return res.status(200).json({
       success: true,
       branches: allBranches,
       count: allBranches.length,
       mainBranch: mainBranch,
-      additionalBranches: additionalBranches
+      additionalBranches: formattedAdditionalBranches
     });
 
   } catch (error) {
-    console.error('Get branches error:', error);
+    console.error('💥 Get branches error:', error);
     return res.status(500).json({
       success: false,
       message: 'Error fetching branches',
@@ -102,7 +149,7 @@ exports.getBranchesByStore = async (req, res) => {
   }
 };
 
-// Get all branches for a merchant (across all stores)
+// FIXED: Get all branches for a merchant (across all stores)
 exports.getMerchantBranches = async (req, res) => {
   try {
     const merchantId = req.user.id;
@@ -122,7 +169,7 @@ exports.getMerchantBranches = async (req, res) => {
       include: [
         {
           model: Branch,
-          as: 'Branches', // Use the alias you defined
+          as: 'Branches',
           where: status ? { status } : {},
           required: false
         }
@@ -134,7 +181,9 @@ exports.getMerchantBranches = async (req, res) => {
 
     // Process each store
     stores.forEach(store => {
-      // Create main branch from store
+      // FIXED: Create main branch from store with proper working days
+      const storeWorkingDays = convertWorkingDaysToFrontendFormat(store.working_days);
+      
       const mainBranch = {
         id: `store-${store.id}`,
         name: `${store.name} - Main Branch`,
@@ -145,7 +194,7 @@ exports.getMerchantBranches = async (req, res) => {
         status: store.status || 'Active',
         openingTime: store.opening_time,
         closingTime: store.closing_time,
-        workingDays: store.working_days || ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'],
+        workingDays: storeWorkingDays, // FIXED: Properly formatted working days
         isMainBranch: true,
         storeId: store.id,
         merchantId: merchantId,
@@ -165,11 +214,13 @@ exports.getMerchantBranches = async (req, res) => {
       }
       branchesByStore[store.name].push(mainBranch);
 
-      // Add additional branches
+      // FIXED: Add additional branches with proper working days formatting
       if (store.Branches) {
         store.Branches.forEach(branch => {
-          allBranches.push(branch);
-          branchesByStore[store.name].push(branch);
+          const branchData = branch.toJSON();
+          branchData.workingDays = convertWorkingDaysToFrontendFormat(branchData.workingDays);
+          allBranches.push(branchData);
+          branchesByStore[store.name].push(branchData);
         });
       }
     });
@@ -184,7 +235,7 @@ exports.getMerchantBranches = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Get merchant branches error:', error);
+    console.error('💥 Get merchant branches error:', error);
     return res.status(500).json({
       success: false,
       message: 'Error fetching merchant branches',
@@ -193,7 +244,7 @@ exports.getMerchantBranches = async (req, res) => {
   }
 };
 
-// Create a new branch (additional branches only)
+// FIXED: Create a new branch (additional branches only)
 exports.createBranch = async (req, res) => {
   try {
     console.log('🏢 CREATE BRANCH - Start');
@@ -274,6 +325,10 @@ exports.createBranch = async (req, res) => {
       });
     }
 
+    // FIXED: Convert working days to database format
+    const convertedWorkingDays = convertWorkingDaysToDbFormat(workingDays || ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']);
+    console.log('✅ Working days converted for DB:', convertedWorkingDays);
+
     // Create the additional branch
     console.log('✨ Creating new branch...');
     const branchData = {
@@ -284,7 +339,7 @@ exports.createBranch = async (req, res) => {
       manager,
       openingTime,
       closingTime,
-      workingDays,
+      workingDays: convertedWorkingDays, // Store as lowercase array (JSON field)
       latitude,
       longitude,
       description,
@@ -300,23 +355,27 @@ exports.createBranch = async (req, res) => {
 
     console.log('✅ Branch created with ID:', branch.id);
 
-    // Fetch the created branch with store info using the correct alias
+    // Fetch the created branch with store info
     const createdBranch = await Branch.findByPk(branch.id, {
       include: [
         {
           model: Store,
-          as: 'Store', // Use the alias you defined
+          as: 'Store',
           attributes: ['id', 'name']
         }
       ]
     });
+
+    // FIXED: Format the response with proper working days
+    const responseData = createdBranch.toJSON();
+    responseData.workingDays = convertWorkingDaysToFrontendFormat(responseData.workingDays);
 
     console.log('✅ Branch creation successful');
 
     return res.status(201).json({
       success: true,
       message: 'Additional branch created successfully',
-      branch: createdBranch
+      branch: responseData
     });
 
   } catch (error) {
@@ -334,7 +393,7 @@ exports.createBranch = async (req, res) => {
   }
 };
 
-// Get a specific branch
+// FIXED: Get a specific branch
 exports.getBranch = async (req, res) => {
   try {
     const { branchId } = req.params;
@@ -360,7 +419,9 @@ exports.getBranch = async (req, res) => {
         });
       }
 
-      // Return store information as branch
+      // FIXED: Return store information as branch with proper working days
+      const storeWorkingDays = convertWorkingDaysToFrontendFormat(store.working_days);
+      
       const branch = {
         id: branchId,
         name: `${store.name} - Main Branch`,
@@ -371,7 +432,7 @@ exports.getBranch = async (req, res) => {
         status: store.status || 'Active',
         openingTime: store.opening_time,
         closingTime: store.closing_time,
-        workingDays: store.working_days,
+        workingDays: storeWorkingDays, // FIXED: Properly formatted working days
         isMainBranch: true,
         storeId: store.id,
         Store: {
@@ -397,7 +458,7 @@ exports.getBranch = async (req, res) => {
       include: [
         {
           model: Store,
-          as: 'Store', // Use the alias you defined
+          as: 'Store',
           attributes: ['id', 'name', 'location']
         }
       ]
@@ -410,13 +471,17 @@ exports.getBranch = async (req, res) => {
       });
     }
 
+    // FIXED: Format the response with proper working days
+    const responseData = branch.toJSON();
+    responseData.workingDays = convertWorkingDaysToFrontendFormat(responseData.workingDays);
+
     return res.status(200).json({
       success: true,
-      branch
+      branch: responseData
     });
 
   } catch (error) {
-    console.error('Get branch error:', error);
+    console.error('💥 Get branch error:', error);
     return res.status(500).json({
       success: false,
       message: 'Error fetching branch',
@@ -425,7 +490,7 @@ exports.getBranch = async (req, res) => {
   }
 };
 
-// Update a branch
+// FIXED: Update a branch
 exports.updateBranch = async (req, res) => {
   try {
     const { branchId } = req.params;
@@ -433,6 +498,7 @@ exports.updateBranch = async (req, res) => {
     const updateData = req.body;
 
     console.log('🔄 Updating branch:', branchId, 'for merchant:', merchantId);
+    console.log('📝 Update data:', updateData);
 
     // Check if trying to update store-based main branch
     if (branchId.startsWith('store-')) {
@@ -484,9 +550,16 @@ exports.updateBranch = async (req, res) => {
       }
     }
 
+    // FIXED: Handle working days conversion
+    const finalUpdateData = { ...updateData };
+    if (finalUpdateData.workingDays && Array.isArray(finalUpdateData.workingDays)) {
+      finalUpdateData.workingDays = convertWorkingDaysToDbFormat(finalUpdateData.workingDays);
+      console.log('✅ Working days converted for update:', finalUpdateData.workingDays);
+    }
+
     // Update the branch
     await branch.update({
-      ...updateData,
+      ...finalUpdateData,
       isMainBranch: false, // Ensure it stays as additional branch
       updatedBy: merchantId
     });
@@ -496,22 +569,26 @@ exports.updateBranch = async (req, res) => {
       include: [
         {
           model: Store,
-          as: 'Store', // Use the alias you defined
+          as: 'Store',
           attributes: ['id', 'name']
         }
       ]
     });
+
+    // FIXED: Format the response with proper working days
+    const responseData = updatedBranch.toJSON();
+    responseData.workingDays = convertWorkingDaysToFrontendFormat(responseData.workingDays);
 
     console.log('✅ Branch updated successfully');
 
     return res.status(200).json({
       success: true,
       message: 'Branch updated successfully',
-      branch: updatedBranch
+      branch: responseData
     });
 
   } catch (error) {
-    console.error('Update branch error:', error);
+    console.error('💥 Update branch error:', error);
     return res.status(500).json({
       success: false,
       message: 'Error updating branch',
@@ -520,7 +597,7 @@ exports.updateBranch = async (req, res) => {
   }
 };
 
-// Delete a branch
+// Delete a branch (unchanged)
 exports.deleteBranch = async (req, res) => {
   try {
     const { branchId } = req.params;
@@ -561,7 +638,7 @@ exports.deleteBranch = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Delete branch error:', error);
+    console.error('💥 Delete branch error:', error);
     return res.status(500).json({
       success: false,
       message: 'Error deleting branch',
