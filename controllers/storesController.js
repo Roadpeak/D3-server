@@ -887,6 +887,145 @@ exports.toggleFollowStore = async (req, res) => {
     });
   }
 };
+
+exports.getFollowedStores = async (req, res) => {
+  try {
+    console.log('📋 Getting followed stores for user:', req.user.id || req.user.userId);
+    
+    // Get user ID from token (handle both user types)
+    const userId = req.user.id || req.user.userId;
+    const userType = req.user.userType || req.user.type;
+    
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: 'User authentication required'
+      });
+    }
+
+    if (!Follow) {
+      console.log('❌ Follow model not available');
+      return res.status(500).json({
+        success: false,
+        message: 'Follow functionality not available'
+      });
+    }
+
+    // Get all store IDs that this user is following
+    const followedStoreIds = await Follow.findAll({
+      where: { user_id: userId },
+      attributes: ['store_id'],
+      raw: true
+    });
+
+    console.log(`📊 User follows ${followedStoreIds.length} stores`);
+
+    if (followedStoreIds.length === 0) {
+      return res.status(200).json({
+        success: true,
+        followedStores: [],
+        message: 'No followed stores found'
+      });
+    }
+
+    // Extract store IDs
+    const storeIds = followedStoreIds.map(follow => follow.store_id);
+
+    // Get store details for followed stores
+    const stores = await Store.findAll({
+      where: {
+        id: storeIds,
+        is_active: true // Only return active stores
+      },
+      order: [['name', 'ASC']] // Sort alphabetically
+    });
+
+    console.log(`📋 Found ${stores.length} active followed stores`);
+
+    // Format stores with follow status and additional data
+    const formattedStores = await Promise.all(stores.map(async (store) => {
+      const storeData = store.toJSON();
+      
+      try {
+        storeData.working_days = JSON.parse(storeData.working_days || '[]');
+      } catch (e) {
+        storeData.working_days = [];
+      }
+
+      // Get followers count
+      let followersCount = 0;
+      try {
+        followersCount = await Follow.count({
+          where: { store_id: store.id }
+        });
+      } catch (err) {
+        console.log(`⚠️ Could not get followers count for store ${store.id}:`, err.message);
+      }
+
+      // Get review count and average rating
+      let reviewCount = 0;
+      let averageRating = storeData.rating || 0;
+      
+      if (Review) {
+        try {
+          const reviewStats = await Review.findOne({
+            where: { store_id: store.id },
+            attributes: [
+              [sequelize.fn('COUNT', sequelize.col('id')), 'totalReviews'],
+              [sequelize.fn('AVG', sequelize.col('rating')), 'avgRating']
+            ],
+            raw: true
+          });
+
+          reviewCount = reviewStats?.totalReviews || 0;
+          averageRating = reviewStats?.avgRating ? 
+            parseFloat(reviewStats.avgRating).toFixed(1) : 
+            storeData.rating || 0;
+        } catch (err) {
+          console.log(`⚠️ Could not get review stats for store ${store.id}:`, err.message);
+        }
+      }
+
+      return {
+        ...storeData,
+        // Standard formatting
+        logo: storeData.logo_url,
+        wasRate: storeData.was_rate,
+        following: true, // Always true since these are followed stores
+        
+        // Additional stats
+        followers: followersCount,
+        followerCount: followersCount,
+        reviewCount: parseInt(reviewCount),
+        totalReviews: parseInt(reviewCount),
+        rating: parseFloat(averageRating),
+        
+        // Dates for sorting
+        followedAt: new Date(), // You might want to get actual follow date from Follow table
+        createdAt: storeData.createdAt || storeData.created_at,
+        updatedAt: storeData.updatedAt || storeData.updated_at
+      };
+    }));
+
+    console.log('✅ Successfully formatted followed stores');
+
+    return res.status(200).json({
+      success: true,
+      followedStores: formattedStores,
+      total: formattedStores.length,
+      message: `Found ${formattedStores.length} followed stores`
+    });
+
+  } catch (err) {
+    console.error('💥 Get followed stores error:', err);
+    return res.status(500).json({
+      success: false,
+      message: 'Error fetching followed stores',
+      error: process.env.NODE_ENV === 'development' ? err.message : undefined
+    });
+  }
+};
+
 exports.submitReview = async (req, res) => {
   try {
     const { id } = req.params; // Store ID from URL params

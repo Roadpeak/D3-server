@@ -9,15 +9,16 @@ const userService = require('../services/userService');
 const JWT_SECRET = process.env.JWT_SECRET;
 
 // ==========================================
-// EXISTING USER FUNCTIONS (UNCHANGED)
+// EXISTING USER FUNCTIONS (UPDATED WITH REFERRAL SYSTEM)
 // ==========================================
 
-// REGISTER
+// REGISTER - UPDATED WITH REFERRAL LINK SUPPORT
 exports.register = async (req, res) => {
   try {
     const {
       firstName, lastName, email, phoneNumber, password,
-      first_name, last_name, phone, password_confirmation
+      first_name, last_name, phone, password_confirmation,
+      referralSlug // NEW: Accept referral slug from URL
     } = req.body;
 
     const userData = {
@@ -27,6 +28,7 @@ exports.register = async (req, res) => {
       phoneNumber: phoneNumber || phone,
       password,
       passwordConfirmation: password_confirmation,
+      referralSlug // NEW: Include referral slug
     };
 
     const errors = {};
@@ -49,6 +51,18 @@ exports.register = async (req, res) => {
       errors.password_confirmation = 'Passwords do not match';
     }
 
+    // NEW: Validate referral slug if provided
+    let referrerId = null;
+    if (userData.referralSlug) {
+      const referrer = await userService.findUserByReferralSlug(userData.referralSlug);
+      if (!referrer) {
+        errors.referralSlug = 'Invalid referral link';
+      } else {
+        referrerId = referrer.id;
+        console.log(`✅ Valid referral link: ${userData.referralSlug} from user ${referrer.firstName} ${referrer.lastName}`);
+      }
+    }
+
     // Duplicate check
     const [existingEmail, existingPhone] = await Promise.all([
       userService.findUserByEmail(userData.email),
@@ -65,13 +79,24 @@ exports.register = async (req, res) => {
       });
     }
 
-    // Create user
+    // Generate unique referral slug and link for the new user
+    const newUserReferralSlug = generateReferralSlug(Math.random().toString(), userData.firstName, userData.lastName);
+    const newUserReferralLink = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/accounts/sign-up?ref=${newUserReferralSlug}`;
+
+    // Create user with referral data
     const newUser = await userService.createUser(
       userData.firstName,
       userData.lastName,
       userData.email,
       userData.phoneNumber,
-      userData.password
+      userData.password,
+      'customer', // userType
+      {
+        referralSlug: newUserReferralSlug,
+        referralLink: newUserReferralLink,
+        referredBy: referrerId,
+        referredAt: referrerId ? new Date() : null
+      }
     );
 
     // FIXED: Add type field to token
@@ -87,22 +112,21 @@ exports.register = async (req, res) => {
 
     // Send welcome email (non-blocking)
     try {
-      if (fs.existsSync('./templates/welcomeUser.ejs')) {
-        const template = fs.readFileSync('./templates/welcomeUser.ejs', 'utf8');
-        const emailContent = ejs.render(template, {
-          userName: newUser.firstName,
-          marketplaceLink: 'https://discoun3ree.com/marketplace',
-        });
-
-        await sendEmail(
-          newUser.email,
-          `Welcome to D3, ${newUser.firstName}!`,
-          '',
-          emailContent
-        );
-      }
+      await sendWelcomeEmailWithReferralInfo(newUser, referrerId);
     } catch (emailError) {
       console.error('Error sending welcome email:', emailError);
+    }
+
+    // If user was referred, log the referral
+    if (referrerId) {
+      console.log(`🎯 New user ${newUser.email} referred by user ID ${referrerId}`);
+      
+      // Optional: Send notification to referrer
+      try {
+        await notifyReferrerOfNewSignup(referrerId, newUser);
+      } catch (notificationError) {
+        console.error('Error notifying referrer:', notificationError);
+      }
     }
 
     return res.status(201).json({
@@ -114,10 +138,16 @@ exports.register = async (req, res) => {
         email: newUser.email,
         phoneNumber: newUser.phoneNumber,
         userType: newUser.userType || 'customer',
+        referralLink: newUser.referralLink,
+        wasReferred: !!referrerId,
         createdAt: newUser.createdAt,
         updatedAt: newUser.updatedAt,
       },
       access_token: token,
+      referralInfo: referrerId ? {
+        message: 'You were successfully referred! Start booking offers to help your referrer earn rewards.',
+        referrerNotified: true
+      } : null
     });
   } catch (err) {
     console.error('Registration error:', err);
@@ -239,6 +269,7 @@ exports.login = async (req, res) => {
         userType: user.userType || 'customer',
         isEmailVerified: user.isEmailVerified?.() || !!user.emailVerifiedAt,
         isPhoneVerified: user.isPhoneVerified?.() || !!user.phoneVerifiedAt,
+        referralLink: user.referralLink,
         createdAt: user.createdAt,
         updatedAt: user.updatedAt,
       },
@@ -421,6 +452,9 @@ exports.getProfile = async (req, res) => {
         avatar: user.avatar,
         isEmailVerified: user.isEmailVerified?.() || !!user.emailVerifiedAt,
         isPhoneVerified: user.isPhoneVerified?.() || !!user.phoneVerifiedAt,
+        referralLink: user.referralLink,
+        referralSlug: user.referralSlug,
+        wasReferred: !!user.referredBy,
         createdAt: user.createdAt,
         updatedAt: user.updatedAt,
       }
@@ -469,6 +503,7 @@ exports.updateProfile = async (req, res) => {
         userType: user.userType || 'customer',
         isEmailVerified: user.isEmailVerified?.() || !!user.emailVerifiedAt,
         isPhoneVerified: user.isPhoneVerified?.() || !!user.phoneVerifiedAt,
+        referralLink: user.referralLink,
         updatedAt: user.updatedAt,
       }
     });
@@ -480,6 +515,245 @@ exports.updateProfile = async (req, res) => {
     });
   }
 };
+
+// ==========================================
+// NEW REFERRAL SYSTEM ENDPOINTS
+// ==========================================
+
+// Get user earnings data
+exports.getEarnings = async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const userService = require('../services/userService');
+    
+    // Get user basic info first
+    const user = await userService.findUserById(userId);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    // Try to get referral models - use try/catch in case they don't exist yet
+    let ReferralEarning, Booking;
+    try {
+      const models = require('../models');
+      ReferralEarning = models.ReferralEarning;
+      Booking = models.Booking;
+    } catch (modelError) {
+      console.log('Referral models not available yet, using fallback');
+    }
+
+    let totalEarned = 0;
+    let pendingEarnings = 0;
+    let totalReferralBookings = 0;
+    let referralCount = 0;
+    let averageEarningPerBooking = 0;
+
+    // Try to calculate earnings if models exist
+    if (ReferralEarning) {
+      try {
+        totalEarned = await ReferralEarning.sum('amount', {
+          where: { 
+            referrerId: userId, 
+            status: 'confirmed' 
+          }
+        }) || 0;
+
+        pendingEarnings = await ReferralEarning.sum('amount', {
+          where: { 
+            referrerId: userId, 
+            status: 'pending' 
+          }
+        }) || 0;
+      } catch (earningError) {
+        console.log('Error calculating earnings:', earningError.message);
+      }
+    }
+
+    // Try to calculate referral stats if User model supports it
+    try {
+      const { User } = require('../models');
+      referralCount = await User.count({
+        where: { referredBy: userId }
+      }) || 0;
+
+      // Try to get booking stats if Booking model exists
+      if (Booking) {
+        totalReferralBookings = await Booking.count({
+          include: [
+            {
+              model: User,
+              where: { referredBy: userId },
+              required: true
+            }
+          ],
+          where: { 
+            bookingType: 'offer',
+            status: ['confirmed', 'completed']
+          }
+        }) || 0;
+      }
+    } catch (statsError) {
+      console.log('Error calculating referral stats:', statsError.message);
+    }
+
+    averageEarningPerBooking = totalReferralBookings > 0 ? totalEarned / totalReferralBookings : 0;
+
+    // Generate referral link if not exists
+    let referralLink = user.referralLink;
+    if (!referralLink) {
+      const uniqueSlug = generateReferralSlug(user.id, user.firstName, user.lastName);
+      referralLink = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/accounts/sign-up?ref=${uniqueSlug}`;
+      
+      try {
+        await user.update({ 
+          referralSlug: uniqueSlug,
+          referralLink: referralLink 
+        });
+      } catch (updateError) {
+        console.log('Could not update user referral link:', updateError.message);
+        // Still return the generated link even if we can't save it
+      }
+    }
+
+    const earnings = {
+      totalEarned: parseFloat(totalEarned) || 0,
+      currentBalance: parseFloat(totalEarned) || 0, // In a real system, subtract withdrawn amounts
+      referralCount: referralCount || 0,
+      pendingRewards: parseFloat(pendingEarnings) || 0,
+      totalReferralBookings: totalReferralBookings || 0,
+      averageEarningPerBooking: parseFloat(averageEarningPerBooking) || 0
+    };
+
+    res.status(200).json({
+      success: true,
+      earnings,
+      referralLink: referralLink || `${process.env.FRONTEND_URL || 'http://localhost:3000'}/accounts/sign-up?ref=temp-${userId.substring(0, 8)}`
+    });
+
+  } catch (error) {
+    console.error('Error fetching earnings:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching earnings data'
+    });
+  }
+};
+
+// Get earning activities
+exports.getEarningActivities = async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    
+    // Try to get referral models
+    let ReferralEarning, User, Booking, Offer, Service;
+    try {
+      const models = require('../models');
+      ReferralEarning = models.ReferralEarning;
+      User = models.User;
+      Booking = models.Booking;
+      Offer = models.Offer;
+      Service = models.Service;
+    } catch (modelError) {
+      console.log('Models not available yet');
+    }
+
+    let activities = [];
+
+    // Try to get activities if ReferralEarning model exists
+    if (ReferralEarning && User) {
+      try {
+        const rawActivities = await ReferralEarning.findAll({
+          where: { referrerId: userId },
+          include: [
+            {
+              model: User,
+              as: 'referee',
+              attributes: ['firstName', 'lastName'],
+              required: false
+            }
+          ],
+          order: [['createdAt', 'DESC']],
+          limit: 20
+        });
+
+        activities = rawActivities.map(activity => ({
+          id: activity.id,
+          description: `Referral commission from ${activity.referee?.firstName || 'Unknown'} ${activity.referee?.lastName || 'User'}`,
+          amount: parseFloat(activity.amount) || 0,
+          date: activity.createdAt,
+          status: activity.status,
+          type: 'referral_commission'
+        }));
+
+      } catch (activityError) {
+        console.log('Error fetching activities:', activityError.message);
+      }
+    }
+
+    // If no activities found, return empty array with helpful message
+    if (activities.length === 0) {
+      activities = [];
+    }
+
+    res.status(200).json({
+      success: true,
+      activities: activities
+    });
+
+  } catch (error) {
+    console.error('Error fetching activities:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching earning activities'
+    });
+  }
+};
+
+// Validate referral link (for registration)
+exports.validateReferral = async (req, res) => {
+  try {
+    const { referralSlug } = req.body;
+
+    if (!referralSlug) {
+      return res.status(400).json({
+        success: false,
+        message: 'Referral identifier is required'
+      });
+    }
+
+    const userService = require('../services/userService');
+    const referrer = await userService.findUserByReferralSlug(referralSlug);
+
+    if (!referrer) {
+      return res.status(404).json({
+        success: false,
+        message: 'Invalid referral link'
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      referrer: {
+        name: `${referrer.firstName} ${referrer.lastName}`,
+        id: referrer.id
+      }
+    });
+
+  } catch (error) {
+    console.error('Error validating referral link:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error validating referral link'
+    });
+  }
+};
+
+// ==========================================
+// OTHER EXISTING FUNCTIONS
+// ==========================================
 
 // GET USER BOOKINGS
 exports.getUserBookings = async (req, res) => {
@@ -702,513 +976,88 @@ exports.skipVerification = async (req, res) => {
 };
 
 // ==========================================
-// NEW ADMIN FUNCTIONS
+// HELPER FUNCTIONS
 // ==========================================
 
-// ADMIN LOGIN
-exports.adminLogin = async (req, res) => {
+// Helper function to generate referral slug
+function generateReferralSlug(id, firstName, lastName) {
+  const nameSlug = `${firstName}${lastName}`.toLowerCase().replace(/[^a-z0-9]/g, '');
+  const randomId = Math.random().toString(36).substring(2, 10);
+  
+  return `${nameSlug}-${randomId}`;
+}
+
+// Helper function to send welcome email with referral info
+async function sendWelcomeEmailWithReferralInfo(user, referrerId) {
   try {
-    const { email, password } = req.body;
-    const errors = {};
-
-    if (!email) errors.email = 'Email is required';
-    if (!password) errors.password = 'Password is required';
-    
-    if (Object.keys(errors).length > 0) {
-      return res.status(400).json({
-        message: 'Validation failed',
-        errors: errors
-      });
-    }
-
-    // Find admin user
-    const admin = await userService.findUserByEmail(email);
-    if (!admin || admin.userType !== 'admin') {
-      return res.status(404).json({ 
-        message: 'Invalid credentials',
-        errors: { email: 'Admin account not found' }
-      });
-    }
-
-    // Check if admin account is active
-    if (!admin.isActive) {
-      return res.status(403).json({
-        message: 'Account suspended',
-        errors: { account: 'Your admin account has been suspended' }
-      });
-    }
-
-    // Verify password
-    const isPasswordValid = await bcrypt.compare(password, admin.password);
-    if (!isPasswordValid) {
-      return res.status(401).json({ 
-        message: 'Invalid credentials',
-        errors: { password: 'Invalid password' }
-      });
-    }
-
-    // Generate token with admin type
-    const token = jwt.sign(
-      { 
-        userId: admin.id, 
-        email: admin.email,
-        type: 'admin',
-        userType: 'admin'
-      },
-      JWT_SECRET,
-      { expiresIn: '24h' } // Shorter expiry for admin sessions
-    );
-
-    // Update last login
-    if (admin.updateLastLogin) {
-      await admin.updateLastLogin();
-    }
-
-    return res.status(200).json({
-      message: 'Admin login successful',
-      admin: {
-        id: admin.id,
-        firstName: admin.firstName,
-        lastName: admin.lastName,
-        email: admin.email,
-        userType: admin.userType,
-        createdAt: admin.createdAt,
-        lastLoginAt: admin.lastLoginAt,
-      },
-      access_token: token,
-    });
-  } catch (err) {
-    console.error('Admin login error:', err);
-    return res.status(500).json({
-      message: 'An error occurred during login. Please try again.',
-      errors: {}
-    });
-  }
-};
-
-// ADMIN REGISTER
-exports.adminRegister = async (req, res) => {
-  try {
-    const { firstName, lastName, email, password, adminCode } = req.body;
-    const errors = {};
-
-    // Validation
-    if (!firstName?.trim()) errors.firstName = 'First name is required';
-    if (!lastName?.trim()) errors.lastName = 'Last name is required';
-    if (!email?.trim()) {
-      errors.email = 'Email is required';
-    } else if (!/\S+@\S+\.\S+/.test(email)) {
-      errors.email = 'Please enter a valid email address';
-    }
-    if (!password) {
-      errors.password = 'Password is required';
-    } else if (password.length < 8) {
-      errors.password = 'Password must be at least 8 characters long';
-    } else if (!/(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/.test(password)) {
-      errors.password = 'Password must contain uppercase, lowercase, and number';
-    }
-    
-    // Check admin code
-    const validAdminCode = process.env.ADMIN_REGISTRATION_CODE || 'ADMIN123456';
-    if (!adminCode) {
-      errors.adminCode = 'Admin access code is required';
-    } else if (adminCode !== validAdminCode) {
-      errors.adminCode = 'Invalid admin access code';
-    }
-
-    // Check for existing admin
-    const existingAdmin = await userService.findUserByEmail(email);
-    if (existingAdmin) {
-      errors.email = 'Admin with this email already exists';
-    }
-
-    if (Object.keys(errors).length > 0) {
-      return res.status(400).json({
-        message: 'Validation failed',
-        errors: errors
-      });
-    }
-
-    // Create admin user
-    const newAdmin = await userService.createUser(
-      firstName.trim(),
-      lastName.trim(),
-      email.toLowerCase().trim(),
-      '+254700000000', // Default phone for admin
-      password,
-      'admin' // userType
-    );
-
-    // Mark as verified
-    await newAdmin.verifyEmail();
-    await newAdmin.verifyPhone();
-
-    // Generate token
-    const token = jwt.sign(
-      { 
-        userId: newAdmin.id, 
-        email: newAdmin.email,
-        type: 'admin',
-        userType: 'admin'
-      },
-      JWT_SECRET,
-      { expiresIn: '24h' }
-    );
-
-    return res.status(201).json({
-      message: 'Admin account created successfully',
-      admin: {
-        id: newAdmin.id,
-        firstName: newAdmin.firstName,
-        lastName: newAdmin.lastName,
-        email: newAdmin.email,
-        userType: newAdmin.userType,
-        createdAt: newAdmin.createdAt,
-      },
-      access_token: token,
-    });
-  } catch (err) {
-    console.error('Admin registration error:', err);
-    return res.status(500).json({
-      message: 'An error occurred during registration. Please try again.',
-      errors: {}
-    });
-  }
-};
-
-// GET ALL USERS (Admin function)
-exports.getAllUsers = async (req, res) => {
-  try {
-    const {
-      page = 1,
-      limit = 10,
-      search = '',
-      userType = 'all',
-      status = 'all',
-      sortBy = 'createdAt',
-      sortOrder = 'DESC'
-    } = req.query;
-
-    const offset = (page - 1) * limit;
-    let whereCondition = {};
-
-    // Search functionality
-    if (search) {
-      whereCondition[Op.or] = [
-        { firstName: { [Op.iLike]: `%${search}%` } },
-        { lastName: { [Op.iLike]: `%${search}%` } },
-        { email: { [Op.iLike]: `%${search}%` } },
-        { phoneNumber: { [Op.like]: `%${search}%` } }
-      ];
-    }
-
-    // Filter by user type
-    if (userType !== 'all') {
-      whereCondition.userType = userType;
-    }
-
-    // Filter by status
-    if (status === 'active') {
-      whereCondition.isActive = true;
-    } else if (status === 'suspended') {
-      whereCondition.isActive = false;
-    } else if (status === 'verified') {
-      whereCondition[Op.and] = [
-        { emailVerifiedAt: { [Op.ne]: null } },
-        { phoneVerifiedAt: { [Op.ne]: null } }
-      ];
-    } else if (status === 'unverified') {
-      whereCondition[Op.or] = [
-        { emailVerifiedAt: null },
-        { phoneVerifiedAt: null }
-      ];
-    }
-
-    // Get users with pagination
-    const { rows: users, count: totalUsers } = await userService.findAndCountAllUsers({
-      where: whereCondition,
-      limit: parseInt(limit),
-      offset: offset,
-      order: [[sortBy, sortOrder.toUpperCase()]],
-      attributes: [
-        'id', 'firstName', 'lastName', 'email', 'phoneNumber', 'userType',
-        'isActive', 'isOnline', 'emailVerifiedAt', 'phoneVerifiedAt',
-        'createdAt', 'updatedAt', 'lastLoginAt', 'lastSeenAt', 'avatar'
-      ]
-    });
-
-    // Get additional stats for each user (if needed)
-    const usersWithStats = await Promise.all(users.map(async (user) => {
-      let additionalData = {};
+    if (fs.existsSync('./templates/welcomeUser.ejs')) {
+      const template = fs.readFileSync('./templates/welcomeUser.ejs', 'utf8');
       
-      if (user.userType === 'customer') {
-        // Add customer-specific data (orders, spending, etc.)
-        // This would come from your Order model
-        additionalData = {
-          totalOrders: Math.floor(Math.random() * 50), // Mock data
-          totalSpent: Math.floor(Math.random() * 5000) // Mock data
-        };
-      } else if (user.userType === 'merchant') {
-        // Add merchant-specific data (stores, etc.)
-        additionalData = {
-          totalStores: Math.floor(Math.random() * 5), // Mock data
-          storeName: `${user.firstName}'s Store` // Mock data
-        };
+      let emailContent;
+      let referrerInfo = null;
+      
+      if (referrerId) {
+        const referrer = await userService.findUserById(referrerId);
+        referrerInfo = referrer ? {
+          name: `${referrer.firstName} ${referrer.lastName}`,
+          email: referrer.email
+        } : null;
       }
+      
+      emailContent = ejs.render(template, {
+        userName: user.firstName,
+        marketplaceLink: 'https://yoursite.com/marketplace',
+        referrerInfo: referrerInfo,
+        wasReferred: !!referrerId
+      });
 
-      return {
-        ...user.toJSON(),
-        ...additionalData
-      };
-    }));
+      const subject = referrerId 
+        ? `Welcome to Our Platform, ${user.firstName}! You were referred by ${referrerInfo?.name}`
+        : `Welcome to Our Platform, ${user.firstName}!`;
 
-    const totalPages = Math.ceil(totalUsers / limit);
-
-    return res.status(200).json({
-      message: 'Users retrieved successfully',
-      users: usersWithStats,
-      pagination: {
-        currentPage: parseInt(page),
-        totalPages: totalPages,
-        totalUsers: totalUsers,
-        perPage: parseInt(limit),
-        hasNextPage: page < totalPages,
-        hasPrevPage: page > 1
-      },
-      filters: {
-        search,
-        userType,
-        status,
-        sortBy,
-        sortOrder
-      }
-    });
-  } catch (err) {
-    console.error('Get all users error:', err);
-    return res.status(500).json({
-      message: 'An error occurred while fetching users',
-      errors: {}
-    });
+      await sendEmail(
+        user.email,
+        subject,
+        '',
+        emailContent
+      );
+      
+      console.log(`📧 Welcome email sent to ${user.email}`);
+    }
+  } catch (emailError) {
+    console.error('Error sending welcome email:', emailError);
   }
-};
+}
 
-// GET USER BY ID (Admin function)
-exports.getUserById = async (req, res) => {
+// Helper function to notify referrer of new signup
+async function notifyReferrerOfNewSignup(referrerId, newUser) {
   try {
-    const { userId } = req.params;
+    const referrer = await userService.findUserById(referrerId);
+    if (!referrer) return;
+
+    console.log(`📧 Notifying referrer ${referrer.email} of new signup: ${newUser.email}`);
     
-    const user = await userService.findUserById(userId);
-    if (!user) {
-      return res.status(404).json({
-        message: 'User not found',
-        errors: { userId: 'User with this ID does not exist' }
-      });
-    }
-
-    // Get additional user data based on type
-    let additionalData = {};
-    if (user.userType === 'customer') {
-      // Get customer statistics
-      additionalData = {
-        totalOrders: Math.floor(Math.random() * 50),
-        totalSpent: Math.floor(Math.random() * 5000),
-        lastOrderDate: null,
-        favoriteCategories: []
-      };
-    } else if (user.userType === 'merchant') {
-      // Get merchant statistics
-      additionalData = {
-        totalStores: Math.floor(Math.random() * 5),
-        totalProducts: Math.floor(Math.random() * 100),
-        totalRevenue: Math.floor(Math.random() * 10000),
-        stores: []
-      };
-    }
-
-    return res.status(200).json({
-      message: 'User retrieved successfully',
-      user: {
-        ...user.toJSON(),
-        ...additionalData
-      }
-    });
-  } catch (err) {
-    console.error('Get user by ID error:', err);
-    return res.status(500).json({
-      message: 'An error occurred while fetching user',
-      errors: {}
-    });
-  }
-};
-
-// UPDATE USER STATUS (Admin function)
-exports.updateUserStatus = async (req, res) => {
-  try {
-    const { userId } = req.params;
-    const { isActive, reason } = req.body;
+    // TODO: Implement notification
+    // - Send email to referrer
+    // - Create in-app notification
+    // - Send push notification
     
-    if (typeof isActive !== 'boolean') {
-      return res.status(400).json({
-        message: 'Invalid status value',
-        errors: { isActive: 'Status must be true or false' }
+    if (fs.existsSync('./templates/referralNotification.ejs')) {
+      const template = fs.readFileSync('./templates/referralNotification.ejs', 'utf8');
+      const emailContent = ejs.render(template, {
+        referrerName: referrer.firstName,
+        newUserName: newUser.firstName,
+        newUserEmail: newUser.email
       });
+
+      await sendEmail(
+        referrer.email,
+        `Great news! ${newUser.firstName} joined using your referral link`,
+        '',
+        emailContent
+      );
     }
-
-    const user = await userService.findUserById(userId);
-    if (!user) {
-      return res.status(404).json({
-        message: 'User not found',
-        errors: { userId: 'User with this ID does not exist' }
-      });
-    }
-
-    // Prevent admin from suspending themselves
-    if (req.user.userId === userId && !isActive) {
-      return res.status(400).json({
-        message: 'Cannot suspend your own account',
-        errors: { userId: 'You cannot suspend your own account' }
-      });
-    }
-
-    // Update user status
-    await user.update({ isActive });
-
-    // Log the action
-    console.log(`Admin ${req.user.email} ${isActive ? 'activated' : 'suspended'} user ${user.email}. Reason: ${reason || 'None provided'}`);
-
-    return res.status(200).json({
-      message: `User ${isActive ? 'activated' : 'suspended'} successfully`,
-      user: {
-        id: user.id,
-        email: user.email,
-        isActive: user.isActive,
-        updatedAt: user.updatedAt
-      }
-    });
-  } catch (err) {
-    console.error('Update user status error:', err);
-    return res.status(500).json({
-      message: 'An error occurred while updating user status',
-      errors: {}
-    });
+  } catch (error) {
+    console.error('Error notifying referrer:', error);
   }
-};
-
-// DELETE USER (Admin function)
-exports.deleteUser = async (req, res) => {
-  try {
-    const { userId } = req.params;
-    const { confirmDelete } = req.body;
-
-    if (!confirmDelete) {
-      return res.status(400).json({
-        message: 'Deletion confirmation required',
-        errors: { confirmDelete: 'You must confirm the deletion' }
-      });
-    }
-
-    const user = await userService.findUserById(userId);
-    if (!user) {
-      return res.status(404).json({
-        message: 'User not found',
-        errors: { userId: 'User with this ID does not exist' }
-      });
-    }
-
-    // Prevent admin from deleting themselves
-    if (req.user.userId === userId) {
-      return res.status(400).json({
-        message: 'Cannot delete your own account',
-        errors: { userId: 'You cannot delete your own account' }
-      });
-    }
-
-    // Prevent deleting other admins (optional security measure)
-    if (user.userType === 'admin' && req.user.userType !== 'super_admin') {
-      return res.status(403).json({
-        message: 'Cannot delete admin accounts',
-        errors: { userType: 'Only super admins can delete admin accounts' }
-      });
-    }
-
-    // Store user info for logging before deletion
-    const userInfo = {
-      id: user.id,
-      email: user.email,
-      userType: user.userType,
-      name: `${user.firstName} ${user.lastName}`
-    };
-
-    // Delete user
-    await user.destroy();
-
-    // Log the action
-    console.log(`Admin ${req.user.email} deleted user ${userInfo.email} (${userInfo.name})`);
-
-    return res.status(200).json({
-      message: 'User deleted successfully',
-      deletedUser: userInfo
-    });
-  } catch (err) {
-    console.error('Delete user error:', err);
-    return res.status(500).json({
-      message: 'An error occurred while deleting user',
-      errors: {}
-    });
-  }
-};
-
-// GET ADMIN DASHBOARD STATS
-exports.getDashboardStats = async (req, res) => {
-  try {
-    // Get user statistics
-    const totalUsers = await userService.getUserCount();
-    const totalCustomers = await userService.getUserCountByType('customer');
-    const totalMerchants = await userService.getUserCountByType('merchant');
-    const totalAdmins = await userService.getUserCountByType('admin');
-    
-    const activeUsers = await userService.getActiveUserCount();
-    const onlineUsers = await userService.getOnlineUserCount();
-    const verifiedUsers = await userService.getVerifiedUserCount();
-    
-    // Get recent registrations (last 30 days)
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-    const recentRegistrations = await userService.getUserCountSince(thirtyDaysAgo);
-
-    // Get growth statistics
-    const lastMonth = new Date();
-    lastMonth.setMonth(lastMonth.getMonth() - 1);
-    const lastMonthUsers = await userService.getUserCountBefore(lastMonth);
-    const userGrowth = totalUsers - lastMonthUsers;
-    const userGrowthPercentage = lastMonthUsers > 0 ? ((userGrowth / lastMonthUsers) * 100).toFixed(1) : 0;
-
-    return res.status(200).json({
-      message: 'Dashboard statistics retrieved successfully',
-      stats: {
-        users: {
-          total: totalUsers,
-          customers: totalCustomers,
-          merchants: totalMerchants,
-          admins: totalAdmins,
-          active: activeUsers,
-          online: onlineUsers,
-          verified: verifiedUsers,
-          recent: recentRegistrations,
-          growth: {
-            count: userGrowth,
-            percentage: userGrowthPercentage
-          }
-        },
-        // Add more statistics here (orders, revenue, etc.)
-        lastUpdated: new Date()
-      }
-    });
-  } catch (err) {
-    console.error('Get dashboard stats error:', err);
-    return res.status(500).json({
-      message: 'An error occurred while fetching dashboard statistics',
-      errors: {}
-    });
-  }
-};
+}

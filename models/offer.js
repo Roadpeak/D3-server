@@ -2,7 +2,7 @@
 const { Model, DataTypes } = require('sequelize');
 
 module.exports = (sequelize) => {
-  class Offer extends Model { 
+  class Offer extends Model {
     static associate(models) {
       // Define associations here
       Offer.belongsTo(models.Service, {
@@ -10,13 +10,32 @@ module.exports = (sequelize) => {
         as: 'service',
         onDelete: 'CASCADE'
       });
-      
+
       // Offer has many bookings
       Offer.hasMany(models.Booking, {
         foreignKey: 'offerId',
         as: 'bookings',
         onDelete: 'CASCADE'
       });
+
+      // Offer has many favorites
+      Offer.hasMany(models.Favorite, {
+        foreignKey: 'offer_id',
+        as: 'favorites',
+        onDelete: 'CASCADE',
+        onUpdate: 'CASCADE'
+      });
+
+      // Offer has many users who favorited it through Favorite model
+      Offer.belongsToMany(models.User, {
+        through: models.Favorite,
+        foreignKey: 'offer_id',
+        otherKey: 'user_id',
+        as: 'favoriteUsers',
+        onDelete: 'CASCADE',
+        onUpdate: 'CASCADE'
+      });
+
     }
   }
 
@@ -172,36 +191,36 @@ module.exports = (sequelize) => {
           if (!offer.fee && offer.discount) {
             offer.fee = (offer.discount * 0.05).toFixed(2);
           }
-          
+
           // Set default discount explanation for dynamic offers
           if (offer.offer_type === 'dynamic' && !offer.discount_explanation) {
             offer.discount_explanation = `${offer.discount}% off the final quoted price that will be agreed upon after consultation`;
           }
         },
-        
+
         beforeUpdate: (offer) => {
           // Recalculate fee if discount changed
           if (offer.changed('discount') && offer.discount) {
             offer.fee = (offer.discount * 0.05).toFixed(2);
           }
-          
+
           // Update discount explanation for dynamic offers
           if (offer.changed('discount') && offer.offer_type === 'dynamic') {
             if (!offer.discount_explanation || offer.discount_explanation.includes('% off')) {
               offer.discount_explanation = `${offer.discount}% off the final quoted price that will be agreed upon after consultation`;
             }
           }
-          
+
           // Auto-expire offers past expiration date
           if (offer.expiration_date && new Date(offer.expiration_date) < new Date()) {
             offer.status = 'expired';
           }
         },
-        
+
         afterCreate: async (offer) => {
           console.log(`🎯 New ${offer.offer_type} offer created:`, offer.id);
         },
-        
+
         afterUpdate: async (offer) => {
           if (offer.changed('status')) {
             console.log(`🎯 Offer ${offer.id} status changed to: ${offer.status}`);
@@ -212,55 +231,55 @@ module.exports = (sequelize) => {
   );
 
   // Instance methods
-  Offer.prototype.isDynamic = function() {
+  Offer.prototype.isDynamic = function () {
     return this.offer_type === 'dynamic';
   };
 
-  Offer.prototype.isFixed = function() {
+  Offer.prototype.isFixed = function () {
     return this.offer_type === 'fixed';
   };
 
-  Offer.prototype.isExpired = function() {
+  Offer.prototype.isExpired = function () {
     return new Date(this.expiration_date) < new Date();
   };
 
-  Offer.prototype.isActive = function() {
+  Offer.prototype.isActive = function () {
     return this.status === 'active' && !this.isExpired();
   };
 
-  Offer.prototype.canBeBooked = function() {
-    return this.isActive() && 
-           (!this.max_redemptions || this.current_redemptions < this.max_redemptions);
+  Offer.prototype.canBeBooked = function () {
+    return this.isActive() &&
+      (!this.max_redemptions || this.current_redemptions < this.max_redemptions);
   };
 
-  Offer.prototype.getDiscountText = function() {
+  Offer.prototype.getDiscountText = function () {
     if (this.isDynamic()) {
-      return this.discount_explanation || 
-             `${this.discount}% off the final quoted price`;
+      return this.discount_explanation ||
+        `${this.discount}% off the final quoted price`;
     } else {
       return `${this.discount}% OFF`;
     }
   };
 
-  Offer.prototype.getAccessFee = function() {
+  Offer.prototype.getAccessFee = function () {
     // Access fee is 15% of the discount amount
     return (this.discount * 0.15).toFixed(2);
   };
 
-  Offer.prototype.incrementView = function() {
+  Offer.prototype.incrementView = function () {
     return this.increment('view_count');
   };
 
-  Offer.prototype.incrementClick = function() {
+  Offer.prototype.incrementClick = function () {
     return this.increment('click_count');
   };
 
-  Offer.prototype.incrementBooking = function() {
+  Offer.prototype.incrementBooking = function () {
     return this.increment(['booking_count', 'current_redemptions']);
   };
 
   // Static methods
-  Offer.getActiveOffers = function(options = {}) {
+  Offer.getActiveOffers = function (options = {}) {
     return this.findAll({
       where: {
         status: 'active',
@@ -273,7 +292,7 @@ module.exports = (sequelize) => {
     });
   };
 
-  Offer.getDynamicOffers = function(options = {}) {
+  Offer.getDynamicOffers = function (options = {}) {
     return this.findAll({
       where: {
         offer_type: 'dynamic',
@@ -287,7 +306,7 @@ module.exports = (sequelize) => {
     });
   };
 
-  Offer.getFixedOffers = function(options = {}) {
+  Offer.getFixedOffers = function (options = {}) {
     return this.findAll({
       where: {
         offer_type: 'fixed',

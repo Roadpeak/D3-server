@@ -1,4 +1,4 @@
-// routes/storeRoutes.js - Updated with profile management routes
+// routes/storeRoutes.js - Updated with followed stores route
 
 const express = require('express');
 const router = express.Router();
@@ -19,6 +19,13 @@ router.use((req, res, next) => {
 router.get('/categories', storesController.getCategories);
 router.get('/locations', storesController.getLocations);
 router.get('/random', storesController.getRandomStores);
+
+// ==========================================
+// USER-SPECIFIC ROUTES - require user authentication
+// ==========================================
+
+// Get stores followed by the current user
+router.get('/followed', verifyToken, storesController.getFollowedStores);
 
 // ==========================================
 // MERCHANT-SPECIFIC ROUTES - these MUST come before /:id routes
@@ -54,6 +61,7 @@ router.post('/', authenticateMerchant, storesController.createStore);
 // ==========================================
 router.post('/:id/follow', verifyToken, storesController.toggleFollowStore);
 router.post('/:id/toggle-follow', verifyToken, storesController.toggleFollowStore);
+router.delete('/:id/unfollow', verifyToken, storesController.toggleFollowStore);
 router.post('/stores/:id/reviews', verifyToken, storesController.submitReview);
 
 // Store management routes - merchant only (specific actions before general update)

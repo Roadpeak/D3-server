@@ -151,7 +151,35 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.ENUM('public', 'private', 'friends_only'),
       defaultValue: 'public',
       comment: 'Profile visibility setting'
-    }
+    },
+    referralSlug: {
+      type: DataTypes.STRING(50),
+      allowNull: true,
+      unique: true,
+      comment: 'Unique referral slug for this user (user-friendly)'
+    },
+    referralLink: {
+      type: DataTypes.STRING(255),
+      allowNull: true,
+      comment: 'Full referral link for this user'
+    },
+    referredBy: {
+      type: DataTypes.UUID,
+      allowNull: true,
+      references: {
+        model: 'users',
+        key: 'id',
+      },
+      comment: 'ID of user who referred this user'
+    },
+    referredAt: {
+      type: DataTypes.DATE,
+      allowNull: true,
+      comment: 'When this user was referred'
+    },
+
+
+
   }, {
     tableName: 'users',
     timestamps: true,
@@ -191,7 +219,19 @@ module.exports = (sequelize, DataTypes) => {
       {
         fields: ['country'],
         name: 'idx_country'
-      }
+      },
+
+      {
+        fields: ['referralSlug'],
+        name: 'idx_referral_slug',
+        unique: true
+      },
+      {
+        fields: ['referredBy'],
+        name: 'idx_referred_by'
+      },
+
+
     ],
     defaultScope: {
       attributes: {
@@ -241,50 +281,50 @@ module.exports = (sequelize, DataTypes) => {
     return await bcrypt.compare(password, this.password);
   };
 
-  User.prototype.getFullName = function() {
+  User.prototype.getFullName = function () {
     return `${this.firstName} ${this.lastName}`;
   };
 
-  User.prototype.isEmailVerified = function() {
+  User.prototype.isEmailVerified = function () {
     return this.emailVerifiedAt !== null;
   };
 
-  User.prototype.isPhoneVerified = function() {
+  User.prototype.isPhoneVerified = function () {
     return this.phoneVerifiedAt !== null;
   };
 
-  User.prototype.updateLastLogin = function() {
+  User.prototype.updateLastLogin = function () {
     this.lastLoginAt = new Date();
     this.isOnline = true; // Set online when logging in
     return this.save();
   };
 
-  User.prototype.verifyEmail = function() {
+  User.prototype.verifyEmail = function () {
     this.emailVerifiedAt = new Date();
     return this.save();
   };
 
-  User.prototype.verifyPhone = function() {
+  User.prototype.verifyPhone = function () {
     this.phoneVerifiedAt = new Date();
     return this.save();
   };
 
   // NEW: Chat system methods
-  
+
   // Update online status for chat system
-  User.prototype.updateOnlineStatus = async function(isOnline) {
+  User.prototype.updateOnlineStatus = async function (isOnline) {
     this.isOnline = isOnline;
     this.lastSeenAt = isOnline ? null : new Date();
     return await this.save();
   };
 
   // Get customer's store conversations (for customers)
-  User.prototype.getStoreConversations = async function(options = {}) {
+  User.prototype.getStoreConversations = async function (options = {}) {
     if (this.userType !== 'customer') return [];
-    
+
     const { Chat } = sequelize.models;
     return await Chat.findAll({
-      where: { 
+      where: {
         userId: this.id,
         status: options.status || 'active'
       },
@@ -302,22 +342,22 @@ module.exports = (sequelize, DataTypes) => {
   };
 
   // Get merchant's customer conversations (for merchants)
-  User.prototype.getCustomerConversations = async function(options = {}) {
+  User.prototype.getCustomerConversations = async function (options = {}) {
     if (this.userType !== 'merchant') return [];
-    
+
     const { Chat, Store } = sequelize.models;
-    
+
     // Get merchant's stores
     const merchantStores = await Store.findAll({
       where: { merchant_id: this.id, is_active: true },
       attributes: ['id']
     });
-    
+
     const storeIds = merchantStores.map(store => store.id);
     if (storeIds.length === 0) return [];
-    
+
     return await Chat.findAll({
-      where: { 
+      where: {
         storeId: { [sequelize.Sequelize.Op.in]: storeIds },
         status: options.status || 'active'
       },
@@ -339,9 +379,9 @@ module.exports = (sequelize, DataTypes) => {
   };
 
   // Get unread messages count
-  User.prototype.getUnreadMessagesCount = async function() {
+  User.prototype.getUnreadMessagesCount = async function () {
     const { Message, Chat, Store } = sequelize.models;
-    
+
     if (this.userType === 'customer') {
       // Count unread messages from stores to this customer
       const customerChats = await Chat.findAll({
@@ -349,9 +389,9 @@ module.exports = (sequelize, DataTypes) => {
         attributes: ['id']
       });
       const chatIds = customerChats.map(chat => chat.id);
-      
+
       if (chatIds.length === 0) return 0;
-      
+
       return await Message.count({
         where: {
           chat_id: { [sequelize.Sequelize.Op.in]: chatIds },
@@ -366,17 +406,17 @@ module.exports = (sequelize, DataTypes) => {
         attributes: ['id']
       });
       const storeIds = merchantStores.map(store => store.id);
-      
+
       if (storeIds.length === 0) return 0;
-      
+
       const storeChats = await Chat.findAll({
         where: { storeId: { [sequelize.Sequelize.Op.in]: storeIds } },
         attributes: ['id']
       });
       const chatIds = storeChats.map(chat => chat.id);
-      
+
       if (chatIds.length === 0) return 0;
-      
+
       return await Message.count({
         where: {
           chat_id: { [sequelize.Sequelize.Op.in]: chatIds },
@@ -385,17 +425,17 @@ module.exports = (sequelize, DataTypes) => {
         }
       });
     }
-    
+
     return 0;
   };
 
   // Get total conversations count
-  User.prototype.getConversationsCount = async function() {
+  User.prototype.getConversationsCount = async function () {
     const { Chat, Store } = sequelize.models;
-    
+
     if (this.userType === 'customer') {
       return await Chat.count({
-        where: { 
+        where: {
           userId: this.id,
           status: 'active'
         }
@@ -406,45 +446,45 @@ module.exports = (sequelize, DataTypes) => {
         attributes: ['id']
       });
       const storeIds = merchantStores.map(store => store.id);
-      
+
       if (storeIds.length === 0) return 0;
-      
+
       return await Chat.count({
-        where: { 
+        where: {
           storeId: { [sequelize.Sequelize.Op.in]: storeIds },
           status: 'active'
         }
       });
     }
-    
+
     return 0;
   };
 
   // Update notification preferences
-  User.prototype.updateNotificationPreferences = async function(preferences) {
+  User.prototype.updateNotificationPreferences = async function (preferences) {
     const allowedFields = [
-      'chatNotifications', 
-      'emailNotifications', 
-      'smsNotifications', 
+      'chatNotifications',
+      'emailNotifications',
+      'smsNotifications',
       'pushNotifications',
       'marketingEmails'
     ];
-    
+
     allowedFields.forEach(field => {
       if (preferences.hasOwnProperty(field)) {
         this[field] = preferences[field];
       }
     });
-    
+
     return await this.save();
   };
 
   // Start conversation with store (customers only)
-  User.prototype.startConversationWithStore = async function(storeId, initialMessage = '') {
+  User.prototype.startConversationWithStore = async function (storeId, initialMessage = '') {
     if (this.userType !== 'customer') {
       throw new Error('Only customers can start conversations with stores');
     }
-    
+
     const { Chat } = sequelize.models;
     return await Chat.findOrCreate({
       where: {
@@ -460,20 +500,20 @@ module.exports = (sequelize, DataTypes) => {
   };
 
   // Class methods
-  User.findByEmail = function(email) {
+  User.findByEmail = function (email) {
     return this.scope('withPassword').findOne({
       where: { email: email.toLowerCase() }
     });
   };
 
-  User.findByPhone = function(phoneNumber) {
+  User.findByPhone = function (phoneNumber) {
     return this.findOne({
       where: { phoneNumber }
     });
   };
 
   // NEW: Find by email or phone
-  User.findByEmailOrPhone = async function(identifier) {
+  User.findByEmailOrPhone = async function (identifier) {
     return await this.findOne({
       where: {
         [sequelize.Sequelize.Op.or]: [
@@ -485,16 +525,16 @@ module.exports = (sequelize, DataTypes) => {
   };
 
   // NEW: Get online users by type
-  User.getOnlineUsers = async function(userType = null) {
+  User.getOnlineUsers = async function (userType = null) {
     let whereCondition = {
       isOnline: true,
       isActive: true
     };
-    
+
     if (userType) {
       whereCondition.userType = userType;
     }
-    
+
     return await this.findAll({
       where: whereCondition,
       attributes: ['id', 'firstName', 'lastName', 'avatar', 'userType', 'lastSeenAt']
@@ -502,9 +542,9 @@ module.exports = (sequelize, DataTypes) => {
   };
 
   // NEW: Search users
-  User.searchUsers = async function(query, options = {}) {
+  User.searchUsers = async function (query, options = {}) {
     const { limit = 50, userType = null, includeInactive = false } = options;
-    
+
     let whereCondition = {
       [sequelize.Sequelize.Op.or]: [
         { firstName: { [sequelize.Sequelize.Op.iLike]: `%${query}%` } },
@@ -512,15 +552,15 @@ module.exports = (sequelize, DataTypes) => {
         { email: { [sequelize.Sequelize.Op.iLike]: `%${query}%` } }
       ]
     };
-    
+
     if (!includeInactive) {
       whereCondition.isActive = true;
     }
-    
+
     if (userType) {
       whereCondition.userType = userType;
     }
-    
+
     return await this.findAll({
       where: whereCondition,
       attributes: ['id', 'firstName', 'lastName', 'email', 'avatar', 'userType', 'isActive'],
@@ -529,23 +569,23 @@ module.exports = (sequelize, DataTypes) => {
   };
 
   // Virtual attributes
-  User.prototype.getIsVerified = function() {
+  User.prototype.getIsVerified = function () {
     return this.isEmailVerified() && this.isPhoneVerified();
   };
 
   // NEW: Get user's age
-  User.prototype.getAge = function() {
+  User.prototype.getAge = function () {
     if (!this.dateOfBirth) return null;
     return Math.floor((new Date() - new Date(this.dateOfBirth)) / (365.25 * 24 * 60 * 60 * 1000));
   };
 
   // NEW: Get display name
-  User.prototype.getDisplayName = function() {
+  User.prototype.getDisplayName = function () {
     return this.getFullName() || this.email.split('@')[0];
   };
 
   // Enhanced Associations for Customer↔Store Communication
-  User.associate = function(models) {
+  User.associate = function (models) {
     // User has many chats (customers chatting with stores)
     User.hasMany(models.Chat, {
       foreignKey: 'userId',
@@ -571,7 +611,7 @@ module.exports = (sequelize, DataTypes) => {
     });
 
     // If you have other models, add them here:
-    
+
     // User has many orders (if you have an Order model)
     if (models.Order) {
       User.hasMany(models.Order, {
@@ -598,6 +638,42 @@ module.exports = (sequelize, DataTypes) => {
         onDelete: 'CASCADE'
       });
     }
+
+    // User has many referrals (users they referred)
+    User.hasMany(models.User, {
+      foreignKey: 'referredBy',
+      as: 'referrals'
+    });
+
+    // User belongs to referrer
+    User.belongsTo(models.User, {
+      foreignKey: 'referredBy',
+      as: 'referrer'
+    });
+
+    // Note: ReferralEarning associations will be added when that model is created
+    // User.hasMany(models.ReferralEarning, {
+    //   foreignKey: 'referrerId',
+    //   as: 'referralEarnings'
+    // });
+
+     // User has many favorites
+  User.hasMany(models.Favorite, {
+    foreignKey: 'user_id',
+    as: 'favorites',
+    onDelete: 'CASCADE',
+    onUpdate: 'CASCADE'
+  });
+
+  // User has many favorite offers through Favorite model
+  User.belongsToMany(models.Offer, {
+    through: models.Favorite,
+    foreignKey: 'user_id',
+    otherKey: 'offer_id',
+    as: 'favoriteOffers',
+    onDelete: 'CASCADE',
+    onUpdate: 'CASCADE'
+  });
 
     // User has many wishlists (if you have a Wishlist model)
     if (models.Wishlist) {
