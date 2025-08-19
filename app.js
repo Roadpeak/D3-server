@@ -27,7 +27,7 @@ const heroRoutes = require('./routes/heroRoutes');
 const merchantServiceRoutes = require('./routes/merchantServiceRoutes');
 const { socketManager } = require('./socket/websocket');
 const homedealsstores = require('./routes/homedealsstoresRoutes');
-const favoritesRoutes = require('./routes/favorites');
+const favoritesRoutes = require('./routes/favoritesRoutes');
 // ✅ FIXED: Import service request routes
 const serviceRequestRoutes = require('./routes/serviceRequestRoutes');
 const swaggerUi = require('swagger-ui-express');
@@ -240,7 +240,9 @@ app.use('/api/v1/likes', likeRoutes);
 app.use('/api/v1/forms', formRoutes);
 app.use('/api/v1/form-fields', formFieldRoutes);
 app.use('/api/v1/form-responses', formResponseRoutes);
-app.use('/api/favorites', favoritesRoutes);
+app.use('/api/v1/users', favoritesRoutes);      // For user favorites endpoints
+app.use('/api/v1/offers', favoritesRoutes);     // For offer favorites endpoints
+
 
 // Static file serving
 app.use('/qrcodes', express.static(path.join(__dirname, 'public', 'qrcodes')));

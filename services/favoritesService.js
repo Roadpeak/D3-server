@@ -3,19 +3,26 @@ import api from '../config/api';
 
 export const favoritesAPI = {
   // Get user's favorite offers
-  getFavorites: async () => {
+  getFavorites: async (params = {}) => {
     try {
-      const response = await api.get('/users/favorites');
+      const queryParams = new URLSearchParams();
+      if (params.page) queryParams.append('page', params.page);
+      if (params.limit) queryParams.append('limit', params.limit);
+      if (params.category) queryParams.append('category', params.category);
+      
+      const response = await api.get(`/users/favorites?${queryParams.toString()}`);
       return {
         success: true,
-        favorites: response.data.favorites || []
+        favorites: response.data.favorites || [],
+        pagination: response.data.pagination || {}
       };
     } catch (error) {
       console.error('Error fetching favorites:', error);
       return {
         success: false,
         message: error.response?.data?.message || 'Failed to fetch favorites',
-        favorites: []
+        favorites: [],
+        pagination: {}
       };
     }
   },
@@ -52,6 +59,25 @@ export const favoritesAPI = {
       return {
         success: false,
         message: error.response?.data?.message || 'Failed to remove from favorites'
+      };
+    }
+  },
+
+  // Toggle favorite status
+  toggleFavorite: async (offerId) => {
+    try {
+      const response = await api.post(`/offers/${offerId}/favorite/toggle`);
+      return {
+        success: true,
+        action: response.data.action,
+        message: response.data.message || 'Favorite status updated',
+        data: response.data
+      };
+    } catch (error) {
+      console.error('Error toggling favorite:', error);
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Failed to update favorite'
       };
     }
   },

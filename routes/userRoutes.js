@@ -14,12 +14,15 @@ const {
   resetPassword,
   getUserBookings,
   getUserChats,
-  getUserFavorites,
+  // ❌ REMOVED: getUserFavorites, - Using favoritesController instead
   // NEW: Referral system controllers
   getEarnings,
   getEarningActivities,
   validateReferral
 } = require('../controllers/userController');
+
+// ✅ ADD: Import the fixed favorites controller
+const favoritesController = require('../controllers/favoritesController');
 
 // Import stores controller for followed stores functionality
 const { getFollowedStores } = require('../controllers/storesController');
@@ -89,7 +92,11 @@ router.put('/profile', authenticateUser, updateProfile);
 // User-specific data routes
 router.get('/bookings', authenticateUser, getUserBookings);
 router.get('/chats', authenticateUser, getUserChats);
-router.get('/favorites', authenticateUser, getUserFavorites);
+
+// ✅ FIXED: Updated favorites routes to use the fixed controller
+router.get('/favorites', authenticateUser, favoritesController.getFavorites);
+router.get('/favorites/count', authenticateUser, favoritesController.getFavoritesCount);
+router.get('/favorites/filtered', authenticateUser, favoritesController.getFavoritesWithFilters);
 
 // ==========================================
 // NEW: REFERRAL SYSTEM ROUTES

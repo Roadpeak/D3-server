@@ -2005,6 +2005,9 @@ class EnhancedBookingController {
     }
   }
 
+
+   
+
   // ==================== HELPER METHODS ====================
 
   /**

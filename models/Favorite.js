@@ -1,4 +1,4 @@
-// models/Favorite.js
+// models/Favorite.js - FIXED with correct UUID data types
 'use strict';
 const { Model } = require('sequelize');
 
@@ -40,33 +40,43 @@ module.exports = (sequelize, DataTypes) => {
 
   Favorite.init({
     id: {
-      type: DataTypes.INTEGER,
+      type: DataTypes.UUID,  // ✅ FIXED: Changed from INTEGER to UUID
       primaryKey: true,
-      autoIncrement: true,
+      defaultValue: DataTypes.UUIDV4,  // ✅ FIXED: Auto-generate UUID
       allowNull: false
     },
     user_id: {
-      type: DataTypes.INTEGER,
+      type: DataTypes.UUID,  // ✅ FIXED: Changed from INTEGER to UUID to match User model
       allowNull: false,
       validate: {
         notNull: {
           msg: 'User ID is required'
         },
-        isInt: {
-          msg: 'User ID must be an integer'
+        isUUID: {  // ✅ FIXED: Changed from isInt to isUUID
+          args: 4,
+          msg: 'User ID must be a valid UUID'
         }
+      },
+      references: {
+        model: 'Users',
+        key: 'id'
       }
     },
     offer_id: {
-      type: DataTypes.INTEGER,
+      type: DataTypes.UUID,  // ✅ FIXED: Changed from INTEGER to UUID to match Offer model
       allowNull: false,
       validate: {
         notNull: {
           msg: 'Offer ID is required'
         },
-        isInt: {
-          msg: 'Offer ID must be an integer'
+        isUUID: {  // ✅ FIXED: Changed from isInt to isUUID
+          args: 4,
+          msg: 'Offer ID must be a valid UUID'
         }
+      },
+      references: {
+        model: 'Offers',
+        key: 'id'
       }
     },
     created_at: {
@@ -82,7 +92,7 @@ module.exports = (sequelize, DataTypes) => {
   }, {
     sequelize,
     modelName: 'Favorite',
-    tableName: 'Favorites',
+    tableName: 'Favorites',  // Keep your existing table name
     timestamps: true,
     createdAt: 'created_at',
     updatedAt: 'updated_at',
