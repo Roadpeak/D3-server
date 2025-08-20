@@ -1633,7 +1633,7 @@ exports.updateStoreProfile = async (req, res) => {
       });
     }
 
-    // Validate update data
+    // Validate update data - INCLUDING logo_url
     const allowedFields = [
       'name', 
       'location', 
@@ -1643,7 +1643,8 @@ exports.updateStoreProfile = async (req, res) => {
       'opening_time',
       'closing_time',
       'working_days',
-      'website_url'
+      'website_url',
+      'logo_url'  // ADD THIS for logo updates
     ];
 
     const filteredData = {};
@@ -1688,15 +1689,8 @@ exports.updateStoreProfile = async (req, res) => {
       updated_at: new Date()
     });
 
-    // Fetch updated store with merchant info
-    const updatedStore = await Store.findByPk(storeId, {
-      include: [
-        {
-          model: Merchant,
-          attributes: ['id', 'first_name', 'last_name', 'email_address']
-        }
-      ]
-    });
+    // FIXED: Fetch updated store WITHOUT problematic include
+    const updatedStore = await Store.findByPk(storeId);
 
     const storeData = updatedStore.toJSON();
     try {
