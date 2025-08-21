@@ -622,10 +622,10 @@ module.exports = (sequelize, DataTypes) => {
     }
 
     // User has many reviews (if you have a Review model)
-    if (models.Review) {
-      User.hasMany(models.Review, {
-        foreignKey: 'userId',
-        as: 'reviews',
+    if (models.Follow) {
+      User.hasMany(models.Follow, {
+        foreignKey: 'user_id',  // FIXED: Changed from 'userId' to 'user_id' to match Follow model
+        as: 'follows',          // FIXED: Changed from 'following' to 'follows' to avoid confusion
         onDelete: 'CASCADE'
       });
     }

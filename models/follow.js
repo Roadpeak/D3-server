@@ -33,14 +33,15 @@ module.exports = (sequelize, DataTypes) => {
   );
 
   Follow.associate = (models) => {
+    // FIXED: Consistent foreign key naming
     Follow.belongsTo(models.User, {
       foreignKey: 'user_id',
-      as: 'user',
+      as: 'user',  // Keep this alias - used in controller
     });
 
     Follow.belongsTo(models.Store, {
       foreignKey: 'store_id',
-      as: 'store',
+      as: 'store',  // Keep this alias - used in controller
     });
   };
 

@@ -437,6 +437,91 @@ class SlotGenerationService {
     };
   }
 
+  async isSlotAvailable(entityId, entityType, date, time) {
+    try {
+      console.log(`🔍 Checking slot availability: ${entityType} ${entityId} on ${date} at ${time}`);
+  
+      // Get the entity details to find the service
+      const entity = await this.getEntityDetails(entityId, entityType);
+      if (!entity) {
+        return {
+          available: false,
+          reason: `${entityType} not found`
+        };
+      }
+  
+      // Get the underlying service
+      const service = entityType === 'offer' ? entity.service : entity;
+      if (!service) {
+        return {
+          available: false,
+          reason: 'Associated service not found'
+        };
+      }
+  
+      // Get store details
+      const store = service.store || await this.models.Store.findByPk(service.store_id);
+      if (!store) {
+        return {
+          available: false,
+          reason: 'Store not found'
+        };
+      }
+  
+      // Validate date and store working hours
+      const validationResult = this.validateDateAndStore(date, store);
+      if (!validationResult.isValid) {
+        return {
+          available: false,
+          reason: validationResult.message
+        };
+      }
+  
+      // Generate base slots to see if the requested time is valid
+      const baseSlots = this.generateBaseSlots(service, store);
+      
+      // Check if the requested time matches any base slot
+      const requestedSlot = baseSlots.find(slot => {
+        const slotTime = moment(slot.startTime, 'HH:mm').format('h:mm A');
+        return slotTime === time || slot.startTime === time;
+      });
+  
+      if (!requestedSlot) {
+        return {
+          available: false,
+          reason: 'Requested time slot is not available for this service'
+        };
+      }
+  
+      // Get existing bookings to check availability
+      const existingBookings = await this.getExistingBookings(service, date);
+      
+      // Calculate availability for this specific slot
+      const slotsWithAvailability = this.calculateSlotAvailability([requestedSlot], existingBookings, service);
+      const checkedSlot = slotsWithAvailability[0];
+  
+      if (checkedSlot.available > 0) {
+        return {
+          available: true,
+          remainingSlots: checkedSlot.available,
+          totalSlots: service.max_concurrent_bookings || 1
+        };
+      } else {
+        return {
+          available: false,
+          reason: 'Time slot is fully booked'
+        };
+      }
+  
+    } catch (error) {
+      console.error('💥 Error checking slot availability:', error);
+      return {
+        available: false,
+        reason: 'Error checking availability: ' + error.message
+      };
+    }
+  }
+
   /**
    * Format entity information for response
    */
