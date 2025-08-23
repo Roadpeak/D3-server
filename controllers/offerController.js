@@ -1,4 +1,5 @@
 const { Offer, Store, Service, sequelize } = require('../models');
+const { Op } = require('sequelize');
 
 // Helper function to format offers consistently
 const formatOffer = (offer) => {
@@ -168,10 +169,12 @@ exports.getOffers = async (req, res) => {
     if (category) {
       serviceWhere.category = category;
     }
+    
+    // FIXED: Proper search implementation
     if (search) {
-      serviceWhere[sequelize.Op.or] = [
-        { name: { [sequelize.Op.like]: `%${search}%` } },
-        { description: { [sequelize.Op.like]: `%${search}%` } }
+      serviceWhere[Op.or] = [
+        { name: { [Op.like]: `%${search}%` } },
+        { description: { [Op.like]: `%${search}%` } }
       ];
     }
 
@@ -218,7 +221,6 @@ exports.getOffers = async (req, res) => {
     return sendErrorResponse(res, 500, 'Error fetching offers', err);
   }
 };
-
 exports.getRandomOffers = async (req, res) => {
   try {
     const { limit = 12 } = req.query;
@@ -372,33 +374,35 @@ exports.getOfferById = async (req, res) => {
     console.log('🔍 getOfferById called with:', {
       rawId: id,
       idType: typeof id,
-      parsedId: parseInt(id),
-      isNaN: isNaN(id),
+      idLength: id?.length,
       url: req.originalUrl,
       method: req.method
     });
 
-    // More flexible ID validation
-    if (!id) {
+    // Simple ID validation - accept both UUIDs and numeric IDs
+    if (!id || id.trim() === '') {
       console.error('❌ No ID provided');
       return sendErrorResponse(res, 400, 'Offer ID is required');
     }
 
-    // Check if ID can be parsed as integer
-    const parsedId = parseInt(id);
-    if (isNaN(parsedId) || parsedId <= 0) {
-      console.error('❌ Invalid ID format:', { id, parsedId });
-      return sendErrorResponse(res, 400, 'Valid numeric offer ID is required');
+    // Validate ID format - accept either UUID or numeric
+    const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id);
+    const isNumeric = /^\d+$/.test(id);
+    
+    if (!isUUID && !isNumeric) {
+      console.error('❌ Invalid ID format:', { id, isUUID, isNumeric });
+      return sendErrorResponse(res, 400, 'Valid offer ID is required (UUID or numeric)');
     }
 
-    console.log('✅ ID validation passed, fetching offer with ID:', parsedId);
+    console.log('✅ ID validation passed, fetching offer with ID:', id);
 
-    const offer = await Offer.findByPk(parsedId, {
+    // Use the original ID (don't parse it as integer)
+    const offer = await Offer.findByPk(id, {
       include: getOfferIncludes(),
     });
 
     if (!offer) {
-      console.log('❌ Offer not found for ID:', parsedId);
+      console.log('❌ Offer not found for ID:', id);
       return sendErrorResponse(res, 404, 'Offer not found');
     }
 
@@ -436,9 +440,9 @@ exports.updateOffer = async (req, res) => {
     const { id } = req.params;
     const { discount, expiration_date, service_id, description, status, title, featured } = req.body;
 
-    if (!id || isNaN(id)) {
+    if (!id || id.trim() === '') {
       return sendErrorResponse(res, 400, 'Valid offer ID is required');
-    }
+  }
 
     const offer = await Offer.findByPk(id);
     if (!offer) {
@@ -496,9 +500,9 @@ exports.deleteOffer = async (req, res) => {
   try {
     const { id } = req.params;
     
-    if (!id || isNaN(id)) {
+    if (!id || id.trim() === '') {
       return sendErrorResponse(res, 400, 'Valid offer ID is required');
-    }
+  }
 
     const offer = await Offer.findByPk(id);
     if (!offer) {

@@ -177,7 +177,8 @@ exports.getStores = async (req, res) => {
       location,
       sortBy,
       page = 1,
-      limit = 20
+      limit = 20,
+      search  // Add search parameter
     } = req.query;
 
     // Build where clause for filtering
@@ -194,8 +195,18 @@ exports.getStores = async (req, res) => {
       ];
     }
 
-    // Build order clause for sorting
-    let orderClause = [['created_at', 'DESC']];
+    // FIXED: Add search functionality
+    if (search) {
+      whereClause[Op.or] = [
+        { name: { [Op.like]: `%${search}%` } },
+        { description: { [Op.like]: `%${search}%` } },
+        { category: { [Op.like]: `%${search}%` } },
+        { location: { [Op.like]: `%${search}%` } }
+      ];
+    }
+
+    // FIXED: Build order clause for sorting with correct column names
+    let orderClause = [['createdAt', 'DESC']]; // Changed from 'created_at'
 
     switch (sortBy) {
       case 'Popular':
@@ -218,7 +229,7 @@ exports.getStores = async (req, res) => {
         orderClause = [['name', 'DESC']];
         break;
       default:
-        orderClause = [['created_at', 'DESC']];
+        orderClause = [['createdAt', 'DESC']]; // Changed from 'created_at'
     }
 
     // Calculate pagination

@@ -1,4 +1,4 @@
-// models/Booking.js - Enhanced version
+// models/Booking.js - Complete Enhanced version with all associations
 const { Model, DataTypes } = require('sequelize');
 const { v4: uuidv4 } = require('uuid');
 
@@ -11,6 +11,11 @@ module.exports = (sequelize) => {
         as: 'Offer'
       });
       
+      Booking.belongsTo(models.Service, { 
+        foreignKey: 'serviceId',
+        as: 'Service'
+      });
+      
       Booking.belongsTo(models.User, { 
         foreignKey: 'userId',
         as: 'User'
@@ -19,6 +24,12 @@ module.exports = (sequelize) => {
       Booking.belongsTo(models.Store, { 
         foreignKey: 'storeId',
         as: 'Store',
+        allowNull: true
+      });
+
+      Booking.belongsTo(models.Branch, { 
+        foreignKey: 'branchId',
+        as: 'Branch',
         allowNull: true
       });
       
@@ -45,11 +56,20 @@ module.exports = (sequelize) => {
       },
       offerId: {
         type: DataTypes.UUID,
-        allowNull: false,
+        allowNull: true,
         references: {
           model: 'offers',
           key: 'id',
         },
+      },
+      serviceId: {
+        type: DataTypes.UUID,
+        allowNull: true,
+        references: {
+          model: 'services',
+          key: 'id',
+        },
+        comment: 'For direct service bookings (not through offers)'
       },
       userId: {
         type: DataTypes.UUID,
@@ -66,6 +86,15 @@ module.exports = (sequelize) => {
           model: 'stores',
           key: 'id',
         },
+      },
+      branchId: {
+        type: DataTypes.UUID,
+        allowNull: true,
+        references: {
+          model: 'branches',
+          key: 'id',
+        },
+        comment: 'Branch where the service will be provided'
       },
       staffId: {
         type: DataTypes.UUID,
@@ -225,11 +254,15 @@ module.exports = (sequelize) => {
       modelName: 'Booking',
       tableName: 'bookings',
       timestamps: true,
-      paranoid: false, // Set to true if you want soft deletes
+      paranoid: false,
       indexes: [
         {
           fields: ['offerId'],
           name: 'bookings_offer_id_index'
+        },
+        {
+          fields: ['serviceId'],
+          name: 'bookings_service_id_index'
         },
         {
           fields: ['userId'],
@@ -238,6 +271,10 @@ module.exports = (sequelize) => {
         {
           fields: ['storeId'],
           name: 'bookings_store_id_index'
+        },
+        {
+          fields: ['branchId'],
+          name: 'bookings_branch_id_index'
         },
         {
           fields: ['staffId'],
@@ -275,6 +312,14 @@ module.exports = (sequelize) => {
           if (!booking.createdBy && booking.userId) {
             booking.createdBy = booking.userId;
           }
+
+          // Validate booking type constraints
+          if (booking.bookingType === 'offer' && !booking.offerId) {
+            throw new Error('Offer ID is required for offer bookings');
+          }
+          if (booking.bookingType === 'service' && !booking.serviceId) {
+            throw new Error('Service ID is required for service bookings');
+          }
         },
         
         beforeUpdate: (booking) => {
@@ -297,23 +342,13 @@ module.exports = (sequelize) => {
         
         afterCreate: async (booking) => {
           // Log booking creation
-          console.log(`📅 New booking created: ${booking.id} for offer ${booking.offerId}`);
-          
-          // You can add additional logic here like:
-          // - Sending confirmation emails
-          // - Creating calendar events
-          // - Updating offer statistics
+          console.log(`📅 New booking created: ${booking.id} for ${booking.bookingType} ${booking.offerId || booking.serviceId}`);
         },
         
         afterUpdate: async (booking) => {
           // Log significant status changes
           if (booking.changed('status')) {
             console.log(`📅 Booking ${booking.id} status changed to: ${booking.status}`);
-            
-            // You can add additional logic here like:
-            // - Sending status update emails
-            // - Updating analytics
-            // - Triggering webhooks
           }
         }
       },

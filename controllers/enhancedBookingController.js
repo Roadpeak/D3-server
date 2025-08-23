@@ -1,4 +1,4 @@
-// controllers/enhancedBookingController.js - Complete with branch support
+// controllers/enhancedBookingController.js - Complete with branch support and date fix
 
 const moment = require('moment');
 const QRCode = require('qrcode');
@@ -35,6 +35,80 @@ const slotService = new SlotGenerationService(models);
 
 class EnhancedBookingController {
 
+  // ==================== DATE NORMALIZATION HELPER ====================
+
+  /**
+   * Normalize and validate datetime string
+   */
+  normalizeDateTime(dateTimeStr) {
+    if (!dateTimeStr) {
+      throw new Error('DateTime string is required');
+    }
+
+    // Handle various formats
+    let normalizedDateTime;
+
+    // If it's already a valid moment object
+    if (moment.isMoment(dateTimeStr)) {
+      return dateTimeStr;
+    }
+
+    // If it's a Date object
+    if (dateTimeStr instanceof Date) {
+      return moment(dateTimeStr);
+    }
+
+    // Handle string formats
+    if (typeof dateTimeStr === 'string') {
+      // Fix common format issues
+      let fixedDateTime = dateTimeStr.trim();
+
+      // Fix single-digit hours: '2025-08-25T9:00' -> '2025-08-25T09:00'
+      const singleHourPattern = /T(\d):(\d{2})(?::(\d{2}))?$/;
+      if (singleHourPattern.test(fixedDateTime)) {
+        fixedDateTime = fixedDateTime.replace(singleHourPattern, (match, hour, minute, second) => {
+          const paddedHour = hour.padStart(2, '0');
+          const paddedSecond = second || '00';
+          return `T${paddedHour}:${minute}:${paddedSecond}`;
+        });
+      }
+
+      // Add seconds if missing: '2025-08-25T09:00' -> '2025-08-25T09:00:00'
+      if (/T\d{2}:\d{2}$/.test(fixedDateTime)) {
+        fixedDateTime += ':00';
+      }
+
+      // Try to parse with various formats
+      const formats = [
+        'YYYY-MM-DDTHH:mm:ss',
+        'YYYY-MM-DDTHH:mm',
+        'YYYY-MM-DD HH:mm:ss',
+        'YYYY-MM-DD HH:mm',
+        moment.ISO_8601
+      ];
+
+      for (const format of formats) {
+        const parsed = moment(fixedDateTime, format, true);
+        if (parsed.isValid()) {
+          normalizedDateTime = parsed;
+          break;
+        }
+      }
+
+      // Fallback to loose parsing
+      if (!normalizedDateTime) {
+        normalizedDateTime = moment(fixedDateTime);
+      }
+    }
+
+    // Final validation
+    if (!normalizedDateTime || !normalizedDateTime.isValid()) {
+      throw new Error(`Invalid datetime format: ${dateTimeStr}. Expected format: YYYY-MM-DDTHH:mm:ss`);
+    }
+
+    return normalizedDateTime;
+  }
+
   // ==================== UNIFIED SLOT GENERATION ====================
 
   /**
@@ -43,9 +117,9 @@ class EnhancedBookingController {
   async getUnifiedSlots(req, res) {
     try {
       const { entityId, entityType, date } = req.query;
-  
+
       console.log('📅 Getting unified slots:', { entityId, entityType, date });
-  
+
       if (!date || !entityId || !entityType) {
         return res.status(400).json({
           success: false,
@@ -53,7 +127,7 @@ class EnhancedBookingController {
           received: { date, entityId, entityType }
         });
       }
-  
+
       if (!['offer', 'service'].includes(entityType)) {
         return res.status(400).json({
           success: false,
@@ -61,7 +135,7 @@ class EnhancedBookingController {
           received: { entityType }
         });
       }
-  
+
       if (!moment(date, 'YYYY-MM-DD', true).isValid()) {
         return res.status(400).json({
           success: false,
@@ -69,7 +143,7 @@ class EnhancedBookingController {
           received: date
         });
       }
-  
+
       if (moment(date).isBefore(moment().startOf('day'))) {
         return res.status(400).json({
           success: false,
@@ -77,16 +151,16 @@ class EnhancedBookingController {
           received: date
         });
       }
-  
+
       // Use the slot generation service
       const result = await slotService.generateAvailableSlots(entityId, entityType, date);
-  
+
       // Add booking type information based on entity type
       if (result.success) {
         result.entityType = entityType;
         result.bookingType = entityType;
         result.requiresPayment = entityType === 'offer';
-        
+
         if (entityType === 'offer') {
           // Calculate access fee for offers
           try {
@@ -104,10 +178,10 @@ class EnhancedBookingController {
           result.accessFee = 0; // No access fee for direct service bookings
         }
       }
-  
+
       const statusCode = result.success ? 200 : (result.message.includes('not found') ? 404 : 400);
       return res.status(statusCode).json(result);
-  
+
     } catch (error) {
       console.error('💥 Error getting unified slots:', error);
       res.status(500).json({
@@ -158,7 +232,7 @@ class EnhancedBookingController {
       if (result.success) {
         result.bookingType = 'offer';
         result.requiresPayment = true;
-        
+
         // Calculate access fee based on offer discount
         try {
           const offer = await Offer.findByPk(offerId);
@@ -245,324 +319,437 @@ class EnhancedBookingController {
   // ==================== BOOKING CREATION WITH ENHANCED TYPE HANDLING ====================
 
   /**
-   * Create booking with enhanced type handling (offer vs service)
+   * Create booking with enhanced type handling (offer vs service) and fixed date handling
    */
-  async create(req, res) {
-    let transaction;
+ /**
+   * Create booking with enhanced type handling (offer vs service) and fixed date handling
+   */
+ async create(req, res) {
+  let transaction;
+  let transactionCommitted = false;
 
+  try {
+    // Start transaction if sequelize is available
+    if (sequelize) {
+      transaction = await sequelize.transaction();
+    }
+
+    const {
+      offerId,
+      serviceId,
+      userId,
+      startTime,
+      storeId,
+      branchId,
+      staffId,
+      notes,
+      paymentData,
+      clientInfo,
+      bookingType
+    } = req.body;
+
+    console.log('🎯 Creating enhanced booking:', {
+      offerId,
+      serviceId,
+      userId,
+      startTime,
+      storeId,
+      branchId,
+      staffId,
+      bookingType
+    });
+
+    // FIXED: Normalize and validate datetime
+    let bookingDateTime;
     try {
-      // Start transaction if sequelize is available
-      if (sequelize) {
-        transaction = await sequelize.transaction();
-      }
-
-      const {
-        offerId,
-        serviceId,
-        userId,
-        startTime,
-        storeId,
-        branchId, // NEW: Support for branchId
-        staffId,
-        notes,
-        paymentData,
-        clientInfo,
-        bookingType // 'offer' or 'service'
-      } = req.body;
-
-      console.log('🎯 Creating enhanced booking:', {
-        offerId,
-        serviceId,
-        userId,
-        startTime,
-        storeId,
-        branchId,
-        staffId,
-        bookingType
+      bookingDateTime = this.normalizeDateTime(startTime);
+      console.log('✅ Normalized datetime:', bookingDateTime.format('YYYY-MM-DDTHH:mm:ss'));
+    } catch (dateError) {
+      if (transaction && !transactionCommitted) await transaction.rollback();
+      return res.status(400).json({
+        success: false,
+        message: `Invalid start time format: ${dateError.message}`,
+        received: { startTime },
+        expected: 'YYYY-MM-DDTHH:mm:ss (e.g., 2025-08-25T09:00:00)'
       });
+    }
 
-      // Validate booking type
-      const determinedBookingType = bookingType || (offerId ? 'offer' : 'service');
-      
-      if (!['offer', 'service'].includes(determinedBookingType)) {
-        if (transaction) await transaction.rollback();
-        return res.status(400).json({
-          success: false,
-          message: 'Valid booking type (offer or service) is required'
-        });
-      }
+    // Validate booking type
+    const determinedBookingType = bookingType || (offerId ? 'offer' : 'service');
 
-      // Validate required fields based on booking type
-      if (determinedBookingType === 'offer' && !offerId) {
-        if (transaction) await transaction.rollback();
-        return res.status(400).json({
-          success: false,
-          message: 'Offer ID is required for offer bookings'
-        });
-      }
+    if (!['offer', 'service'].includes(determinedBookingType)) {
+      if (transaction && !transactionCommitted) await transaction.rollback();
+      return res.status(400).json({
+        success: false,
+        message: 'Valid booking type (offer or service) is required'
+      });
+    }
 
-      if (determinedBookingType === 'service' && !serviceId) {
-        if (transaction) await transaction.rollback();
-        return res.status(400).json({
-          success: false,
-          message: 'Service ID is required for service bookings'
-        });
-      }
+    // Validate required fields based on booking type
+    if (determinedBookingType === 'offer' && !offerId) {
+      if (transaction && !transactionCommitted) await transaction.rollback();
+      return res.status(400).json({
+        success: false,
+        message: 'Offer ID is required for offer bookings'
+      });
+    }
 
-      if (!userId || !startTime) {
-        if (transaction) await transaction.rollback();
-        return res.status(400).json({
-          success: false,
-          message: 'User ID and start time are required'
-        });
-      }
+    if (determinedBookingType === 'service' && !serviceId) {
+      if (transaction && !transactionCommitted) await transaction.rollback();
+      return res.status(400).json({
+        success: false,
+        message: 'Service ID is required for service bookings'
+      });
+    }
 
-      // Get entity details and determine service
-      let bookingEntity, service;
+    if (!userId) {
+      if (transaction && !transactionCommitted) await transaction.rollback();
+      return res.status(400).json({
+        success: false,
+        message: 'User ID is required'
+      });
+    }
 
-      if (determinedBookingType === 'offer') {
-        bookingEntity = await Offer.findByPk(offerId, {
-          include: [{
-            model: Service,
-            as: 'service',
-            include: [{
-              model: Store,
-              as: 'store'
-            }]
-          }],
-          ...(transaction && { transaction })
-        });
+    // Get entity details and determine service
+    let bookingEntity, service;
 
-        if (!bookingEntity) {
-          if (transaction) await transaction.rollback();
-          return res.status(404).json({ success: false, message: 'Offer not found' });
-        }
-
-        service = bookingEntity.service;
-
-        // Validate offer is active and not expired
-        if (bookingEntity.status !== 'active') {
-          if (transaction) await transaction.rollback();
-          return res.status(400).json({
-            success: false,
-            message: 'This offer is no longer active'
-          });
-        }
-
-        if (bookingEntity.expiration_date && new Date(bookingEntity.expiration_date) < new Date()) {
-          if (transaction) await transaction.rollback();
-          return res.status(400).json({
-            success: false,
-            message: 'This offer has expired'
-          });
-        }
-
-      } else {
-        // Direct service booking
-        service = await Service.findByPk(serviceId, {
+    if (determinedBookingType === 'offer') {
+      bookingEntity = await Offer.findByPk(offerId, {
+        include: [{
+          model: Service,
+          as: 'service',
           include: [{
             model: Store,
             as: 'store'
-          }],
-          ...(transaction && { transaction })
-        });
-
-        if (!service) {
-          if (transaction) await transaction.rollback();
-          return res.status(404).json({ success: false, message: 'Service not found' });
-        }
-
-        bookingEntity = service;
-      }
-
-      // Check service booking enabled
-      if (!service.booking_enabled) {
-        if (transaction) await transaction.rollback();
-        return res.status(400).json({
-          success: false,
-          message: 'Online booking is not enabled for this service'
-        });
-      }
-
-      // Get user details
-      const user = await User.findByPk(userId, {
+          }]
+        }],
         ...(transaction && { transaction })
       });
 
-      if (!user) {
-        if (transaction) await transaction.rollback();
+      if (!bookingEntity) {
+        if (transaction && !transactionCommitted) await transaction.rollback();
+        return res.status(404).json({ success: false, message: 'Offer not found' });
+      }
+
+      service = bookingEntity.service;
+
+      // Validate offer is active and not expired
+      if (bookingEntity.status !== 'active') {
+        if (transaction && !transactionCommitted) await transaction.rollback();
+        return res.status(400).json({
+          success: false,
+          message: 'This offer is no longer active'
+        });
+      }
+
+      if (bookingEntity.expiration_date && new Date(bookingEntity.expiration_date) < new Date()) {
+        if (transaction && !transactionCommitted) await transaction.rollback();
+        return res.status(400).json({
+          success: false,
+          message: 'This offer has expired'
+        });
+      }
+
+    } else {
+      // Direct service booking
+      service = await Service.findByPk(serviceId, {
+        include: [{
+          model: Store,
+          as: 'store'
+        }],
+        ...(transaction && { transaction })
+      });
+
+      if (!service) {
+        if (transaction && !transactionCommitted) await transaction.rollback();
+        return res.status(404).json({ success: false, message: 'Service not found' });
+      }
+
+      bookingEntity = service;
+    }
+
+    // Check service booking enabled
+    if (!service.booking_enabled) {
+      if (transaction && !transactionCommitted) await transaction.rollback();
+      return res.status(400).json({
+        success: false,
+        message: 'Online booking is not enabled for this service'
+      });
+    }
+
+    // Get user details
+    const user = await User.findByPk(userId, {
+      ...(transaction && { transaction })
+    });
+
+    if (!user) {
+      if (transaction && !transactionCommitted) await transaction.rollback();
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    // Validate advance booking rules using normalized datetime
+    const now = moment();
+    const advanceMinutes = bookingDateTime.diff(now, 'minutes');
+
+    if (service.canAcceptBooking && !service.canAcceptBooking(advanceMinutes)) {
+      if (transaction && !transactionCommitted) await transaction.rollback();
+      const minAdvance = Math.ceil((service.min_advance_booking || 60) / 60);
+      const maxAdvance = Math.ceil((service.max_advance_booking || 7 * 24 * 60) / (60 * 24));
+      return res.status(400).json({
+        success: false,
+        message: `Booking must be made between ${minAdvance} hours and ${maxAdvance} days in advance`
+      });
+    }
+
+    // CRITICAL: Check slot availability using normalized datetime
+    const date = bookingDateTime.format('YYYY-MM-DD');
+    const time = bookingDateTime.format('h:mm A');
+
+    console.log('🔍 Checking slot availability:', {
+      entityType: determinedBookingType,
+      entityId: determinedBookingType === 'offer' ? offerId : serviceId,
+      date,
+      time,
+      normalizedDateTime: bookingDateTime.format('YYYY-MM-DDTHH:mm:ss')
+    });
+
+    const entityIdForSlot = determinedBookingType === 'offer' ? offerId : serviceId;
+    const availabilityCheck = await slotService.isSlotAvailable(entityIdForSlot, determinedBookingType, date, time);
+
+    if (!availabilityCheck.available) {
+      if (transaction && !transactionCommitted) await transaction.rollback();
+      return res.status(400).json({
+        success: false,
+        message: availabilityCheck.reason || 'Selected time slot is no longer available'
+      });
+    }
+
+    console.log(`✅ Slot availability confirmed: ${availabilityCheck.remainingSlots} remaining`);
+
+    // Validate branch and staff if provided
+    let bookingBranch = null;
+    let bookingStore = null;
+
+    // Handle branch validation
+    if (branchId && Branch) {
+      bookingBranch = await Branch.findByPk(branchId, {
+        ...(transaction && { transaction })
+      });
+      if (!bookingBranch) {
+        if (transaction && !transactionCommitted) await transaction.rollback();
         return res.status(404).json({
           success: false,
-          message: 'User not found'
+          message: 'Branch not found'
         });
       }
-
-      // Validate advance booking rules
-      const bookingDateTime = moment(startTime);
-      const now = moment();
-      const advanceMinutes = bookingDateTime.diff(now, 'minutes');
-
-      if (service.canAcceptBooking && !service.canAcceptBooking(advanceMinutes)) {
-        if (transaction) await transaction.rollback();
-        const minAdvance = Math.ceil((service.min_advance_booking || 60) / 60);
-        const maxAdvance = Math.ceil((service.max_advance_booking || 7 * 24 * 60) / (60 * 24));
-        return res.status(400).json({
+      bookingStore = await Store.findByPk(bookingBranch.storeId, {
+        ...(transaction && { transaction })
+      });
+    } else if (storeId && Store) {
+      bookingStore = await Store.findByPk(storeId, {
+        ...(transaction && { transaction })
+      });
+      if (!bookingStore) {
+        if (transaction && !transactionCommitted) await transaction.rollback();
+        return res.status(404).json({
           success: false,
-          message: `Booking must be made between ${minAdvance} hours and ${maxAdvance} days in advance`
+          message: 'Store not found'
         });
       }
+    } else {
+      bookingStore = service.store;
+    }
 
-      // CRITICAL: Check slot availability
-      const date = moment(startTime).format('YYYY-MM-DD');
-      const time = moment(startTime).format('h:mm A');
-
-      const entityIdForSlot = determinedBookingType === 'offer' ? offerId : serviceId;
-      const availabilityCheck = await slotService.isSlotAvailable(entityIdForSlot, determinedBookingType, date, time);
-
-      if (!availabilityCheck.available) {
-        if (transaction) await transaction.rollback();
-        return res.status(400).json({
-          success: false,
-          message: availabilityCheck.reason || 'Selected time slot is no longer available'
-        });
-      }
-
-      console.log(`✅ Slot availability confirmed: ${availabilityCheck.remainingSlots} remaining`);
-
-      // Validate branch and staff if provided
-      let bookingBranch = null;
-      let bookingStore = null;
-
-      // NEW: Handle branch validation
-      if (branchId && Branch) {
-        bookingBranch = await Branch.findByPk(branchId, {
-          ...(transaction && { transaction })
-        });
-        if (!bookingBranch) {
-          if (transaction) await transaction.rollback();
-          return res.status(404).json({
-            success: false,
-            message: 'Branch not found'
-          });
-        }
-        bookingStore = await Store.findByPk(bookingBranch.storeId, {
-          ...(transaction && { transaction })
-        });
-      } else if (storeId && Store) {
-        bookingStore = await Store.findByPk(storeId, {
-          ...(transaction && { transaction })
-        });
-        if (!bookingStore) {
-          if (transaction) await transaction.rollback();
-          return res.status(404).json({
-            success: false,
-            message: 'Store not found'
-          });
-        }
-      } else {
-        bookingStore = service.store;
-      }
-
-      let bookingStaff = null;
-      if (staffId && Staff) {
-        const staffQuery = {
-          id: staffId,
-          status: 'active'
-        };
-
-        // Add branch or store filter for staff
-        if (bookingBranch) {
-          staffQuery.branchId = bookingBranch.id;
-        } else if (bookingStore) {
-          staffQuery.storeId = bookingStore.id;
-        }
-
-        bookingStaff = await Staff.findOne({
-          where: staffQuery,
-          ...(transaction && { transaction })
-        });
-
-        if (!bookingStaff) {
-          if (transaction) await transaction.rollback();
-          return res.status(404).json({
-            success: false,
-            message: 'Staff member not found or not available at this location'
-          });
-        }
-      }
-
-      // Calculate end time based on service duration
-      const serviceDuration = service.duration || 60;
-      const endTime = moment(startTime).add(serviceDuration, 'minutes').toDate();
-
-      // Process payment ONLY for offers
-      let paymentRecord = null;
-      let accessFee = 0;
-      
-      if (determinedBookingType === 'offer') {
-        // Calculate access fee
-        const discount = parseFloat(bookingEntity.discount) || 20;
-        accessFee = parseFloat((discount * 0.15).toFixed(2));
-        
-        if (paymentData && paymentData.amount > 0) {
-          paymentRecord = await this.processPayment(paymentData, transaction);
-          if (!paymentRecord && paymentData.amount > 0) {
-            if (transaction) await transaction.rollback();
-            return res.status(400).json({
-              success: false,
-              message: 'Payment processing failed'
-            });
-          }
-        }
-      } else {
-        console.log('🔄 Service booking - no payment required');
-        accessFee = 0;
-      }
-
-      // Create the booking
-      const bookingData = {
-        offerId: determinedBookingType === 'offer' ? offerId : null,
-        serviceId: serviceId || service.id, // Always store service ID for reference
-        userId,
-        startTime: moment(startTime).toDate(),
-        endTime,
-        status: determinedBookingType === 'offer' ? (paymentRecord ? 'confirmed' : 'pending') : 'confirmed',
-        storeId: bookingStore?.id,
-        branchId: bookingBranch?.id, // NEW: Store branchId
-        staffId: bookingStaff?.id,
-        notes: notes || '',
-        paymentId: paymentRecord?.id,
-        paymentUniqueCode: paymentRecord?.unique_code,
-        accessFee: accessFee,
-        bookingType: determinedBookingType
+    let bookingStaff = null;
+    if (staffId && Staff) {
+      const staffQuery = {
+        id: staffId,
+        status: 'active'
       };
 
-      const booking = await Booking.create(bookingData, {
+      // Add branch or store filter for staff
+      if (bookingBranch) {
+        staffQuery.branchId = bookingBranch.id;
+      } else if (bookingStore) {
+        staffQuery.storeId = bookingStore.id;
+      }
+
+      bookingStaff = await Staff.findOne({
+        where: staffQuery,
         ...(transaction && { transaction })
       });
 
-      // Generate QR code for booking verification
-      try {
-        const qrCodeUrl = await this.generateQRCode(booking, req);
+      if (!bookingStaff) {
+        if (transaction && !transactionCommitted) await transaction.rollback();
+        return res.status(404).json({
+          success: false,
+          message: 'Staff member not found or not available at this location'
+        });
+      }
+    }
+
+    // Calculate end time based on service duration using normalized datetime
+    const serviceDuration = service.duration || 60;
+    const endTime = bookingDateTime.clone().add(serviceDuration, 'minutes').toDate();
+
+    // Process payment ONLY for offers
+    let paymentRecord = null;
+    let accessFee = 0;
+
+    if (determinedBookingType === 'offer') {
+      // Calculate access fee
+      const discount = parseFloat(bookingEntity.discount) || 20;
+      accessFee = parseFloat((discount * 0.15).toFixed(2));
+
+      if (paymentData && paymentData.amount > 0) {
+        paymentRecord = await this.processPayment(paymentData, transaction);
+        if (!paymentRecord && paymentData.amount > 0) {
+          if (transaction && !transactionCommitted) await transaction.rollback();
+          return res.status(400).json({
+            success: false,
+            message: 'Payment processing failed'
+          });
+        }
+      }
+    } else {
+      console.log('🔄 Service booking - no payment required');
+      accessFee = 0;
+    }
+
+    // Create the booking with properly formatted datetime
+    const bookingData = {
+      userId,
+      startTime: bookingDateTime.toDate(),
+      endTime,
+      status: determinedBookingType === 'offer' ? (paymentRecord ? 'confirmed' : 'pending') : 'confirmed',
+      storeId: bookingStore?.id,
+      branchId: bookingBranch?.id,
+      staffId: bookingStaff?.id,
+      notes: notes || '',
+      accessFee: accessFee,
+      bookingType: determinedBookingType
+    };
+    
+    // CRITICAL FIX: Set either offerId OR serviceId based on booking type
+    if (determinedBookingType === 'offer') {
+      bookingData.offerId = offerId;
+      // serviceId stays undefined/null for offer bookings
+    } else {
+      bookingData.serviceId = serviceId || service.id;
+      // offerId stays undefined/null for service bookings
+    }
+
+    // Add payment fields only for offer bookings
+    if (determinedBookingType === 'offer' && paymentRecord) {
+      bookingData.paymentId = paymentRecord.id;
+      bookingData.paymentUniqueCode = paymentRecord.unique_code;
+    }
+
+    console.log('📋 Final booking data before creation:', {
+      ...bookingData,
+      bookingType: determinedBookingType,
+      hasOfferId: !!bookingData.offerId,
+      hasServiceId: !!bookingData.serviceId
+    });
+
+    // Validation before creation
+    if (determinedBookingType === 'offer' && !bookingData.offerId) {
+      if (transaction && !transactionCommitted) await transaction.rollback();
+      return res.status(400).json({
+        success: false,
+        message: 'Offer ID is required for offer bookings'
+      });
+    }
+
+    if (determinedBookingType === 'service' && !bookingData.serviceId) {
+      if (transaction && !transactionCommitted) await transaction.rollback();
+      return res.status(400).json({
+        success: false,
+        message: 'Service ID is required for service bookings'
+      });
+    }
+
+    // FIXED: Single booking creation
+    let booking;
+    try {
+      booking = await Booking.create(bookingData, {
+        ...(transaction && { transaction })
+      });
+
+      console.log(`✅ ${determinedBookingType} booking created successfully:`, {
+        id: booking.id,
+        bookingType: booking.bookingType,
+        offerId: booking.offerId,
+        serviceId: booking.serviceId,
+        startTime: booking.startTime
+      });
+
+    } catch (bookingCreationError) {
+      console.error('💥 Booking creation failed:', bookingCreationError);
+
+      if (transaction && !transactionCommitted) await transaction.rollback();
+
+      // Handle specific validation errors
+      if (bookingCreationError.name === 'SequelizeValidationError') {
+        const validationErrors = bookingCreationError.errors.map(err => err.message).join(', ');
+        return res.status(400).json({
+          success: false,
+          message: `Booking validation failed: ${validationErrors}`,
+          details: bookingCreationError.errors
+        });
+      }
+
+      // Handle database constraint errors
+      if (bookingCreationError.name === 'SequelizeDatabaseError') {
+        return res.status(400).json({
+          success: false,
+          message: 'Database constraint violation. Please check your booking details.',
+          error: process.env.NODE_ENV === 'development' ? bookingCreationError.message : 'Database error'
+        });
+      }
+
+      // Generic error
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to create booking',
+        error: process.env.NODE_ENV === 'development' ? bookingCreationError.message : 'Internal server error'
+      });
+    }
+
+    // Generate QR code for booking verification
+    try {
+      const qrCodeUrl = await this.generateQRCode(booking, req);
+      if (qrCodeUrl) {
         await booking.update({ qrCode: qrCodeUrl }, {
           ...(transaction && { transaction })
         });
-      } catch (qrError) {
-        console.warn('QR code generation failed:', qrError.message);
       }
+    } catch (qrError) {
+      console.warn('QR code generation failed:', qrError.message);
+    }
 
-      // Send confirmation email
-      try {
-        await this.sendBookingConfirmationEmail(booking, bookingEntity, user, bookingStore, bookingStaff, determinedBookingType);
-      } catch (emailError) {
-        console.warn('Email sending failed:', emailError.message);
-      }
+    // FIXED: Commit transaction before any async operations that might fail
+    if (transaction && !transactionCommitted) {
+      await transaction.commit();
+      transactionCommitted = true;
+      console.log('✅ Transaction committed successfully');
+    }
 
-      // Commit transaction
-      if (transaction) await transaction.commit();
+    // Send confirmation email (after transaction commit)
+    try {
+      await this.sendBookingConfirmationEmail(booking, bookingEntity, user, bookingStore, bookingStaff, determinedBookingType);
+    } catch (emailError) {
+      console.warn('Email sending failed:', emailError.message);
+      // Don't fail the entire request if email fails
+    }
 
-      // Fetch complete booking data for response
-      const completeBooking = await Booking.findByPk(booking.id, {
+    // Fetch complete booking data for response
+    let completeBooking;
+    try {
+      completeBooking = await Booking.findByPk(booking.id, {
         include: [
           {
             model: Offer,
@@ -603,43 +790,56 @@ class EnhancedBookingController {
           }] : [])
         ]
       });
-
-      console.log(`✅ Enhanced ${determinedBookingType} booking created successfully:`, booking.id);
-
-      // Prepare response message
-      let responseMessage;
-      if (determinedBookingType === 'offer') {
-        responseMessage = paymentRecord
-          ? `Offer booking created successfully with payment. ${availabilityCheck.remainingSlots - 1} slots remaining for this time.`
-          : `Offer booking created successfully. Payment required to confirm. ${availabilityCheck.remainingSlots - 1} slots remaining.`;
-      } else {
-        responseMessage = `Service booking confirmed successfully. ${availabilityCheck.remainingSlots - 1} slots remaining for this time.`;
-      }
-
-      res.status(201).json({
-        success: true,
-        booking: completeBooking || booking,
-        payment: paymentRecord,
-        availability: {
-          remainingSlots: availabilityCheck.remainingSlots - 1,
-          totalSlots: availabilityCheck.totalSlots
-        },
-        bookingType: determinedBookingType,
-        requiresPayment: determinedBookingType === 'offer',
-        accessFee: accessFee,
-        message: responseMessage
-      });
-
-    } catch (error) {
-      if (transaction) await transaction.rollback();
-      console.error('💥 Enhanced booking creation error:', error);
-      res.status(500).json({
-        success: false,
-        message: 'Failed to create booking',
-        error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
-      });
+    } catch (fetchError) {
+      console.warn('Failed to fetch complete booking data:', fetchError.message);
+      completeBooking = booking;
     }
+
+    console.log(`✅ Enhanced ${determinedBookingType} booking created successfully:`, booking.id);
+
+    // Prepare response message
+    let responseMessage;
+    if (determinedBookingType === 'offer') {
+      responseMessage = paymentRecord
+        ? `Offer booking created successfully with payment. ${availabilityCheck.remainingSlots - 1} slots remaining for this time.`
+        : `Offer booking created successfully. Payment required to confirm. ${availabilityCheck.remainingSlots - 1} slots remaining.`;
+    } else {
+      responseMessage = `Service booking confirmed successfully. ${availabilityCheck.remainingSlots - 1} slots remaining for this time.`;
+    }
+
+    res.status(201).json({
+      success: true,
+      booking: completeBooking || booking,
+      payment: paymentRecord,
+      availability: {
+        remainingSlots: availabilityCheck.remainingSlots - 1,
+        totalSlots: availabilityCheck.totalSlots
+      },
+      bookingType: determinedBookingType,
+      requiresPayment: determinedBookingType === 'offer',
+      accessFee: accessFee,
+      message: responseMessage
+    });
+
+  } catch (error) {
+    // Only rollback if transaction hasn't been committed
+    if (transaction && !transactionCommitted) {
+      try {
+        await transaction.rollback();
+        console.log('✅ Transaction rolled back due to error');
+      } catch (rollbackError) {
+        console.error('💥 Failed to rollback transaction:', rollbackError.message);
+      }
+    }
+    
+    console.error('💥 Enhanced booking creation error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to create booking',
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+    });
   }
+}
 
   /**
    * Create offer booking specifically
@@ -657,17 +857,17 @@ class EnhancedBookingController {
     return this.create(req, res);
   }
 
-  // ==================== BRANCH AND STAFF ROUTES - NEW ====================
+  // ==================== BRANCH AND STAFF ROUTES ====================
 
   /**
-   * NEW: Get staff specifically for an offer (gets service branch and assigned staff)
+   * Get staff specifically for an offer
    */
   async getStaffForOffer(req, res) {
     try {
       const { offerId } = req.params;
-  
+
       console.log('👥 Getting staff for offer:', offerId);
-  
+
       if (!Offer) {
         return res.status(200).json({
           success: true,
@@ -675,8 +875,7 @@ class EnhancedBookingController {
           message: 'Staff service not available'
         });
       }
-  
-      // FIXED: Get offer with service and branch details using correct field names
+
       const offer = await Offer.findByPk(offerId, {
         include: [{
           model: Service,
@@ -685,31 +884,29 @@ class EnhancedBookingController {
           include: [{
             model: Store,
             as: 'store',
-            attributes: ['id', 'name', 'location']  // FIXED: Only use guaranteed columns
+            attributes: ['id', 'name', 'location']
           }]
         }]
       });
-  
+
       if (!offer || !offer.service) {
         return res.status(404).json({
           success: false,
           message: 'Offer or associated service not found'
         });
       }
-  
+
       const service = offer.service;
-      console.log('📋 FIXED: Service details:', {
+      console.log('📋 Service details:', {
         serviceId: service.id,
         serviceName: service.name,
         branchId: service.branch_id,
         storeId: service.store_id
       });
-  
-      // Get staff assigned to this service's branch and this specific service
+
       let staff = [];
-  
+
       if (Staff && service.branch_id) {
-        // Staff assigned to the service's branch AND this specific service
         if (StaffService) {
           staff = await Staff.findAll({
             where: {
@@ -720,7 +917,7 @@ class EnhancedBookingController {
               model: Service,
               as: 'services',
               where: { id: service.id },
-              through: { 
+              through: {
                 attributes: ['isActive', 'assignedAt'],
                 where: { isActive: true }
               },
@@ -731,7 +928,6 @@ class EnhancedBookingController {
             order: [['name', 'ASC']]
           });
         } else {
-          // Fallback: All active staff from the service's branch
           staff = await Staff.findAll({
             where: {
               branchId: service.branch_id,
@@ -742,7 +938,6 @@ class EnhancedBookingController {
           });
         }
       } else if (Staff && service.store_id) {
-        // Fallback: If no branch_id, get staff from the store
         staff = await Staff.findAll({
           where: {
             storeId: service.store_id,
@@ -752,10 +947,9 @@ class EnhancedBookingController {
           order: [['name', 'ASC']]
         });
       }
-  
+
       console.log(`👥 Found ${staff.length} staff for offer ${offerId}`);
-  
-      // Clean staff data
+
       const cleanStaff = staff.map(member => ({
         id: member.id,
         name: member.name,
@@ -763,7 +957,7 @@ class EnhancedBookingController {
         branchId: member.branchId,
         assignedToService: !!member.services?.length
       }));
-  
+
       res.status(200).json({
         success: true,
         staff: cleanStaff,
@@ -775,11 +969,10 @@ class EnhancedBookingController {
         },
         message: cleanStaff.length === 0 ? 'No staff assigned to this service' : undefined
       });
-  
+
     } catch (error) {
-      console.error('❌ FIXED: Error getting staff for offer:', error);
-      
-      // Always return success to avoid breaking booking flow
+      console.error('❌ Error getting staff for offer:', error);
+
       res.status(200).json({
         success: true,
         staff: [],
@@ -788,15 +981,16 @@ class EnhancedBookingController {
       });
     }
   }
+
   /**
-   * NEW: Get staff specifically for a service (gets branch and assigned staff)
+   * Get staff specifically for a service
    */
   async getStaffForService(req, res) {
     try {
       const { serviceId } = req.params;
-  
+
       console.log('👥 Getting staff for service:', serviceId);
-  
+
       if (!Service || !Staff) {
         return res.status(200).json({
           success: true,
@@ -804,36 +998,33 @@ class EnhancedBookingController {
           message: 'Staff service not available'
         });
       }
-  
-      // FIXED: Get service with branch details using correct field names
+
       const service = await Service.findByPk(serviceId, {
         attributes: ['id', 'name', 'branch_id', 'store_id'],
         include: [{
           model: Store,
           as: 'store',
-          attributes: ['id', 'name', 'location']  // FIXED: Only use guaranteed columns
+          attributes: ['id', 'name', 'location']
         }]
       });
-  
+
       if (!service) {
         return res.status(404).json({
           success: false,
           message: 'Service not found'
         });
       }
-  
-      console.log('📋 FIXED: Service details:', {
+
+      console.log('📋 Service details:', {
         serviceId: service.id,
         serviceName: service.name,
         branchId: service.branch_id,
         storeId: service.store_id
       });
-  
-      // Get staff assigned to this service's branch and this specific service
+
       let staff = [];
-  
+
       if (service.branch_id) {
-        // Staff from service's branch assigned to this service
         if (StaffService) {
           staff = await Staff.findAll({
             where: {
@@ -844,7 +1035,7 @@ class EnhancedBookingController {
               model: Service,
               as: 'services',
               where: { id: service.id },
-              through: { 
+              through: {
                 attributes: ['isActive', 'assignedAt'],
                 where: { isActive: true }
               },
@@ -855,7 +1046,6 @@ class EnhancedBookingController {
             order: [['name', 'ASC']]
           });
         } else {
-          // Fallback: All staff from the branch
           staff = await Staff.findAll({
             where: {
               branchId: service.branch_id,
@@ -866,7 +1056,6 @@ class EnhancedBookingController {
           });
         }
       } else {
-        // Fallback: Staff from store if no branch
         staff = await Staff.findAll({
           where: {
             storeId: service.store_id,
@@ -876,9 +1065,9 @@ class EnhancedBookingController {
           order: [['name', 'ASC']]
         });
       }
-  
+
       console.log(`👥 Found ${staff.length} staff for service ${serviceId}`);
-  
+
       const cleanStaff = staff.map(member => ({
         id: member.id,
         name: member.name,
@@ -886,7 +1075,7 @@ class EnhancedBookingController {
         branchId: member.branchId,
         assignedToService: !!member.services?.length
       }));
-  
+
       res.status(200).json({
         success: true,
         staff: cleanStaff,
@@ -898,10 +1087,10 @@ class EnhancedBookingController {
         },
         message: cleanStaff.length === 0 ? 'No staff assigned to this service' : undefined
       });
-  
+
     } catch (error) {
-      console.error('❌ FIXED: Error getting staff for service:', error);
-      
+      console.error('❌ Error getting staff for service:', error);
+
       res.status(200).json({
         success: true,
         staff: [],
@@ -912,15 +1101,14 @@ class EnhancedBookingController {
   }
 
   /**
-   * NEW: Get branches for offer (instead of stores)
+   * Get branches for offer
    */
   async getBranchesForOffer(req, res) {
     try {
       const { offerId } = req.params;
-  
+
       console.log('🏢 Getting branch for offer:', offerId);
-  
-      // FIXED: Use correct Store column names from your model
+
       const offer = await Offer.findByPk(offerId, {
         include: [{
           model: Service,
@@ -930,65 +1118,63 @@ class EnhancedBookingController {
             model: Store,
             as: 'store',
             attributes: [
-              'id', 
-              'name', 
-              'location', 
-              'phone_number',      // FIXED: Correct column name
-              'opening_time', 
-              'closing_time', 
+              'id',
+              'name',
+              'location',
+              'phone_number',
+              'opening_time',
+              'closing_time',
               'working_days'
             ]
           }]
         }]
       });
-  
+
       if (!offer || !offer.service) {
         return res.status(404).json({
           success: false,
           message: 'Offer or associated service not found'
         });
       }
-  
+
       const service = offer.service;
-      
-      console.log('📋 FIXED: Service details:', {
+
+      console.log('📋 Service details:', {
         serviceId: service.id,
         serviceName: service.name,
         branchId: service.branch_id,
         storeId: service.store_id
       });
-      
-      // If service has a branch_id, get branch details
+
       let branch = null;
       if (service.branch_id && Branch) {
         try {
           branch = await Branch.findByPk(service.branch_id, {
             attributes: ['id', 'name', 'address', 'phone', 'openingTime', 'closingTime', 'workingDays']
           });
-          
+
           if (branch) {
-            console.log('✅ FIXED: Branch found:', branch.name);
+            console.log('✅ Branch found:', branch.name);
           }
         } catch (branchError) {
-          console.warn('⚠️ FIXED: Error fetching branch:', branchError.message);
+          console.warn('⚠️ Error fetching branch:', branchError.message);
         }
       }
-  
-      // If no branch found, use store as fallback (main branch)
+
       if (!branch && service.store) {
-        console.log('🏪 FIXED: Using store as fallback branch');
+        console.log('🏪 Using store as fallback branch');
         branch = {
           id: `store-${service.store.id}`,
           name: service.store.name + ' (Main Branch)',
           address: service.store.location,
-          phone: service.store.phone_number,      // FIXED: Use correct field name
+          phone: service.store.phone_number,
           openingTime: service.store.opening_time,
           closingTime: service.store.closing_time,
           workingDays: service.store.working_days,
           isMainBranch: true
         };
       }
-  
+
       res.status(200).json({
         success: true,
         branch: branch,
@@ -999,24 +1185,24 @@ class EnhancedBookingController {
         },
         message: !branch ? 'No branch information available' : undefined
       });
-  
+
     } catch (error) {
-      console.error('❌ FIXED: Error getting branch for offer:', error);
-      
+      console.error('❌ Error getting branch for offer:', error);
+
       if (error.name === 'SequelizeDatabaseError') {
         console.error('💥 Database error details:', {
           message: error.message,
           sql: error.sql,
           original: error.original?.message
         });
-        
+
         return res.status(500).json({
           success: false,
           message: 'Database error occurred while fetching branch information',
           error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
         });
       }
-      
+
       res.status(500).json({
         success: false,
         message: 'Error fetching branch for offer',
@@ -1026,47 +1212,45 @@ class EnhancedBookingController {
   }
 
   /**
-   * NEW: Get branches for service (instead of stores)
+   * Get branches for service
    */
   async getBranchesForService(req, res) {
     try {
       const { serviceId } = req.params;
-  
+
       console.log('🏢 Getting branch for service:', serviceId);
-  
-      // FIXED: Use correct Store column names
+
       const service = await Service.findByPk(serviceId, {
         attributes: ['id', 'name', 'branch_id', 'store_id'],
         include: [{
           model: Store,
           as: 'store',
           attributes: [
-            'id', 
-            'name', 
-            'location', 
-            'phone_number',      // FIXED: Correct column name
-            'opening_time', 
-            'closing_time', 
+            'id',
+            'name',
+            'location',
+            'phone_number',
+            'opening_time',
+            'closing_time',
             'working_days'
           ]
         }]
       });
-  
+
       if (!service) {
         return res.status(404).json({
           success: false,
           message: 'Service not found'
         });
       }
-  
-      console.log('📋 FIXED: Service details:', {
+
+      console.log('📋 Service details:', {
         serviceId: service.id,
         serviceName: service.name,
         branchId: service.branch_id,
         storeId: service.store_id
       });
-  
-      // Get branch if service has branch_id
+
       let branch = null;
       if (service.branch_id && Branch) {
         try {
@@ -1074,24 +1258,23 @@ class EnhancedBookingController {
             attributes: ['id', 'name', 'address', 'phone', 'openingTime', 'closingTime', 'workingDays']
           });
         } catch (branchError) {
-          console.warn('⚠️ FIXED: Error fetching branch:', branchError.message);
+          console.warn('⚠️ Error fetching branch:', branchError.message);
         }
       }
-  
-      // Fallback to store as main branch
+
       if (!branch && service.store) {
         branch = {
           id: `store-${service.store.id}`,
           name: service.store.name + ' (Main Branch)',
           address: service.store.location,
-          phone: service.store.phone_number,      // FIXED: Use correct field name
+          phone: service.store.phone_number,
           openingTime: service.store.opening_time,
           closingTime: service.store.closing_time,
           workingDays: service.store.working_days,
           isMainBranch: true
         };
       }
-  
+
       res.status(200).json({
         success: true,
         branch: branch,
@@ -1102,24 +1285,24 @@ class EnhancedBookingController {
         },
         message: !branch ? 'No branch information available' : undefined
       });
-  
+
     } catch (error) {
-      console.error('❌ FIXED: Error getting branch for service:', error);
-      
+      console.error('❌ Error getting branch for service:', error);
+
       if (error.name === 'SequelizeDatabaseError') {
         console.error('💥 Database error details:', {
           message: error.message,
           sql: error.sql,
           original: error.original?.message
         });
-        
+
         return res.status(500).json({
           success: false,
           message: 'Database error occurred while fetching branch information',
           error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
         });
       }
-      
+
       res.status(500).json({
         success: false,
         message: 'Error fetching branch for service',
@@ -1127,10 +1310,11 @@ class EnhancedBookingController {
       });
     }
   }
+
   // ==================== LEGACY COMPATIBILITY ====================
 
   /**
-   * Legacy: Get available slots (legacy endpoint - determines type from parameters)
+   * Legacy: Get available slots
    */
   async getAvailableSlots(req, res) {
     try {
@@ -1138,7 +1322,6 @@ class EnhancedBookingController {
 
       console.log('📅 Legacy getAvailableSlots called:', { offerId, serviceId, date });
 
-      // Determine booking type and route to appropriate method
       if (offerId) {
         req.query = { date, offerId };
         return this.getAvailableSlotsForOffer(req, res);
@@ -1163,7 +1346,7 @@ class EnhancedBookingController {
   }
 
   /**
-   * Legacy: Get stores for offer bookings (now redirects to branches)
+   * Legacy: Get stores for offer bookings
    */
   async getStoresForOffer(req, res) {
     try {
@@ -1171,13 +1354,11 @@ class EnhancedBookingController {
 
       console.log('🏪 Getting stores for offer (legacy):', offerId);
 
-      // Get branch data
-      const branchResponse = await this.getBranchesForOffer(req, { 
-        json: (data) => data // Mock response object
+      const branchResponse = await this.getBranchesForOffer(req, {
+        json: (data) => data
       });
 
       if (branchResponse.success && branchResponse.branch) {
-        // Convert branch to store format for compatibility
         const stores = [{
           id: branchResponse.branch.id,
           name: branchResponse.branch.name,
@@ -1196,7 +1377,6 @@ class EnhancedBookingController {
         });
       }
 
-      // Fallback to old method
       const offer = await Offer.findByPk(offerId, {
         include: [{
           model: Service,
@@ -1234,7 +1414,7 @@ class EnhancedBookingController {
   }
 
   /**
-   * Legacy: Get stores for service bookings (now redirects to branches)
+   * Legacy: Get stores for service bookings
    */
   async getStoresForService(req, res) {
     try {
@@ -1242,13 +1422,11 @@ class EnhancedBookingController {
 
       console.log('🏪 Getting stores for service (legacy):', serviceId);
 
-      // Get branch data
-      const branchResponse = await this.getBranchesForService(req, { 
-        json: (data) => data // Mock response object
+      const branchResponse = await this.getBranchesForService(req, {
+        json: (data) => data
       });
 
       if (branchResponse.success && branchResponse.branch) {
-        // Convert branch to store format for compatibility
         const stores = [{
           id: branchResponse.branch.id,
           name: branchResponse.branch.name,
@@ -1267,7 +1445,6 @@ class EnhancedBookingController {
         });
       }
 
-      // Fallback to old method
       const service = await Service.findByPk(serviceId, {
         include: [{
           model: Store,
@@ -1308,15 +1485,14 @@ class EnhancedBookingController {
       const { storeId } = req.params;
       const { serviceId, offerId, entityType, entityId } = req.query;
 
-      console.log('👥 Getting staff for store with filters:', { 
-        storeId, 
-        serviceId, 
-        offerId, 
-        entityType, 
-        entityId 
+      console.log('👥 Getting staff for store with filters:', {
+        storeId,
+        serviceId,
+        offerId,
+        entityType,
+        entityId
       });
 
-      // Check if Staff model is available
       if (!Staff) {
         console.warn('⚠️ Staff model not available');
         return res.status(200).json({
@@ -1326,7 +1502,6 @@ class EnhancedBookingController {
         });
       }
 
-      // Validate storeId
       if (!storeId || storeId === 'undefined' || storeId === 'null') {
         return res.status(400).json({
           success: false,
@@ -1336,11 +1511,10 @@ class EnhancedBookingController {
 
       let targetServiceId = serviceId;
 
-      // If we have an offerId, get the service from the offer
       if (offerId || entityType === 'offer') {
         const offerIdToUse = offerId || entityId;
         console.log('🎯 Getting service from offer:', offerIdToUse);
-        
+
         if (Offer) {
           try {
             const offer = await Offer.findByPk(offerIdToUse, {
@@ -1351,13 +1525,13 @@ class EnhancedBookingController {
                 attributes: ['id', 'name']
               }]
             });
-            
+
             if (offer) {
               targetServiceId = offer.service_id;
-              console.log('✅ Found service from offer:', { 
-                offerId: offerIdToUse, 
+              console.log('✅ Found service from offer:', {
+                offerId: offerIdToUse,
                 serviceId: targetServiceId,
-                serviceName: offer.service?.name 
+                serviceName: offer.service?.name
               });
             } else {
               console.warn('⚠️ Offer not found:', offerIdToUse);
@@ -1374,8 +1548,7 @@ class EnhancedBookingController {
 
       if (targetServiceId) {
         console.log('🔍 Getting staff assigned to service:', targetServiceId);
-        
-        // Get staff assigned to the specific service through StaffService junction table
+
         if (StaffService) {
           staff = await Staff.findAll({
             where: {
@@ -1384,23 +1557,22 @@ class EnhancedBookingController {
             },
             include: [{
               model: Service,
-              as: 'services', // Use the association alias from your Staff model
+              as: 'services',
               where: { id: targetServiceId },
-              through: { 
+              through: {
                 attributes: ['isActive', 'assignedAt'],
-                where: { isActive: true } // Only active assignments
+                where: { isActive: true }
               },
               attributes: ['id', 'name'],
-              required: true // Inner join - only staff assigned to this service
+              required: true
             }],
             attributes: ['id', 'name', 'role'],
             order: [['name', 'ASC']]
           });
-          
+
           console.log(`👥 Found ${staff.length} staff assigned to service ${targetServiceId}`);
         } else {
           console.warn('⚠️ StaffService model not available, falling back to all store staff');
-          // Fallback to all store staff if junction table not available
           staff = await Staff.findAll({
             where: {
               storeId: storeId,
@@ -1412,8 +1584,7 @@ class EnhancedBookingController {
         }
       } else {
         console.log('🔄 No specific service found, getting all store staff');
-        
-        // No specific service - get all store staff
+
         staff = await Staff.findAll({
           where: {
             storeId: storeId,
@@ -1424,12 +1595,10 @@ class EnhancedBookingController {
         });
       }
 
-      // Clean up staff data for response
       const cleanStaff = staff.map(member => ({
         id: member.id,
         name: member.name,
         role: member.role,
-        // Include service assignment info if available
         ...(member.services && member.services.length > 0 && {
           assignmentInfo: {
             assignedAt: member.services[0].StaffService?.assignedAt,
@@ -1450,17 +1619,16 @@ class EnhancedBookingController {
           offerId,
           entityType
         },
-        message: cleanStaff.length === 0 ? 
-          (targetServiceId ? 
-            'No staff assigned to this service' : 
+        message: cleanStaff.length === 0 ?
+          (targetServiceId ?
+            'No staff assigned to this service' :
             'No staff available for selection'
           ) : undefined
       });
 
     } catch (error) {
       console.error('❌ Error getting staff for store:', error);
-      
-      // CRITICAL: Never throw errors for staff fetch failures in booking context
+
       res.status(200).json({
         success: true,
         staff: [],
@@ -1472,131 +1640,156 @@ class EnhancedBookingController {
 
   // ==================== BOOKING MANAGEMENT METHODS ====================
 
-  /**
-   * Get user's bookings with enhanced filtering for booking types
+/**
+   * Get user's bookings with enhanced filtering - FIXED with proper aliases
    */
-  async getUserBookings(req, res) {
-    try {
-      const { userId } = req.query;
-      const { status, type, bookingType, page = 1, limit = 10, upcoming = false } = req.query;
+async getUserBookings(req, res) {
+  try {
+    const { userId } = req.query;
+    const { status, type, bookingType, page = 1, limit = 10, upcoming = false } = req.query;
 
-      const targetUserId = userId || req.user?.id;
+    const targetUserId = userId || req.user?.id;
 
-      if (!targetUserId) {
-        return res.status(400).json({
-          success: false,
-          message: 'User ID is required'
-        });
-      }
-
-      if (!Booking) {
-        return res.status(503).json({
-          success: false,
-          message: 'Booking service temporarily unavailable'
-        });
-      }
-
-      const whereClause = { userId: targetUserId };
-      if (status) whereClause.status = status;
-      if (bookingType) whereClause.bookingType = bookingType; // Filter by 'offer' or 'service'
-
-      // Filter upcoming bookings
-      if (upcoming === 'true') {
-        whereClause.startTime = {
-          [Op.gte]: new Date()
-        };
-      }
-
-      const offset = (parseInt(page) - 1) * parseInt(limit);
-
-      const { count, rows: bookings } = await Booking.findAndCountAll({
-        where: whereClause,
-        include: [
-          {
-            model: Offer,
-            required: false,
-            include: [
-              {
-                model: Service,
-                as: 'service',
-                required: false,
-                include: [{
-                  model: Store,
-                  as: 'store',
-                  required: false
-                }]
-              }
-            ]
-          },
-          {
-            model: Service,
-            required: false,
-            include: [{
-              model: Store,
-              as: 'store',
-              required: false
-            }]
-          },
-          {
-            model: Payment,
-            required: false
-          },
-          {
-            model: Staff,
-            required: false,
-            attributes: ['id', 'name', 'role']
-          },
-          ...(Branch ? [{
-            model: Branch,
-            required: false,
-            attributes: ['id', 'name', 'address', 'phone']
-          }] : [])
-        ],
-        order: [['startTime', 'DESC']],
-        limit: parseInt(limit),
-        offset: offset
-      });
-
-      // Enhance bookings with booking type information
-      const enhancedBookings = bookings.map(booking => {
-        const bookingJson = booking.toJSON();
-
-        // Add booking type metadata
-        bookingJson.isOfferBooking = booking.bookingType === 'offer' || !!booking.offerId;
-        bookingJson.isServiceBooking = booking.bookingType === 'service' || (!booking.offerId && !!booking.serviceId);
-        bookingJson.requiresPayment = bookingJson.isOfferBooking;
-        bookingJson.accessFeePaid = bookingJson.isOfferBooking && !!booking.paymentId;
-
-        return bookingJson;
-      });
-
-      res.status(200).json({
-        success: true,
-        bookings: enhancedBookings,
-        pagination: {
-          total: count,
-          page: parseInt(page),
-          limit: parseInt(limit),
-          totalPages: Math.ceil(count / parseInt(limit))
-        },
-        summary: {
-          total: count,
-          offerBookings: enhancedBookings.filter(b => b.isOfferBooking).length,
-          serviceBookings: enhancedBookings.filter(b => b.isServiceBooking).length,
-          upcomingBookings: enhancedBookings.filter(b => new Date(b.startTime) > new Date()).length
-        }
-      });
-
-    } catch (error) {
-      console.error('Error fetching user bookings:', error);
-      res.status(500).json({
+    if (!targetUserId) {
+      return res.status(400).json({
         success: false,
-        message: 'Failed to fetch bookings',
-        error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+        message: 'User ID is required'
       });
     }
-  }
 
+    if (!Booking) {
+      return res.status(503).json({
+        success: false,
+        message: 'Booking service temporarily unavailable'
+      });
+    }
+
+    const whereClause = { userId: targetUserId };
+    if (status) whereClause.status = status;
+    if (bookingType) whereClause.bookingType = bookingType;
+
+    if (upcoming === 'true') {
+      whereClause.startTime = {
+        [Op.gte]: new Date()
+      };
+    }
+
+    const offset = (parseInt(page) - 1) * parseInt(limit);
+
+    // FIXED: Use exact associations from your models/index.js
+    const { count, rows: bookings } = await Booking.findAndCountAll({
+      where: whereClause,
+      include: [
+        {
+          model: Offer,
+          as: 'offer', // matches your index.js
+          required: false,
+          include: [
+            {
+              model: Service,
+              as: 'service',
+              required: false,
+              include: [{
+                model: Store,
+                as: 'store',
+                required: false
+              }]
+            }
+          ]
+        },
+        {
+          model: User,
+          as: 'bookingUser', // FIXED: your index.js uses 'bookingUser', not 'user'
+          required: false,
+          attributes: ['id', 'firstName', 'lastName', 'email', 'phoneNumber']
+        },
+        {
+          model: Store,
+          as: 'store', // matches your index.js
+          required: false,
+          attributes: ['id', 'name', 'location', 'phone_number']
+        }
+        // Removed Staff, Payment, Service, Branch - these associations don't exist in your index.js
+      ],
+      order: [['startTime', 'DESC']],
+      limit: parseInt(limit),
+      offset: offset
+    });
+
+    // Enhanced booking processing - map actual associations to frontend format
+    const enhancedBookings = bookings.map(booking => {
+      const bookingJson = booking.toJSON();
+
+      // Add computed fields
+      bookingJson.isOfferBooking = booking.bookingType === 'offer' || !!booking.offerId;
+      bookingJson.isServiceBooking = booking.bookingType === 'service' || (!booking.offerId && !!booking.serviceId);
+      bookingJson.requiresPayment = bookingJson.isOfferBooking;
+      bookingJson.accessFeePaid = bookingJson.isOfferBooking && !!booking.paymentId;
+
+      // Map actual associations to frontend-expected format
+      if (booking.offer) {
+        bookingJson.Offer = booking.offer;
+      }
+      
+      // FIXED: Map 'bookingUser' to 'User' for frontend compatibility
+      if (booking.bookingUser) {
+        bookingJson.User = booking.bookingUser;
+      }
+      
+      if (booking.store) {
+        bookingJson.Store = booking.store;
+      }
+      
+      // For service bookings, get service info from offer->service if available
+      // This is a limitation until we add direct Service association
+      if (bookingJson.isServiceBooking && !bookingJson.Service && booking.offer?.service) {
+        bookingJson.Service = booking.offer.service;
+      }
+
+      return bookingJson;
+    });
+
+    res.status(200).json({
+      success: true,
+      bookings: enhancedBookings,
+      pagination: {
+        total: count,
+        page: parseInt(page),
+        limit: parseInt(limit),
+        totalPages: Math.ceil(count / parseInt(limit))
+      },
+      summary: {
+        total: count,
+        offerBookings: enhancedBookings.filter(b => b.isOfferBooking).length,
+        serviceBookings: enhancedBookings.filter(b => b.isServiceBooking).length,
+        upcomingBookings: enhancedBookings.filter(b => new Date(b.startTime) > new Date()).length
+      }
+    });
+
+  } catch (error) {
+    console.error('Error fetching user bookings:', error);
+    
+    // Enhanced error handling for association issues
+    if (error.name === 'SequelizeEagerLoadingError') {
+      console.error('Association error details:', {
+        message: error.message,
+        original: error.original?.message
+      });
+      
+      return res.status(500).json({
+        success: false,
+        message: 'Database association error. Please contact support.',
+        error: process.env.NODE_ENV === 'development' ? error.message : 'Association error'
+      });
+    }
+    
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch bookings',
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+    });
+  }
+}
   /**
    * Get booking by ID
    */
@@ -1666,7 +1859,6 @@ class EnhancedBookingController {
         });
       }
 
-      // Add enhanced metadata
       const bookingJson = booking.toJSON();
       bookingJson.isOfferBooking = booking.bookingType === 'offer' || !!booking.offerId;
       bookingJson.isServiceBooking = booking.bookingType === 'service' || (!booking.offerId && !!booking.serviceId);
@@ -1760,7 +1952,6 @@ class EnhancedBookingController {
         });
       }
 
-      // Check if booking can be cancelled
       if (['cancelled', 'completed'].includes(booking.status)) {
         return res.status(400).json({
           success: false,
@@ -1768,12 +1959,11 @@ class EnhancedBookingController {
         });
       }
 
-      // Check cancellation timing
       const now = new Date();
       const bookingStart = new Date(booking.startTime);
       const hoursUntilBooking = (bookingStart - now) / (1000 * 60 * 60);
 
-      const minCancellationHours = booking.bookingType === 'offer' ? 2 : 0.5; // 2 hours for offers, 30 min for services
+      const minCancellationHours = booking.bookingType === 'offer' ? 2 : 0.5;
 
       if (hoursUntilBooking < minCancellationHours) {
         return res.status(400).json({
@@ -1782,20 +1972,16 @@ class EnhancedBookingController {
         });
       }
 
-      // Update booking status
-      await booking.update({ 
+      await booking.update({
         status: 'cancelled',
         cancellationReason: reason,
         cancelledAt: now
       });
 
-      // Handle refund for offer bookings
       let refund = null;
       if (booking.bookingType === 'offer' && booking.paymentId && refundRequested && hoursUntilBooking >= 24) {
         try {
-          // Process refund logic here
           console.log('Processing refund for booking:', bookingId);
-          // refund = await this.processRefund(booking.paymentId, reason);
         } catch (refundError) {
           console.error('Refund processing failed:', refundError);
         }
@@ -1884,13 +2070,12 @@ class EnhancedBookingController {
   }
 
   /**
-   * Send booking confirmation email with type-specific content
+   * Send booking confirmation email
    */
   async sendBookingConfirmationEmail(booking, entity, user, store, staff, bookingType) {
     console.log(`📧 Sending confirmation email for ${bookingType} booking:`, booking.id);
 
     try {
-      // Email content would differ based on booking type
       const emailSubject = bookingType === 'offer'
         ? `Offer Booking Confirmation - ${entity.title || entity.service?.name}`
         : `Service Booking Confirmation - ${entity.name}`;
@@ -1904,16 +2089,13 @@ class EnhancedBookingController {
       console.log(`✅ Email would be sent with subject: ${emailSubject}`);
       console.log(`💰 Payment info: ${paymentInfo}`);
 
-      // Implement actual email sending here
-      // await emailService.send(user.email, emailSubject, emailContent);
-
     } catch (error) {
       console.error('Email sending failed:', error);
     }
   }
 
   /**
-   * Debug working days format for entities
+   * Debug working days format
    */
   async debugWorkingDays(req, res) {
     try {
@@ -1928,7 +2110,6 @@ class EnhancedBookingController {
 
       console.log(`🐛 Debug working days for ${entityType}: ${entityId}`);
 
-      // Get entity and store
       let entity, service, store;
 
       if (entityType === 'offer') {
@@ -1961,10 +2142,8 @@ class EnhancedBookingController {
         });
       }
 
-      // Run debug on working days
       const debugResult = slotService.debugWorkingDays(store);
 
-      // Test validation for different days
       const testDates = [];
       for (let i = 0; i < 7; i++) {
         const testDate = moment().add(i, 'days').format('YYYY-MM-DD');
@@ -2005,14 +2184,8 @@ class EnhancedBookingController {
     }
   }
 
-
-   
-
   // ==================== HELPER METHODS ====================
 
-  /**
-   * Helper methods
-   */
   generateUniqueCode() {
     return 'PAY_' + Date.now() + '_' + Math.random().toString(36).substring(2, 8).toUpperCase();
   }
@@ -2044,15 +2217,15 @@ module.exports = {
   getAvailableSlotsForOffer: enhancedBookingController.getAvailableSlotsForOffer.bind(enhancedBookingController),
   getAvailableSlotsForService: enhancedBookingController.getAvailableSlotsForService.bind(enhancedBookingController),
 
-  // NEW: Branch methods - FIXED EXPORTS
+  // Branch methods
   getBranchesForOffer: enhancedBookingController.getBranchesForOffer.bind(enhancedBookingController),
   getBranchesForService: enhancedBookingController.getBranchesForService.bind(enhancedBookingController),
 
-  // NEW: Enhanced staff methods - FIXED EXPORTS
+  // Enhanced staff methods
   getStaffForOffer: enhancedBookingController.getStaffForOffer.bind(enhancedBookingController),
   getStaffForService: enhancedBookingController.getStaffForService.bind(enhancedBookingController),
-  
-  // Legacy store and staff methods (for backward compatibility)
+
+  // Legacy store and staff methods
   getStoresForOffer: enhancedBookingController.getStoresForOffer.bind(enhancedBookingController),
   getStoresForService: enhancedBookingController.getStoresForService.bind(enhancedBookingController),
   getStaffForStore: enhancedBookingController.getStaffForStore.bind(enhancedBookingController),
@@ -2062,19 +2235,6 @@ module.exports = {
   getBookingById: enhancedBookingController.getBookingById.bind(enhancedBookingController),
   updateBookingStatus: enhancedBookingController.updateBookingStatus.bind(enhancedBookingController),
   cancelBooking: enhancedBookingController.cancelBooking.bind(enhancedBookingController),
-
-  // Merchant booking methods (ADD THESE IF MISSING)
-  getMerchantBookings: enhancedBookingController.getMerchantBookings?.bind(enhancedBookingController),
-  getAllMerchantBookings: enhancedBookingController.getAllMerchantBookings?.bind(enhancedBookingController),
-  merchantUpdateBookingStatus: enhancedBookingController.merchantUpdateBookingStatus?.bind(enhancedBookingController),
-
-  // Analytics methods (ADD THESE IF MISSING)
-  getBookingAnalytics: enhancedBookingController.getBookingAnalytics?.bind(enhancedBookingController),
-  getServiceBookingStats: enhancedBookingController.getServiceBookingStats?.bind(enhancedBookingController),
-
-  // Slot management methods (ADD THESE IF MISSING)
-  checkSlotAvailability: enhancedBookingController.checkSlotAvailability?.bind(enhancedBookingController),
-  getSlotUtilization: enhancedBookingController.getSlotUtilization?.bind(enhancedBookingController),
 
   // Debug methods
   debugWorkingDays: enhancedBookingController.debugWorkingDays.bind(enhancedBookingController),

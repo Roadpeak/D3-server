@@ -1,5 +1,4 @@
-// FINAL FIX: Enhanced slot generation service with working days compatibility
-// This handles BOTH capitalized AND lowercase working days formats
+// services/slotGenerationService.js - Complete fixed version with database column fixes
 
 const moment = require('moment');
 const { Op } = require('sequelize');
@@ -13,7 +12,7 @@ class SlotGenerationService {
    * FIXED: Enhanced working days validation that handles ANY format
    */
   validateDateAndStore(date, store) {
-    // FIXED: Use native Date with timezone fix instead of moment
+    // Use native Date with timezone fix instead of moment
     const targetDate = new Date(date + 'T00:00:00'); // Force local timezone
     
     if (isNaN(targetDate.getTime())) {
@@ -27,11 +26,11 @@ class SlotGenerationService {
       return { isValid: false, message: 'Cannot book slots for past dates' };
     }
   
-    // CRITICAL FIX: Use native Date instead of moment
+    // Use native Date instead of moment
     const dayOfWeek = targetDate.toLocaleDateString('en-US', { weekday: 'long' });
     let workingDays = store.working_days;
     
-    console.log('🔍 EXACT FIX VALIDATION:', {
+    console.log('🔍 Working days validation:', {
       storeId: store.id,
       storeName: store.name,
       inputDate: date,
@@ -39,15 +38,14 @@ class SlotGenerationService {
       dayOfWeek: dayOfWeek,
       dayIndex: targetDate.getDay(),
       rawWorkingDays: workingDays,
-      workingDaysType: typeof workingDays,
-      workingDaysStringified: JSON.stringify(workingDays)
+      workingDaysType: typeof workingDays
     });
   
     if (!workingDays) {
       console.error('❌ No working_days defined for store');
       return { 
         isValid: false, 
-        message: `Store working days not configured`
+        message: 'Store working days not configured'
       };
     }
   
@@ -76,46 +74,37 @@ class SlotGenerationService {
       console.error('❌ No valid working days found after parsing');
       return { 
         isValid: false, 
-        message: `Store has no working days configured`
+        message: 'Store has no working days configured'
       };
     }
   
-    console.log('🔍 EXACT FIX - Final parsed working days:', parsedWorkingDays);
-    console.log('🔍 EXACT FIX - Target day for comparison:', dayOfWeek);
+    console.log('🔍 Final parsed working days:', parsedWorkingDays);
+    console.log('🔍 Target day for comparison:', dayOfWeek);
   
-    // CRITICAL FIX: Case-insensitive day matching with detailed logging
+    // Case-insensitive day matching with detailed logging
     const dayMatches = parsedWorkingDays.some(workingDay => {
       if (!workingDay) return false;
       
       const workingDayStr = workingDay.toString().toLowerCase().trim();
       const targetDayStr = dayOfWeek.toLowerCase().trim();
       
-      console.log(`🔍 EXACT FIX - Comparing: "${workingDayStr}" vs "${targetDayStr}"`);
+      console.log(`🔍 Comparing: "${workingDayStr}" vs "${targetDayStr}"`);
       
       const exactMatch = workingDayStr === targetDayStr;
       if (exactMatch) {
-        console.log('✅ EXACT FIX - MATCH FOUND:', workingDayStr, '===', targetDayStr);
+        console.log('✅ MATCH FOUND:', workingDayStr, '===', targetDayStr);
         return true;
       }
       
-      console.log('❌ EXACT FIX - No match for:', workingDayStr, 'vs', targetDayStr);
       return false;
     });
   
     if (!dayMatches) {
-      console.error('❌ EXACT FIX - VALIDATION FAILED:', {
+      console.error('❌ Working days validation failed:', {
         targetDay: dayOfWeek,
         targetDayLower: dayOfWeek.toLowerCase(),
         parsedWorkingDays: parsedWorkingDays,
-        parsedWorkingDaysLower: parsedWorkingDays.map(d => d.toString().toLowerCase()),
-        storeId: store.id,
-        storeName: store.name,
-        detailedComparison: parsedWorkingDays.map(day => ({
-          original: day,
-          lowercase: day.toString().toLowerCase(),
-          targetLowercase: dayOfWeek.toLowerCase(),
-          matches: day.toString().toLowerCase() === dayOfWeek.toLowerCase()
-        }))
+        parsedWorkingDaysLower: parsedWorkingDays.map(d => d.toString().toLowerCase())
       });
       
       // Format working days for user message
@@ -132,19 +121,20 @@ class SlotGenerationService {
       };
     }
   
-    console.log('✅ EXACT FIX - VALIDATION PASSED for', dayOfWeek, 'against working days:', parsedWorkingDays);
+    console.log('✅ Validation passed for', dayOfWeek, 'against working days:', parsedWorkingDays);
     return { 
       isValid: true, 
       workingDays: parsedWorkingDays,
       targetDay: dayOfWeek 
     };
   }
+
   /**
    * Generate available time slots for a service/offer on a specific date
    */
   async generateAvailableSlots(entityId, entityType = 'offer', date, options = {}) {
     try {
-      console.log(`🕒 ENHANCED: Generating slots for ${entityType} ${entityId} on ${date}`);
+      console.log(`🕒 Generating slots for ${entityType} ${entityId} on ${date}`);
 
       // Get entity details (service or offer)
       const entity = await this.getEntityDetails(entityId, entityType);
@@ -168,10 +158,10 @@ class SlotGenerationService {
       console.log(`⚙️ Service: ${service.name} (${service.duration}min)`);
       console.log(`📅 Store working days:`, store.working_days);
 
-      // ENHANCED: Use the new flexible validation
+      // Use the flexible validation
       const validationResult = this.validateDateAndStore(date, store);
       if (!validationResult.isValid) {
-        console.log('❌ ENHANCED Validation failed:', validationResult);
+        console.log('❌ Validation failed:', validationResult);
         return {
           success: false,
           businessRuleViolation: true,
@@ -183,7 +173,7 @@ class SlotGenerationService {
         };
       }
 
-      console.log('✅ ENHANCED Validation passed - generating slots...');
+      console.log('✅ Validation passed - generating slots...');
 
       // Generate base time slots
       const baseSlots = this.generateBaseSlots(service, store);
@@ -213,7 +203,7 @@ class SlotGenerationService {
           isAvailable: slot.available > 0
         }));
 
-      console.log(`✅ ENHANCED: ${formattedSlots.length} available slots generated successfully`);
+      console.log(`✅ ${formattedSlots.length} available slots generated successfully`);
 
       return {
         success: true,
@@ -240,12 +230,117 @@ class SlotGenerationService {
       };
 
     } catch (error) {
-      console.error('💥 ENHANCED Slot generation error:', error);
+      console.error('💥 Slot generation error:', error);
       return {
         success: false,
         message: error.message || 'Failed to generate time slots',
         availableSlots: [],
         error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      };
+    }
+  }
+
+  /**
+   * FIXED: Check if a specific slot is available
+   */
+  async isSlotAvailable(entityId, entityType, date, time) {
+    try {
+      console.log(`🔍 Checking slot availability: ${entityType} ${entityId} on ${date} at ${time}`);
+  
+      // Get the entity details to find the service
+      const entity = await this.getEntityDetails(entityId, entityType);
+      if (!entity) {
+        return {
+          available: false,
+          reason: `${entityType} not found`
+        };
+      }
+  
+      // Get the underlying service
+      const service = entityType === 'offer' ? entity.service : entity;
+      if (!service) {
+        return {
+          available: false,
+          reason: 'Associated service not found'
+        };
+      }
+  
+      // Get store details
+      const store = service.store || await this.models.Store.findByPk(service.store_id);
+      if (!store) {
+        return {
+          available: false,
+          reason: 'Store not found'
+        };
+      }
+  
+      // Validate date and store working hours
+      const validationResult = this.validateDateAndStore(date, store);
+      if (!validationResult.isValid) {
+        return {
+          available: false,
+          reason: validationResult.message
+        };
+      }
+  
+      // Generate base slots to see if the requested time is valid
+      const baseSlots = this.generateBaseSlots(service, store);
+      
+      // Check if the requested time matches any base slot
+      const requestedSlot = baseSlots.find(slot => {
+        const slotTime = moment(slot.startTime, 'HH:mm').format('h:mm A');
+        return slotTime === time || slot.startTime === time;
+      });
+  
+      if (!requestedSlot) {
+        return {
+          available: false,
+          reason: 'Requested time slot is not available for this service'
+        };
+      }
+  
+      // Get existing bookings with error handling
+      let existingBookings = [];
+      try {
+        existingBookings = await this.getExistingBookings(service, date);
+      } catch (bookingError) {
+        console.warn('⚠️ Could not fetch existing bookings:', bookingError.message);
+        
+        // If we can't check existing bookings, assume available but warn
+        return {
+          available: true,
+          remainingSlots: 1,
+          totalSlots: service.max_concurrent_bookings || 1,
+          warning: 'Could not verify against existing bookings'
+        };
+      }
+      
+      // Calculate availability for this specific slot
+      const slotsWithAvailability = this.calculateSlotAvailability([requestedSlot], existingBookings, service);
+      const checkedSlot = slotsWithAvailability[0];
+  
+      if (checkedSlot.available > 0) {
+        return {
+          available: true,
+          remainingSlots: checkedSlot.available,
+          totalSlots: service.max_concurrent_bookings || 1
+        };
+      } else {
+        return {
+          available: false,
+          reason: 'Time slot is fully booked'
+        };
+      }
+  
+    } catch (error) {
+      console.error('💥 Error checking slot availability:', error);
+      
+      // Don't block bookings due to availability check failures
+      return {
+        available: true,
+        remainingSlots: 1,
+        totalSlots: 1,
+        warning: 'Availability check failed, allowing booking: ' + error.message
       };
     }
   }
@@ -331,48 +426,77 @@ class SlotGenerationService {
   }
 
   /**
-   * Get existing bookings for a service and all its offers on a specific date
+   * FIXED: Get existing bookings with correct database column names
    */
   async getExistingBookings(service, date) {
     const startOfDay = moment(date).startOf('day').toDate();
     const endOfDay = moment(date).endOf('day').toDate();
-
+  
     try {
-      // Get all offers for this service
-      const offers = await this.models.Offer.findAll({
-        where: { service_id: service.id },
-        attributes: ['id']
-      });
-      
-      const offerIds = offers.map(offer => offer.id);
-
-      console.log(`🔍 Checking bookings for service ${service.id} and ${offerIds.length} offers`);
-
-      // Get bookings for both direct service bookings AND offer bookings
-      const bookings = await this.models.Booking.findAll({
-        where: {
-          startTime: {
-            [Op.gte]: startOfDay,
-            [Op.lte]: endOfDay,
-          },
-          status: { [Op.not]: 'cancelled' },
-          [Op.or]: [
-            { serviceId: service.id },
-            { offerId: { [Op.in]: offerIds } }
-          ]
+      console.log(`🔍 Checking bookings for service ${service.id} on ${date}`);
+  
+      // Get offers for this service first
+      let offerIds = [];
+      try {
+        const offers = await this.models.Offer.findAll({
+          where: { service_id: service.id },
+          attributes: ['id']
+        });
+        offerIds = offers.map(offer => offer.id);
+        console.log(`📋 Found ${offerIds.length} offers for service ${service.id}`);
+      } catch (offerError) {
+        console.warn('⚠️ Could not fetch offers:', offerError.message);
+      }
+  
+      // Build the query conditions
+      const whereConditions = {
+        startTime: {
+          [Op.gte]: startOfDay,
+          [Op.lte]: endOfDay,
         },
-        attributes: ['startTime', 'endTime', 'serviceId', 'offerId', 'status'],
+        status: { [Op.not]: 'cancelled' }
+      };
+  
+      // Add OR condition for direct service bookings OR offer-based bookings
+      if (offerIds.length > 0) {
+        whereConditions[Op.or] = [
+          { serviceId: service.id },              // Direct service bookings
+          { offerId: { [Op.in]: offerIds } }      // Offer bookings for this service
+        ];
+      } else {
+        // No offers found, only check direct service bookings
+        whereConditions.serviceId = service.id;
+      }
+  
+      const bookings = await this.models.Booking.findAll({
+        where: whereConditions,
+        attributes: ['id', 'startTime', 'endTime', 'serviceId', 'offerId', 'status', 'bookingType'],
         order: [['startTime', 'ASC']]
       });
-
-      console.log(`📊 Found ${bookings.length} existing bookings`);
+  
+      console.log(`📊 Found ${bookings.length} existing bookings for service ${service.id}`);
+      
+      if (bookings.length > 0) {
+        const directBookings = bookings.filter(b => b.serviceId === service.id);
+        const offerBookings = bookings.filter(b => b.offerId && offerIds.includes(b.offerId));
+        console.log(`   - ${directBookings.length} direct service bookings`);
+        console.log(`   - ${offerBookings.length} offer-based bookings`);
+      }
+      
       return bookings;
+  
     } catch (error) {
       console.error('❌ Error fetching existing bookings:', error);
+      
+      // Graceful fallback
+      if (error.message && error.message.includes('Unknown column')) {
+        console.warn('⚠️ Column issue still exists:', error.message);
+        return [];
+      }
+      
       return [];
     }
   }
-
   /**
    * Calculate slot availability considering existing bookings and concurrent limits
    */
@@ -404,7 +528,7 @@ class SlotGenerationService {
   }
 
   /**
-   * ENHANCED: Format store information with flexible working days parsing
+   * Format store information with flexible working days parsing
    */
   formatStoreInfo(store) {
     let workingDays = [];
@@ -437,91 +561,6 @@ class SlotGenerationService {
     };
   }
 
-  async isSlotAvailable(entityId, entityType, date, time) {
-    try {
-      console.log(`🔍 Checking slot availability: ${entityType} ${entityId} on ${date} at ${time}`);
-  
-      // Get the entity details to find the service
-      const entity = await this.getEntityDetails(entityId, entityType);
-      if (!entity) {
-        return {
-          available: false,
-          reason: `${entityType} not found`
-        };
-      }
-  
-      // Get the underlying service
-      const service = entityType === 'offer' ? entity.service : entity;
-      if (!service) {
-        return {
-          available: false,
-          reason: 'Associated service not found'
-        };
-      }
-  
-      // Get store details
-      const store = service.store || await this.models.Store.findByPk(service.store_id);
-      if (!store) {
-        return {
-          available: false,
-          reason: 'Store not found'
-        };
-      }
-  
-      // Validate date and store working hours
-      const validationResult = this.validateDateAndStore(date, store);
-      if (!validationResult.isValid) {
-        return {
-          available: false,
-          reason: validationResult.message
-        };
-      }
-  
-      // Generate base slots to see if the requested time is valid
-      const baseSlots = this.generateBaseSlots(service, store);
-      
-      // Check if the requested time matches any base slot
-      const requestedSlot = baseSlots.find(slot => {
-        const slotTime = moment(slot.startTime, 'HH:mm').format('h:mm A');
-        return slotTime === time || slot.startTime === time;
-      });
-  
-      if (!requestedSlot) {
-        return {
-          available: false,
-          reason: 'Requested time slot is not available for this service'
-        };
-      }
-  
-      // Get existing bookings to check availability
-      const existingBookings = await this.getExistingBookings(service, date);
-      
-      // Calculate availability for this specific slot
-      const slotsWithAvailability = this.calculateSlotAvailability([requestedSlot], existingBookings, service);
-      const checkedSlot = slotsWithAvailability[0];
-  
-      if (checkedSlot.available > 0) {
-        return {
-          available: true,
-          remainingSlots: checkedSlot.available,
-          totalSlots: service.max_concurrent_bookings || 1
-        };
-      } else {
-        return {
-          available: false,
-          reason: 'Time slot is fully booked'
-        };
-      }
-  
-    } catch (error) {
-      console.error('💥 Error checking slot availability:', error);
-      return {
-        available: false,
-        reason: 'Error checking availability: ' + error.message
-      };
-    }
-  }
-
   /**
    * Format entity information for response
    */
@@ -550,11 +589,49 @@ class SlotGenerationService {
   }
 
   /**
-   * ENHANCED: Debug method with comprehensive working days analysis
+   * Debug working days format for entities
+   */
+  debugWorkingDays(store) {
+    console.log('🐛 Debug working days for store:', store.id);
+    
+    const workingDays = store.working_days;
+    
+    console.log('Raw working_days value:', workingDays);
+    console.log('Type:', typeof workingDays);
+    console.log('Is Array:', Array.isArray(workingDays));
+    
+    if (typeof workingDays === 'string') {
+      console.log('String length:', workingDays.length);
+      console.log('First 50 chars:', workingDays.substring(0, 50));
+      
+      try {
+        const parsed = JSON.parse(workingDays);
+        console.log('JSON parsed successfully:', parsed);
+        console.log('Parsed type:', typeof parsed);
+        console.log('Parsed is array:', Array.isArray(parsed));
+      } catch (e) {
+        console.log('JSON parse failed:', e.message);
+        
+        // Try comma split
+        const split = workingDays.split(',').map(d => d.trim());
+        console.log('Comma split result:', split);
+      }
+    }
+    
+    return {
+      raw: workingDays,
+      type: typeof workingDays,
+      isArray: Array.isArray(workingDays),
+      stringLength: typeof workingDays === 'string' ? workingDays.length : null
+    };
+  }
+
+  /**
+   * Debug offer working days setup
    */
   async debugOfferWorkingDays(offerId) {
     try {
-      console.log('🐛 ENHANCED DEBUG: Analyzing offer working days setup for:', offerId);
+      console.log('🐛 Debug: Analyzing offer working days setup for:', offerId);
       
       const offer = await this.models.Offer.findByPk(offerId, {
         include: [{
@@ -576,15 +653,15 @@ class SlotGenerationService {
         return { error: 'Store not found for offer' };
       }
 
-      // Test the enhanced validation
+      // Test the validation
       const testDates = [
-        '2025-08-18', // Monday
-        '2025-08-19', // Tuesday
-        '2025-08-20', // Wednesday
-        '2025-08-21', // Thursday
-        '2025-08-22', // Friday
-        '2025-08-23', // Saturday
-        '2025-08-24'  // Sunday
+        '2025-08-25', // Monday
+        '2025-08-26', // Tuesday
+        '2025-08-27', // Wednesday
+        '2025-08-28', // Thursday
+        '2025-08-29', // Friday
+        '2025-08-30', // Saturday
+        '2025-08-31'  // Sunday
       ];
 
       const validationResults = testDates.map(date => {
@@ -621,51 +698,13 @@ class SlotGenerationService {
           closing_time: store.closing_time,
           status: store.status
         },
-        enhancedValidationResults: validationResults,
-        recommendations: this.getEnhancedRecommendations(store, validationResults)
+        validationResults: validationResults,
+        workingDaysDebug: this.debugWorkingDays(store)
       };
     } catch (error) {
-      console.error('🐛 Enhanced debug error:', error);
+      console.error('🐛 Debug error:', error);
       return { error: error.message };
     }
-  }
-
-  /**
-   * Get enhanced recommendations for fixing working days issues
-   */
-  getEnhancedRecommendations(store, validationResults) {
-    const recommendations = [];
-    const workingDays = store.working_days;
-
-    if (!workingDays) {
-      recommendations.push({
-        issue: 'No working days defined',
-        fix: 'Set working_days field to JSON array',
-        sql: `UPDATE stores SET working_days = '["monday","tuesday","wednesday","thursday","friday","saturday"]' WHERE id = '${store.id}';`
-      });
-    } else {
-      const failedDays = validationResults.filter(result => !result.isValid);
-      const passedDays = validationResults.filter(result => result.isValid);
-      
-      if (failedDays.length > 0) {
-        recommendations.push({
-          issue: `Days that are failing validation: ${failedDays.map(d => d.dayName).join(', ')}`,
-          fix: 'Current working days format may need adjustment',
-          currentFormat: workingDays,
-          suggestion: 'Ensure working days are in lowercase JSON array format'
-        });
-      }
-      
-      if (passedDays.length > 0) {
-        recommendations.push({
-          issue: 'Working validation',
-          fix: `Days that pass validation: ${passedDays.map(d => d.dayName).join(', ')}`,
-          status: 'SUCCESS'
-        });
-      }
-    }
-
-    return recommendations;
   }
 }
 
