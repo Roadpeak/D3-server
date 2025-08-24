@@ -29,6 +29,7 @@ const { socketManager } = require('./socket/websocket');
 const homedealsstores = require('./routes/homedealsstoresRoutes');
 const favoritesRoutes = require('./routes/favoritesRoutes');
 const serviceRequestRoutes = require('./routes/serviceRequestRoutes');
+const locationRoutes = require('./routes/locationRoutes'); // ADD THIS LINE
 const swaggerUi = require('swagger-ui-express');
 const fs = require('fs');
 const path = require('path');
@@ -180,7 +181,8 @@ app.get('/health', (req, res) => {
     features: {
       serviceRequests: true,
       storeBasedOffers: true,
-      merchantDashboard: true
+      merchantDashboard: true,
+      locationServices: true // ADD THIS
     }
   });
 });
@@ -193,7 +195,8 @@ app.get('/api/v1/cors-test', (req, res) => {
     method: req.method,
     headers: req.headers,
     timestamp: new Date().toISOString(),
-    serviceRequestsEnabled: true
+    serviceRequestsEnabled: true,
+    locationServicesEnabled: true // ADD THIS
   });
 });
 
@@ -204,6 +207,9 @@ app.get('/api/v1/cors-test', (req, res) => {
 // Core user and merchant routes first
 app.use('/api/v1/users', userRoutes);
 app.use('/api/v1/merchants', merchantRoutes);
+
+// Location routes - ADD THIS SECTION
+app.use('/api/v1/locations', locationRoutes);
 
 // Service request routes
 app.use('/api/v1/request-service', serviceRequestRoutes);
@@ -474,6 +480,52 @@ if (process.env.NODE_ENV === 'development') {
     }
   });
 
+  // LOCATION DEBUG ENDPOINT - ADD THIS
+  app.get('/api/v1/debug/location-health', async (req, res) => {
+    try {
+      const { Store, Offer, Service } = sequelize.models;
+      
+      const health = {
+        models: {
+          Store: !!Store,
+          Offer: !!Offer,
+          Service: !!Service
+        },
+        counts: {},
+        sampleLocations: []
+      };
+      
+      if (Store) {
+        try {
+          health.counts.stores = await Store.count();
+          const sampleStores = await Store.findAll({
+            attributes: ['location'],
+            where: {
+              location: { [require('sequelize').Op.not]: null }
+            },
+            limit: 5,
+            raw: true
+          });
+          health.sampleLocations = sampleStores.map(s => s.location);
+        } catch (e) {
+          health.counts.stores = 'Error: ' + e.message;
+        }
+      }
+      
+      res.json({
+        success: true,
+        locationHealthy: Object.values(health.models).every(Boolean),
+        health,
+        timestamp: new Date().toISOString()
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: error.message
+      });
+    }
+  });
+
   // Test user authentication
   app.post('/api/v1/users/login', (req, res) => {
     console.log('Login attempt:', req.body);
@@ -680,11 +732,13 @@ server.listen(PORT, () => {
   console.log(`Chat API: http://localhost:${PORT}/api/v1/chat/*`);
   console.log(`Service Request API: http://localhost:${PORT}/api/v1/request-service/*`);
   console.log(`Merchant Service API: http://localhost:${PORT}/api/v1/merchant/*`);
+  console.log(`Location API: http://localhost:${PORT}/api/v1/locations/*`); // ADD THIS LINE
   
   if (process.env.NODE_ENV === 'development') {
     console.log(`Debug Endpoints:`);
     console.log(`  - DB Status: http://localhost:${PORT}/api/v1/debug/db-status`);
     console.log(`  - Service Request Health: http://localhost:${PORT}/api/v1/debug/service-requests-health`);
+    console.log(`  - Location Health: http://localhost:${PORT}/api/v1/debug/location-health`); // ADD THIS LINE
   }
 });
 

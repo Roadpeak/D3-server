@@ -37,7 +37,7 @@ const formatOffer = (offer) => {
 };
 
 // Helper function to get standard includes with proper aliases
-const getOfferIncludes = () => [
+const getOfferIncludes = (locationFilter = null) => [
   {
     model: Service,
     as: 'service',
@@ -47,6 +47,14 @@ const getOfferIncludes = () => [
         model: Store,
         as: 'store',
         attributes: ['id', 'name', 'logo_url', 'location'],
+        ...(locationFilter && locationFilter !== 'All Locations' && {
+          where: {
+            [Op.or]: [
+              { location: locationFilter },
+              { location: 'All Locations' }
+            ]
+          }
+        })
       }
     ]
   }
@@ -129,11 +137,14 @@ exports.getOffers = async (req, res) => {
       page = 1, 
       limit = 12, 
       category, 
+      location, // ADD: Location parameter
       sortBy = 'latest', 
       store_id, 
       status = 'active',
       search 
     } = req.query;
+    
+    console.log('🌍 getOffers called with location:', location);
     
     const offset = (parseInt(page) - 1) * parseInt(limit);
 
@@ -170,11 +181,20 @@ exports.getOffers = async (req, res) => {
       serviceWhere.category = category;
     }
     
-    // FIXED: Proper search implementation
+    // Search implementation
     if (search) {
       serviceWhere[Op.or] = [
         { name: { [Op.like]: `%${search}%` } },
         { description: { [Op.like]: `%${search}%` } }
+      ];
+    }
+
+    // Build where clause for stores (location filtering)
+    const storeWhere = {};
+    if (location && location !== 'All Locations') {
+      storeWhere[Op.or] = [
+        { location: location },
+        { location: 'All Locations' }
       ];
     }
 
@@ -192,6 +212,8 @@ exports.getOffers = async (req, res) => {
               model: Store,
               as: 'store',
               attributes: ['id', 'name', 'logo_url', 'location'],
+              where: Object.keys(storeWhere).length > 0 ? storeWhere : undefined,
+              required: true // Inner join to ensure store exists and matches location
             }
           ]
         }
@@ -202,12 +224,15 @@ exports.getOffers = async (req, res) => {
       distinct: true, // Important for accurate count with includes
     });
 
+    console.log(`🎯 Found ${offers.length} offers for location: ${location || 'All'}`);
+
     const formattedOffers = offers.map(formatOffer);
     const totalPages = Math.ceil(count / limit);
     const currentPageNum = parseInt(page);
 
     return sendSuccessResponse(res, {
       offers: formattedOffers,
+      location: location || 'All Locations',
       pagination: {
         currentPage: currentPageNum,
         totalPages,
@@ -218,19 +243,30 @@ exports.getOffers = async (req, res) => {
       }
     });
   } catch (err) {
+    console.error('Error fetching offers with location:', err);
     return sendErrorResponse(res, 500, 'Error fetching offers', err);
   }
 };
+
 exports.getRandomOffers = async (req, res) => {
   try {
-    const { limit = 12 } = req.query;
+    const { limit = 12, location } = req.query; // ADD: Location parameter
     
-    console.log('🎲 getRandomOffers called with limit:', limit);
+    console.log('🎲 getRandomOffers called with limit:', limit, 'location:', location);
 
     // Validate limit
     const parsedLimit = parseInt(limit);
     if (isNaN(parsedLimit) || parsedLimit <= 0 || parsedLimit > 100) {
       return sendErrorResponse(res, 400, 'Invalid limit parameter. Must be between 1 and 100');
+    }
+
+    // Build where clause for stores (location filtering)
+    const storeWhere = {};
+    if (location && location !== 'All Locations') {
+      storeWhere[Op.or] = [
+        { location: location },
+        { location: 'All Locations' }
+      ];
     }
 
     const offers = await Offer.findAll({
@@ -240,74 +276,72 @@ exports.getRandomOffers = async (req, res) => {
           [sequelize.Op.gt]: new Date()
         }
       },
+      include: [
+        {
+          model: Service,
+          as: 'service',
+          required: true,
+          attributes: ['id', 'name', 'image_url', 'price', 'duration', 'category', 'type', 'description', 'store_id'],
+          include: [
+            {
+              model: Store,
+              as: 'store',
+              attributes: ['id', 'name', 'logo_url', 'location'],
+              where: Object.keys(storeWhere).length > 0 ? storeWhere : undefined,
+              required: true
+            }
+          ]
+        }
+      ],
       order: sequelize.fn('RAND'), // Use RANDOM() for PostgreSQL, RAND() for MySQL
       limit: parsedLimit,
-      include: getOfferIncludes(),
     });
 
-    console.log(`✅ Found ${offers.length} random offers`);
+    console.log(`✅ Found ${offers.length} random offers for location: ${location || 'All'}`);
 
     if (!offers || offers.length === 0) {
       return sendSuccessResponse(res, { 
         offers: [],
-      }, 'No offers available');
+        location: location || 'All Locations'
+      }, `No offers available${location ? ' for ' + location : ''}`);
     }
 
     const formattedOffers = offers.map(formatOffer);
 
-    return sendSuccessResponse(res, { offers: formattedOffers });
+    return sendSuccessResponse(res, { 
+      offers: formattedOffers,
+      location: location || 'All Locations'
+    });
   } catch (error) {
     console.error('💥 Error in getRandomOffers:', error);
     return sendErrorResponse(res, 500, 'Error fetching random offers', error);
   }
 };
 
-// Add a health check endpoint
-exports.healthCheck = async (req, res) => {
-  try {
-    console.log('🏥 Health check called');
-    
-    // Test database connection
-    await sequelize.authenticate();
-    
-    // Get basic stats
-    const totalOffers = await Offer.count();
-    const activeOffers = await Offer.count({
-      where: { status: 'active' }
-    });
+// Update other methods to include location filtering where relevant...
 
-    return res.status(200).json({
-      success: true,
-      message: 'API is healthy',
-      timestamp: new Date().toISOString(),
-      database: 'connected',
-      stats: {
-        totalOffers,
-        activeOffers
-      }
-    });
-  } catch (error) {
-    console.error('💥 Health check failed:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'API health check failed',
-      error: error.message
-    });
-  }
-};
 exports.getOffersByStore = async (req, res) => {
   try {
     const { storeId } = req.params;
-    const { page = 1, limit = 12, status = 'active' } = req.query;
+    const { page = 1, limit = 12, status = 'active', location } = req.query; // ADD: Location parameter
     const offset = (parseInt(page) - 1) * parseInt(limit);
 
-    // Validate store exists
-    const store = await Store.findByPk(storeId, {
+    // Validate store exists and optionally filter by location
+    const storeWhere = { id: storeId };
+    if (location && location !== 'All Locations') {
+      storeWhere[Op.or] = [
+        { ...storeWhere, location: location },
+        { ...storeWhere, location: 'All Locations' }
+      ];
+    }
+
+    const store = await Store.findOne({
+      where: storeWhere,
       attributes: ['id', 'name', 'logo_url', 'location']
     });
     
     if (!store) {
-      return sendErrorResponse(res, 404, 'Store not found');
+      return sendErrorResponse(res, 404, 'Store not found or not available in this location');
     }
 
     // Build where clause
@@ -352,6 +386,7 @@ exports.getOffersByStore = async (req, res) => {
         logo_url: store.logo_url,
         location: store.location,
       },
+      location: location || store.location,
       pagination: {
         currentPage: currentPageNum,
         totalPages,
@@ -411,7 +446,8 @@ exports.getOfferById = async (req, res) => {
       title: offer.title,
       status: offer.status,
       hasService: !!offer.service,
-      hasStore: !!offer.service?.store
+      hasStore: !!offer.service?.store,
+      storeLocation: offer.service?.store?.location
     });
 
     // Check if offer is expired
@@ -442,7 +478,7 @@ exports.updateOffer = async (req, res) => {
 
     if (!id || id.trim() === '') {
       return sendErrorResponse(res, 400, 'Valid offer ID is required');
-  }
+    }
 
     const offer = await Offer.findByPk(id);
     if (!offer) {
@@ -502,7 +538,7 @@ exports.deleteOffer = async (req, res) => {
     
     if (!id || id.trim() === '') {
       return sendErrorResponse(res, 400, 'Valid offer ID is required');
-  }
+    }
 
     const offer = await Offer.findByPk(id);
     if (!offer) {
@@ -516,9 +552,54 @@ exports.deleteOffer = async (req, res) => {
   }
 };
 
-// Categories endpoint with counts
+// Health check endpoint
+exports.healthCheck = async (req, res) => {
+  try {
+    console.log('🏥 Health check called');
+    
+    // Test database connection
+    await sequelize.authenticate();
+    
+    // Get basic stats
+    const totalOffers = await Offer.count();
+    const activeOffers = await Offer.count({
+      where: { status: 'active' }
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: 'API is healthy',
+      timestamp: new Date().toISOString(),
+      database: 'connected',
+      stats: {
+        totalOffers,
+        activeOffers
+      }
+    });
+  } catch (error) {
+    console.error('💥 Health check failed:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'API health check failed',
+      error: error.message
+    });
+  }
+};
+
+// Categories endpoint with counts (location-aware)
 exports.getCategoriesAlternative = async (req, res) => {
   try {
+    const { location } = req.query; // ADD: Location parameter
+
+    // Build store where clause for location filtering
+    const storeWhere = {};
+    if (location && location !== 'All Locations') {
+      storeWhere[Op.or] = [
+        { location: location },
+        { location: 'All Locations' }
+      ];
+    }
+
     const categories = await Service.findAll({
       attributes: [
         'category',
@@ -535,6 +616,13 @@ exports.getCategoriesAlternative = async (req, res) => {
               [sequelize.Op.gt]: new Date()
             }
           },
+          required: true
+        },
+        {
+          model: Store,
+          as: 'store',
+          attributes: [],
+          where: Object.keys(storeWhere).length > 0 ? storeWhere : undefined,
           required: true
         }
       ],
@@ -556,7 +644,8 @@ exports.getCategoriesAlternative = async (req, res) => {
     return res.status(200).json({
       success: true,
       message: 'Categories fetched successfully',
-      categories: formattedCategories
+      categories: formattedCategories,
+      location: location || 'All Locations'
     });
   } catch (err) {
     console.error('Error fetching categories:', err);
@@ -567,10 +656,20 @@ exports.getCategoriesAlternative = async (req, res) => {
     });
   }
 };
-// Top deals endpoint
+
+// Top deals endpoint (location-aware)
 exports.getTopDeals = async (req, res) => {
   try {
-    const { limit = 3 } = req.query;
+    const { limit = 3, location } = req.query; // ADD: Location parameter
+
+    // Build store where clause for location filtering
+    const storeWhere = {};
+    if (location && location !== 'All Locations') {
+      storeWhere[Op.or] = [
+        { location: location },
+        { location: 'All Locations' }
+      ];
+    }
 
     const topDeals = await Offer.findAll({
       where: { 
@@ -579,23 +678,51 @@ exports.getTopDeals = async (req, res) => {
           [sequelize.Op.gt]: new Date()
         }
       },
+      include: [
+        {
+          model: Service,
+          as: 'service',
+          required: true,
+          attributes: ['id', 'name', 'image_url', 'price', 'duration', 'category', 'type', 'description', 'store_id'],
+          include: [
+            {
+              model: Store,
+              as: 'store',
+              attributes: ['id', 'name', 'logo_url', 'location'],
+              where: Object.keys(storeWhere).length > 0 ? storeWhere : undefined,
+              required: true
+            }
+          ]
+        }
+      ],
       order: [['discount', 'DESC']],
       limit: parseInt(limit),
-      include: getOfferIncludes(),
     });
 
     const formattedDeals = topDeals.map(formatOffer);
 
-    return sendSuccessResponse(res, { topDeals: formattedDeals });
+    return sendSuccessResponse(res, { 
+      topDeals: formattedDeals,
+      location: location || 'All Locations'
+    });
   } catch (err) {
     return sendErrorResponse(res, 500, 'Error fetching top deals', err);
   }
 };
 
-// Featured offers endpoint
+// Featured offers endpoint (location-aware)
 exports.getFeaturedOffers = async (req, res) => {
   try {
-    const { limit = 6 } = req.query;
+    const { limit = 6, location } = req.query; // ADD: Location parameter
+
+    // Build store where clause for location filtering
+    const storeWhere = {};
+    if (location && location !== 'All Locations') {
+      storeWhere[Op.or] = [
+        { location: location },
+        { location: 'All Locations' }
+      ];
+    }
 
     const featuredOffers = await Offer.findAll({
       where: { 
@@ -605,25 +732,54 @@ exports.getFeaturedOffers = async (req, res) => {
           [sequelize.Op.gt]: new Date()
         }
       },
+      include: [
+        {
+          model: Service,
+          as: 'service',
+          required: true,
+          attributes: ['id', 'name', 'image_url', 'price', 'duration', 'category', 'type', 'description', 'store_id'],
+          include: [
+            {
+              model: Store,
+              as: 'store',
+              attributes: ['id', 'name', 'logo_url', 'location'],
+              where: Object.keys(storeWhere).length > 0 ? storeWhere : undefined,
+              required: true
+            }
+          ]
+        }
+      ],
       order: [['createdAt', 'DESC']],
       limit: parseInt(limit),
-      include: getOfferIncludes(),
     });
 
     const formattedOffers = featuredOffers.map(formatOffer);
 
-    return sendSuccessResponse(res, { offers: formattedOffers });
+    return sendSuccessResponse(res, { 
+      offers: formattedOffers,
+      location: location || 'All Locations'
+    });
   } catch (err) {
     return sendErrorResponse(res, 500, 'Error fetching featured offers', err);
   }
 };
 
-// Get offers statistics
+// Get offers statistics (location-aware)
 exports.getOffersStats = async (req, res) => {
   try {
-    const { storeId } = req.params;
+    const { storeId, location } = req.params; // ADD: Location parameter from params or query
 
+    // Build where clause
     const whereClause = storeId ? { '$service.store_id$': storeId } : {};
+    
+    // Build store where clause for location filtering
+    const storeWhere = {};
+    if (location && location !== 'All Locations') {
+      storeWhere[Op.or] = [
+        { location: location },
+        { location: 'All Locations' }
+      ];
+    }
 
     const stats = await Offer.findAll({
       attributes: [
@@ -635,7 +791,16 @@ exports.getOffersStats = async (req, res) => {
           model: Service,
           as: 'service',
           attributes: [],
-          ...(storeId && { where: { store_id: storeId } })
+          ...(storeId && { where: { store_id: storeId } }),
+          include: [
+            {
+              model: Store,
+              as: 'store',
+              attributes: [],
+              where: Object.keys(storeWhere).length > 0 ? storeWhere : undefined,
+              required: true
+            }
+          ]
         }
       ],
       where: whereClause,
@@ -662,7 +827,8 @@ exports.getOffersStats = async (req, res) => {
       stats: {
         ...formattedStats,
         total
-      }
+      },
+      location: location || 'All Locations'
     });
   } catch (err) {
     return sendErrorResponse(res, 500, 'Error fetching offer statistics', err);
