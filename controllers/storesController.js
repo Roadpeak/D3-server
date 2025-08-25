@@ -178,7 +178,7 @@ exports.getStores = async (req, res) => {
       sortBy,
       page = 1,
       limit = 20,
-      search  // Add search parameter
+      search
     } = req.query;
 
     // Build where clause for filtering
@@ -195,7 +195,7 @@ exports.getStores = async (req, res) => {
       ];
     }
 
-    // FIXED: Add search functionality
+    // Add search functionality
     if (search) {
       whereClause[Op.or] = [
         { name: { [Op.like]: `%${search}%` } },
@@ -205,12 +205,26 @@ exports.getStores = async (req, res) => {
       ];
     }
 
-    // FIXED: Build order clause for sorting with correct column names
-    let orderClause = [['createdAt', 'DESC']]; // Changed from 'created_at'
+    // UPDATED: Build order clause with new "Most Reviewed" option
+    let orderClause = [['createdAt', 'DESC']];
 
     switch (sortBy) {
       case 'Popular':
         orderClause = [['rating', 'DESC']];
+        break;
+      case 'Most Reviewed':
+        // ADDED: Sort by review count (subquery to count reviews)
+        orderClause = [
+          [
+            sequelize.literal(`(
+              SELECT COUNT(*) 
+              FROM Reviews 
+              WHERE Reviews.store_id = Store.id
+            )`), 
+            'DESC'
+          ],
+          ['rating', 'DESC'] // Secondary sort by rating
+        ];
         break;
       case 'Highest Cashback':
         orderClause = [
@@ -229,20 +243,39 @@ exports.getStores = async (req, res) => {
         orderClause = [['name', 'DESC']];
         break;
       default:
-        orderClause = [['createdAt', 'DESC']]; // Changed from 'created_at'
+        orderClause = [['createdAt', 'DESC']];
     }
 
     // Calculate pagination
     const offset = (page - 1) * limit;
 
-    console.log('🔍 DEBUG: About to query stores...');
+    console.log('🔍 DEBUG: About to query stores with sort:', sortBy);
 
-    const { count, rows: stores } = await Store.findAndCountAll({
+    // UPDATED: Query with review count as virtual field for Most Reviewed sorting
+    const queryOptions = {
       where: whereClause,
       order: orderClause,
       limit: parseInt(limit),
       offset: parseInt(offset)
-    });
+    };
+
+    // Add review count as virtual attribute when sorting by Most Reviewed
+    if (sortBy === 'Most Reviewed') {
+      queryOptions.attributes = {
+        include: [
+          [
+            sequelize.literal(`(
+              SELECT COUNT(*) 
+              FROM Reviews 
+              WHERE Reviews.store_id = Store.id
+            )`),
+            'reviewCount'
+          ]
+        ]
+      };
+    }
+
+    const { count, rows: stores } = await Store.findAndCountAll(queryOptions);
 
     console.log('🔍 DEBUG: Found stores:', count);
 
@@ -272,25 +305,54 @@ exports.getStores = async (req, res) => {
       }
     }
 
-    // Format stores with follow status
-    const storesWithFollowStatus = stores.map(store => {
+    // UPDATED: Format stores with review counts and follow status
+    const storesWithData = await Promise.all(stores.map(async (store) => {
       const storeData = store.toJSON();
       try {
         storeData.working_days = JSON.parse(storeData.working_days || '[]');
       } catch (e) {
         storeData.working_days = [];
       }
+
+      // Get actual review count and stats for each store
+      let totalReviews = 0;
+      let avgRating = storeData.rating || 0;
+
+      if (Review) {
+        try {
+          const reviewStats = await Review.findOne({
+            where: { store_id: store.id },
+            attributes: [
+              [sequelize.fn('COUNT', sequelize.col('id')), 'totalReviews'],
+              [sequelize.fn('AVG', sequelize.col('rating')), 'avgRating']
+            ],
+            raw: true
+          });
+
+          totalReviews = reviewStats?.totalReviews || 0;
+          avgRating = reviewStats?.avgRating ? 
+            parseFloat(reviewStats.avgRating).toFixed(1) : 
+            (storeData.rating || 0);
+        } catch (err) {
+          console.log('Review stats query failed for store', store.id, ':', err.message);
+        }
+      }
+
       return {
         ...storeData,
         following: followedStoreIds.has(store.id),
         logo: storeData.logo_url,
-        wasRate: storeData.was_rate
+        wasRate: storeData.was_rate,
+        totalReviews: parseInt(totalReviews),
+        reviews: parseInt(totalReviews), // Alias for frontend compatibility
+        rating: parseFloat(avgRating),
+        reviewCount: storeData.reviewCount || totalReviews // From virtual attribute or calculated
       };
-    });
+    }));
 
     return res.status(200).json({
       success: true,
-      stores: storesWithFollowStatus,
+      stores: storesWithData,
       pagination: {
         currentPage: parseInt(page),
         totalPages: Math.ceil(count / limit),
