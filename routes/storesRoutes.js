@@ -62,7 +62,7 @@ router.post('/', authenticateMerchant, storesController.createStore);
 router.post('/:id/follow', verifyToken, storesController.toggleFollowStore);
 router.post('/:id/toggle-follow', verifyToken, storesController.toggleFollowStore);
 router.delete('/:id/unfollow', verifyToken, storesController.toggleFollowStore);
-router.post('/stores/:id/reviews', verifyToken, storesController.submitReview);
+router.post('/:id/reviews', verifyToken, storesController.submitReview);
 
 // Store management routes - merchant only (specific actions before general update)
 router.put('/:id', authenticateMerchant, storesController.updateStore);

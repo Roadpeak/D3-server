@@ -29,7 +29,8 @@ const { socketManager } = require('./socket/websocket');
 const homedealsstores = require('./routes/homedealsstoresRoutes');
 const favoritesRoutes = require('./routes/favoritesRoutes');
 const serviceRequestRoutes = require('./routes/serviceRequestRoutes');
-const locationRoutes = require('./routes/locationRoutes'); // ADD THIS LINE
+const locationRoutes = require('./routes/locationRoutes'); 
+const notificationRoutes = require('./routes/notifications');
 const swaggerUi = require('swagger-ui-express');
 const fs = require('fs');
 const path = require('path');
@@ -239,8 +240,9 @@ app.use('/api/v1/likes', likeRoutes);
 app.use('/api/v1/forms', formRoutes);
 app.use('/api/v1/form-fields', formFieldRoutes);
 app.use('/api/v1/form-responses', formResponseRoutes);
-app.use('/api/v1/users', favoritesRoutes);      // For user favorites endpoints
-app.use('/api/v1/offers', favoritesRoutes);     // For offer favorites endpoints
+app.use('/api/v1/users', favoritesRoutes);     
+app.use('/api/v1/offers', favoritesRoutes); 
+app.use('/api/v1/notifications', notificationRoutes);
 
 // Static file serving
 app.use('/qrcodes', express.static(path.join(__dirname, 'public', 'qrcodes')));

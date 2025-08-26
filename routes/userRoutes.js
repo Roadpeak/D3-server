@@ -14,18 +14,23 @@ const {
   resetPassword,
   getUserBookings,
   getUserChats,
-  // ❌ REMOVED: getUserFavorites, - Using favoritesController instead
-  // NEW: Referral system controllers
+  // Referral system controllers
   getEarnings,
   getEarningActivities,
   validateReferral
 } = require('../controllers/userController');
 
-// ✅ ADD: Import the fixed favorites controller
+// Import the fixed favorites controller
 const favoritesController = require('../controllers/favoritesController');
 
 // Import stores controller for followed stores functionality
 const { getFollowedStores } = require('../controllers/storesController');
+
+// Import notification controller for user settings
+const {
+  getNotificationSettings,
+  updateNotificationSettings
+} = require('../controllers/notificationController');
 
 // Import unified auth middleware
 const { 
@@ -38,12 +43,11 @@ const {
 // PUBLIC ROUTES (No authentication required)
 // ==========================================
 
-// Add this at the top of your routes for testing
+// Test routes
 router.get('/test', (req, res) => {
   res.json({ message: 'User routes are working!' });
 });
 
-// Test OTP endpoint
 router.post('/test-otp', (req, res) => {
   console.log('Test OTP called with:', req.body);
   res.json({ 
@@ -60,7 +64,7 @@ router.post('/login', login);
 router.post('/verify-otp', verifyOtp);
 router.post('/resend-otp', resendOtp);
 
-// NEW: Referral validation (public endpoint for registration)
+// Referral validation (public endpoint for registration)
 router.post('/validate-referral', validateReferral);
 
 // Development only - skip verification
@@ -93,13 +97,32 @@ router.put('/profile', authenticateUser, updateProfile);
 router.get('/bookings', authenticateUser, getUserBookings);
 router.get('/chats', authenticateUser, getUserChats);
 
-// ✅ FIXED: Updated favorites routes to use the fixed controller
+// Updated favorites routes to use the fixed controller
 router.get('/favorites', authenticateUser, favoritesController.getFavorites);
 router.get('/favorites/count', authenticateUser, favoritesController.getFavoritesCount);
 router.get('/favorites/filtered', authenticateUser, favoritesController.getFavoritesWithFilters);
 
 // ==========================================
-// NEW: REFERRAL SYSTEM ROUTES
+// NOTIFICATION SETTINGS ROUTES
+// ==========================================
+
+/**
+ * @route   GET /api/v1/users/notification-settings
+ * @desc    Get notification preferences for authenticated user
+ * @access  Private
+ */
+router.get('/notification-settings', authenticateUser, getNotificationSettings);
+
+/**
+ * @route   PUT /api/v1/users/notification-settings  
+ * @desc    Update notification preferences for authenticated user
+ * @access  Private
+ * @body    { email: boolean, push: boolean, messages: boolean, bookings: boolean, offers: boolean, storeUpdates: boolean }
+ */
+router.put('/notification-settings', authenticateUser, updateNotificationSettings);
+
+// ==========================================
+// REFERRAL SYSTEM ROUTES
 // ==========================================
 
 // Get user earnings data
@@ -107,45 +130,6 @@ router.get('/earnings', authenticateUser, getEarnings);
 
 // Get earning activities
 router.get('/earning-activities', authenticateUser, getEarningActivities);
-
-// ==========================================
-// OTHER PROTECTED ROUTES
-// ==========================================
-
-// Followed stores route
-router.get('/followed-stores', verifyToken, getFollowedStores);
-
-// User dashboard data (summary endpoint)
-router.get('/dashboard', authenticateUser, (req, res) => {
-  res.status(200).json({
-    message: 'User dashboard data',
-    user: req.user,
-    // Add dashboard-specific data here
-  });
-});
-
-// User settings routes
-router.put('/settings', authenticateUser, (req, res) => {
-  res.status(200).json({
-    message: 'Settings updated successfully'
-  });
-});
-
-// Email/Phone verification status
-router.get('/verification-status', authenticateUser, (req, res) => {
-  res.status(200).json({
-    user: {
-      id: req.user.userId,
-      email: req.user.email,
-      isEmailVerified: req.user.isEmailVerified || false,
-      isPhoneVerified: req.user.isPhoneVerified || false,
-    }
-  });
-});
-
-// ==========================================
-// ADDITIONAL USER MANAGEMENT ROUTES (OPTIONAL)
-// ==========================================
 
 // Get user referral statistics (detailed view)
 router.get('/referral-stats', authenticateUser, async (req, res) => {
@@ -197,7 +181,7 @@ router.get('/referrals', authenticateUser, async (req, res) => {
   }
 });
 
-// Update user referral link (if needed)
+// Update user referral link
 router.put('/referral-link', authenticateUser, async (req, res) => {
   try {
     const userService = require('../services/userService');
@@ -261,6 +245,41 @@ router.get('/activity-summary', authenticateUser, async (req, res) => {
       message: 'Error fetching activity summary'
     });
   }
+});
+
+// ==========================================
+// OTHER PROTECTED ROUTES
+// ==========================================
+
+// Followed stores route
+router.get('/followed-stores', verifyToken, getFollowedStores);
+
+// User dashboard data (summary endpoint)
+router.get('/dashboard', authenticateUser, (req, res) => {
+  res.status(200).json({
+    message: 'User dashboard data',
+    user: req.user,
+    // Add dashboard-specific data here
+  });
+});
+
+// User settings routes
+router.put('/settings', authenticateUser, (req, res) => {
+  res.status(200).json({
+    message: 'Settings updated successfully'
+  });
+});
+
+// Email/Phone verification status
+router.get('/verification-status', authenticateUser, (req, res) => {
+  res.status(200).json({
+    user: {
+      id: req.user.userId,
+      email: req.user.email,
+      isEmailVerified: req.user.isEmailVerified || false,
+      isPhoneVerified: req.user.isPhoneVerified || false,
+    }
+  });
 });
 
 // ==========================================
