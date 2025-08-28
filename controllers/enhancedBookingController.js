@@ -2004,6 +2004,1208 @@ async getUserBookings(req, res) {
     }
   }
 
+
+  // Add these methods to your enhancedBookingController.js file
+
+  /**
+   * Get all bookings for merchant's stores/services
+   */
+  async getMerchantBookings(req, res) {
+    try {
+      console.log('📋 Getting merchant bookings');
+
+      if (!Booking) {
+        return res.status(503).json({
+          success: false,
+          message: 'Booking service temporarily unavailable'
+        });
+      }
+
+      const { bookingType, status, storeId, page = 1, limit = 50 } = req.query;
+      
+      // Get merchant info from authenticated request
+      const merchantId = req.user?.merchantId || req.merchant?.id;
+      if (!merchantId) {
+        return res.status(401).json({
+          success: false,
+          message: 'Merchant authentication required'
+        });
+      }
+
+      // First, get all stores for this merchant
+      let merchantStoreIds = [];
+      if (Store) {
+        const merchantStores = await Store.findAll({
+          where: { merchant_id: merchantId },
+          attributes: ['id']
+        });
+        merchantStoreIds = merchantStores.map(store => store.id);
+        
+        if (merchantStoreIds.length === 0) {
+          return res.status(200).json({
+            success: true,
+            bookings: [],
+            message: 'No stores found for this merchant'
+          });
+        }
+      }
+
+      // Build where clause for bookings
+      const whereClause = {};
+      
+      // Filter by booking type if specified
+      if (bookingType) {
+        whereClause.bookingType = bookingType;
+      }
+      
+      // Filter by status if specified
+      if (status) {
+        whereClause.status = status;
+      }
+      
+      // Filter by specific store if specified
+      if (storeId) {
+        whereClause.storeId = storeId;
+      } else if (merchantStoreIds.length > 0) {
+        // Filter by merchant's stores
+        whereClause.storeId = {
+          [Op.in]: merchantStoreIds
+        };
+      }
+
+      const offset = (parseInt(page) - 1) * parseInt(limit);
+
+      // Fetch bookings with associations
+      const { count, rows: bookings } = await Booking.findAndCountAll({
+        where: whereClause,
+        include: [
+          {
+            model: User,
+            as: 'bookingUser',
+            required: false,
+            attributes: ['id', 'firstName', 'lastName', 'email', 'phoneNumber']
+          },
+          {
+            model: Offer,
+            as: 'offer',
+            required: false,
+            include: [{
+              model: Service,
+              as: 'service',
+              required: false,
+              attributes: ['id', 'name', 'duration', 'price']
+            }]
+          },
+          {
+            model: Store,
+            as: 'store',
+            required: false,
+            attributes: ['id', 'name', 'location']
+          },
+          ...(Staff ? [{
+            model: Staff,
+            as: 'staff',
+            required: false,
+            attributes: ['id', 'name', 'role']
+          }] : [])
+        ],
+        order: [['startTime', 'DESC']],
+        limit: parseInt(limit),
+        offset: offset
+      });
+
+      // Process bookings for response
+      const processedBookings = bookings.map(booking => {
+        const bookingData = booking.toJSON();
+        
+        // Add computed fields
+        bookingData.isOfferBooking = booking.bookingType === 'offer' || !!booking.offerId;
+        bookingData.isServiceBooking = booking.bookingType === 'service' || (!booking.offerId && !!booking.serviceId);
+        
+        return bookingData;
+      });
+
+      // Calculate summary statistics
+      const summary = {
+        total: count,
+        offerBookings: processedBookings.filter(b => b.isOfferBooking).length,
+        serviceBookings: processedBookings.filter(b => b.isServiceBooking).length,
+        confirmedBookings: processedBookings.filter(b => b.status === 'confirmed').length,
+        pendingBookings: processedBookings.filter(b => b.status === 'pending').length,
+        completedBookings: processedBookings.filter(b => b.status === 'completed').length,
+        cancelledBookings: processedBookings.filter(b => b.status === 'cancelled').length,
+        upcomingBookings: processedBookings.filter(b => new Date(b.startTime) > new Date()).length
+      };
+
+      console.log(`✅ Retrieved ${count} merchant bookings`);
+
+      res.status(200).json({
+        success: true,
+        bookings: processedBookings,
+        pagination: {
+          total: count,
+          page: parseInt(page),
+          limit: parseInt(limit),
+          totalPages: Math.ceil(count / parseInt(limit))
+        },
+        summary,
+        message: count === 0 ? 'No bookings found' : undefined
+      });
+
+    } catch (error) {
+      console.error('💥 Error getting merchant bookings:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to fetch merchant bookings',
+        error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+      });
+    }
+  }
+
+   /**
+   * Get bookings for a specific merchant store - FIXED: Add missing method
+   */
+   async getMerchantStoreBookings(req, res) {
+    try {
+      const { storeId } = req.params;
+      const { bookingType, status, page = 1, limit = 50 } = req.query;
+      
+      console.log('🏪 Getting bookings for merchant store:', storeId);
+
+      if (!Booking) {
+        return res.status(503).json({
+          success: false,
+          message: 'Booking service temporarily unavailable'
+        });
+      }
+
+      // Verify the store belongs to the authenticated merchant
+      const merchantId = req.user?.merchantId || req.merchant?.id || req.user?.id;
+      if (!merchantId) {
+        return res.status(401).json({
+          success: false,
+          message: 'Merchant authentication required'
+        });
+      }
+
+      // Verify store ownership if Store model exists
+      if (Store) {
+        const store = await Store.findOne({
+          where: { id: storeId, merchant_id: merchantId }
+        });
+
+        if (!store) {
+          return res.status(404).json({
+            success: false,
+            message: 'Store not found or access denied'
+          });
+        }
+      }
+
+      // Build where clause
+      const whereClause = { storeId };
+      
+      if (bookingType) whereClause.bookingType = bookingType;
+      if (status) whereClause.status = status;
+
+      const offset = (parseInt(page) - 1) * parseInt(limit);
+
+      // Fetch bookings with associations
+      const { count, rows: bookings } = await Booking.findAndCountAll({
+        where: whereClause,
+        include: [
+          {
+            model: User,
+            as: 'bookingUser',
+            required: false,
+            attributes: ['id', 'firstName', 'lastName', 'email', 'phoneNumber']
+          },
+          {
+            model: Offer,
+            as: 'offer',
+            required: false,
+            include: [{
+              model: Service,
+              as: 'service',
+              required: false,
+              attributes: ['id', 'name', 'duration', 'price']
+            }]
+          },
+          {
+            model: Store,
+            as: 'store',
+            required: false,
+            attributes: ['id', 'name', 'location']
+          },
+          ...(Staff ? [{
+            model: Staff,
+            as: 'staff',
+            required: false,
+            attributes: ['id', 'name', 'role']
+          }] : [])
+        ],
+        order: [['startTime', 'DESC']],
+        limit: parseInt(limit),
+        offset: offset
+      });
+
+      // Process bookings for response
+      const processedBookings = bookings.map(booking => {
+        const bookingData = booking.toJSON();
+        
+        // Add computed fields
+        bookingData.isOfferBooking = booking.bookingType === 'offer' || !!booking.offerId;
+        bookingData.isServiceBooking = booking.bookingType === 'service' || (!booking.offerId && !!booking.serviceId);
+        bookingData.requiresPayment = bookingData.isOfferBooking;
+        
+        // Map associations for frontend compatibility
+        if (booking.bookingUser) {
+          bookingData.User = booking.bookingUser;
+        }
+        
+        return bookingData;
+      });
+
+      // Calculate summary statistics
+      const summary = {
+        total: count,
+        offerBookings: processedBookings.filter(b => b.isOfferBooking).length,
+        serviceBookings: processedBookings.filter(b => b.isServiceBooking).length,
+        confirmedBookings: processedBookings.filter(b => b.status === 'confirmed').length,
+        pendingBookings: processedBookings.filter(b => b.status === 'pending').length,
+        completedBookings: processedBookings.filter(b => b.status === 'completed').length,
+        cancelledBookings: processedBookings.filter(b => b.status === 'cancelled').length,
+        upcomingBookings: processedBookings.filter(b => new Date(b.startTime) > new Date()).length
+      };
+
+      console.log(`✅ Retrieved ${count} store bookings`);
+
+      res.status(200).json({
+        success: true,
+        bookings: processedBookings,
+        pagination: {
+          total: count,
+          page: parseInt(page),
+          limit: parseInt(limit),
+          totalPages: Math.ceil(count / parseInt(limit))
+        },
+        summary,
+        message: count === 0 ? 'No bookings found for this store' : undefined
+      });
+
+    } catch (error) {
+      console.error('💥 Error getting store bookings:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to fetch store bookings',
+        error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+      });
+    }
+  }
+
+  /**
+   * Update booking status (merchant action) - FIXED: Add missing method
+   */
+  async merchantUpdateBookingStatus(req, res) {
+    try {
+      const { bookingId } = req.params;
+      const { status, notes } = req.body;
+      
+      console.log(`🔄 Merchant updating booking ${bookingId} status to: ${status}`);
+
+      if (!Booking) {
+        return res.status(503).json({
+          success: false,
+          message: 'Booking service temporarily unavailable'
+        });
+      }
+
+      // Verify merchant authentication
+      const merchantId = req.user?.merchantId || req.merchant?.id || req.user?.id;
+      if (!merchantId) {
+        return res.status(401).json({
+          success: false,
+          message: 'Merchant authentication required'
+        });
+      }
+
+      // Find the booking and verify merchant ownership
+      const booking = await Booking.findByPk(bookingId, {
+        include: [{
+          model: Store,
+          as: 'store',
+          required: false,
+          where: Store ? { merchant_id: merchantId } : undefined
+        }]
+      });
+
+      if (!booking) {
+        return res.status(404).json({
+          success: false,
+          message: 'Booking not found or access denied'
+        });
+      }
+
+      // Validate status
+      const validStatuses = ['pending', 'confirmed', 'completed', 'cancelled', 'no-show'];
+      if (!validStatuses.includes(status)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid status',
+          validStatuses
+        });
+      }
+
+      // Update the booking
+      const updateData = {
+        status,
+        updatedBy: 'merchant',
+        updatedAt: new Date()
+      };
+
+      if (notes) {
+        updateData.merchantNotes = notes;
+      }
+
+      await booking.update(updateData);
+
+      // Fetch updated booking with associations
+      const updatedBooking = await Booking.findByPk(bookingId, {
+        include: [
+          {
+            model: User,
+            as: 'bookingUser',
+            required: false,
+            attributes: ['id', 'firstName', 'lastName', 'email', 'phoneNumber']
+          },
+          {
+            model: Offer,
+            as: 'offer',
+            required: false
+          },
+          {
+            model: Store,
+            as: 'store',
+            required: false,
+            attributes: ['id', 'name', 'location']
+          }
+        ]
+      });
+
+      console.log('✅ Merchant booking status updated successfully');
+
+      res.status(200).json({
+        success: true,
+        booking: updatedBooking,
+        message: 'Booking status updated successfully',
+        updatedFields: {
+          status,
+          notes: notes || null,
+          updatedAt: updateData.updatedAt
+        }
+      });
+
+    } catch (error) {
+      console.error('💥 Error updating merchant booking status:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to update booking status',
+        error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+      });
+    }
+  }
+
+  // ==================== ENHANCED MERCHANT METHODS ====================
+
+  /**
+   * Get all bookings for merchant (enhanced version)
+   */
+  async getAllMerchantBookings(req, res) {
+    try {
+      console.log('📋 Getting all merchant bookings (enhanced)');
+
+      if (!Booking) {
+        return res.status(503).json({
+          success: false,
+          message: 'Booking service temporarily unavailable'
+        });
+      }
+
+      const { bookingType, status, page = 1, limit = 50, startDate, endDate, storeId } = req.query;
+      
+      // Get merchant info from authenticated request
+      const merchantId = req.user?.merchantId || req.merchant?.id || req.user?.id;
+      if (!merchantId) {
+        return res.status(401).json({
+          success: false,
+          message: 'Merchant authentication required'
+        });
+      }
+
+      // Get all stores for this merchant
+      let merchantStoreIds = [];
+      if (Store) {
+        const merchantStores = await Store.findAll({
+          where: { merchant_id: merchantId },
+          attributes: ['id', 'name']
+        });
+        merchantStoreIds = merchantStores.map(store => store.id);
+        
+        if (merchantStoreIds.length === 0) {
+          return res.status(200).json({
+            success: true,
+            bookings: [],
+            pagination: {
+              total: 0,
+              page: parseInt(page),
+              limit: parseInt(limit),
+              totalPages: 0
+            },
+            summary: {
+              total: 0,
+              offerBookings: 0,
+              serviceBookings: 0,
+              confirmedBookings: 0,
+              pendingBookings: 0,
+              completedBookings: 0,
+              cancelledBookings: 0,
+              upcomingBookings: 0
+            },
+            message: 'No stores found for this merchant'
+          });
+        }
+      }
+
+      // Build where clause
+      const whereClause = {};
+      
+      // Filter by merchant's stores
+      if (storeId) {
+        // Verify the store belongs to this merchant
+        if (!merchantStoreIds.includes(storeId)) {
+          return res.status(403).json({
+            success: false,
+            message: 'Access denied for this store'
+          });
+        }
+        whereClause.storeId = storeId;
+      } else if (merchantStoreIds.length > 0) {
+        whereClause.storeId = {
+          [Op.in]: merchantStoreIds
+        };
+      }
+      
+      // Filter by booking type if specified
+      if (bookingType) {
+        whereClause.bookingType = bookingType;
+      }
+      
+      // Filter by status if specified
+      if (status) {
+        whereClause.status = status;
+      }
+
+      // Filter by date range if specified
+      if (startDate || endDate) {
+        whereClause.startTime = {};
+        if (startDate) {
+          whereClause.startTime[Op.gte] = new Date(startDate);
+        }
+        if (endDate) {
+          whereClause.startTime[Op.lte] = new Date(endDate);
+        }
+      }
+
+      const offset = (parseInt(page) - 1) * parseInt(limit);
+
+      // Fetch bookings with associations
+      const { count, rows: bookings } = await Booking.findAndCountAll({
+        where: whereClause,
+        include: [
+          {
+            model: User,
+            as: 'bookingUser',
+            required: false,
+            attributes: ['id', 'firstName', 'lastName', 'email', 'phoneNumber']
+          },
+          {
+            model: Offer,
+            as: 'offer',
+            required: false,
+            include: [{
+              model: Service,
+              as: 'service',
+              required: false,
+              attributes: ['id', 'name', 'duration', 'price']
+            }]
+          },
+          {
+            model: Store,
+            as: 'store',
+            required: false,
+            attributes: ['id', 'name', 'location']
+          },
+          ...(Staff ? [{
+            model: Staff,
+            as: 'staff',
+            required: false,
+            attributes: ['id', 'name', 'role']
+          }] : [])
+        ],
+        order: [['startTime', 'DESC']],
+        limit: parseInt(limit),
+        offset: offset
+      });
+
+      // Process bookings for response
+      const processedBookings = bookings.map(booking => {
+        const bookingData = booking.toJSON();
+        
+        // Add computed fields
+        bookingData.isOfferBooking = booking.bookingType === 'offer' || !!booking.offerId;
+        bookingData.isServiceBooking = booking.bookingType === 'service' || (!booking.offerId && !!booking.serviceId);
+        bookingData.requiresPayment = bookingData.isOfferBooking;
+        
+        // Map associations for frontend compatibility
+        if (booking.bookingUser) {
+          bookingData.User = booking.bookingUser;
+        }
+        
+        return bookingData;
+      });
+
+      // Calculate summary statistics
+      const summary = {
+        total: count,
+        offerBookings: processedBookings.filter(b => b.isOfferBooking).length,
+        serviceBookings: processedBookings.filter(b => b.isServiceBooking).length,
+        confirmedBookings: processedBookings.filter(b => b.status === 'confirmed').length,
+        pendingBookings: processedBookings.filter(b => b.status === 'pending').length,
+        completedBookings: processedBookings.filter(b => b.status === 'completed').length,
+        cancelledBookings: processedBookings.filter(b => b.status === 'cancelled').length,
+        upcomingBookings: processedBookings.filter(b => new Date(b.startTime) > new Date()).length
+      };
+
+      console.log(`✅ Retrieved ${count} merchant bookings`);
+
+      res.status(200).json({
+        success: true,
+        bookings: processedBookings,
+        pagination: {
+          total: count,
+          page: parseInt(page),
+          limit: parseInt(limit),
+          totalPages: Math.ceil(count / parseInt(limit))
+        },
+        summary,
+        message: count === 0 ? 'No bookings found' : undefined
+      });
+
+    } catch (error) {
+      console.error('💥 Error getting merchant bookings:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to fetch merchant bookings',
+        error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+      });
+    }
+  }
+
+  /**
+   * Update booking status (merchant action) - FIXED: Add missing alias method
+   */
+  async merchantUpdateBookingStatus(req, res) {
+    try {
+      const { bookingId } = req.params;
+      const { status, notes } = req.body;
+      
+      console.log(`🔄 Merchant updating booking ${bookingId} status to: ${status}`);
+
+      if (!Booking) {
+        return res.status(503).json({
+          success: false,
+          message: 'Booking service temporarily unavailable'
+        });
+      }
+
+      // Verify merchant authentication
+      const merchantId = req.user?.merchantId || req.merchant?.id || req.user?.id;
+      if (!merchantId) {
+        return res.status(401).json({
+          success: false,
+          message: 'Merchant authentication required'
+        });
+      }
+
+      // Find the booking and verify merchant ownership through store
+      const booking = await Booking.findByPk(bookingId, {
+        include: [{
+          model: Store,
+          as: 'store',
+          required: false
+        }]
+      });
+
+      if (!booking) {
+        return res.status(404).json({
+          success: false,
+          message: 'Booking not found'
+        });
+      }
+
+      // Verify store ownership if Store model exists and store is associated
+      if (Store && booking.store && booking.store.merchant_id !== merchantId) {
+        return res.status(403).json({
+          success: false,
+          message: 'Access denied for this booking'
+        });
+      }
+
+      // Validate status
+      const validStatuses = ['pending', 'confirmed', 'completed', 'cancelled', 'no-show'];
+      if (!validStatuses.includes(status)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid status',
+          validStatuses
+        });
+      }
+
+      // Update the booking
+      const updateData = {
+        status,
+        updatedBy: 'merchant',
+        updatedAt: new Date()
+      };
+
+      if (notes) {
+        updateData.merchantNotes = notes;
+      }
+
+      await booking.update(updateData);
+
+      // Fetch updated booking with associations
+      const updatedBooking = await Booking.findByPk(bookingId, {
+        include: [
+          {
+            model: User,
+            as: 'bookingUser',
+            required: false,
+            attributes: ['id', 'firstName', 'lastName', 'email', 'phoneNumber']
+          },
+          {
+            model: Offer,
+            as: 'offer',
+            required: false
+          },
+          {
+            model: Store,
+            as: 'store',
+            required: false,
+            attributes: ['id', 'name', 'location']
+          }
+        ]
+      });
+
+      console.log('✅ Merchant booking status updated successfully');
+
+      res.status(200).json({
+        success: true,
+        booking: updatedBooking,
+        message: 'Booking status updated successfully',
+        updatedFields: {
+          status,
+          notes: notes || null,
+          updatedAt: updateData.updatedAt
+        }
+      });
+
+    } catch (error) {
+      console.error('💥 Error updating merchant booking status:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to update booking status',
+        error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+      });
+    }
+  }
+
+
+/**
+   * Get booking by ID (merchant version with ownership verification)
+   */
+async getMerchantBookingById(req, res) {
+  try {
+    const { bookingId } = req.params;
+
+    console.log('🔍 Getting merchant booking by ID:', bookingId);
+
+    if (!Booking) {
+      return res.status(503).json({
+        success: false,
+        message: 'Booking service temporarily unavailable'
+      });
+    }
+
+    // Verify merchant authentication
+    const merchantId = req.user?.merchantId || req.merchant?.id || req.user?.id;
+    if (!merchantId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Merchant authentication required'
+      });
+    }
+
+    console.log('🏪 Merchant ID:', merchantId);
+
+    // Find the booking with merchant ownership verification
+    // FIXED: Only use associations that exist in your models (same as getUserBookings)
+    const booking = await Booking.findOne({
+      where: { id: bookingId },
+      include: [
+        {
+          model: Offer,
+          as: 'offer',
+          required: false,
+          include: [{
+            model: Service,
+            as: 'service',
+            required: false,
+            attributes: ['id', 'name', 'duration', 'price', 'description', 'category'],
+            include: [{
+              model: Store,
+              as: 'store',
+              required: false,
+              attributes: ['id', 'name', 'location', 'phone_number']
+            }]
+          }]
+        },
+        {
+          model: User,
+          as: 'bookingUser', // This is the correct alias from your models
+          required: false,
+          attributes: ['id', 'firstName', 'lastName', 'email', 'phoneNumber', 'createdAt']
+        },
+        {
+          model: Store,
+          as: 'store',
+          required: false,
+          attributes: ['id', 'name', 'location', 'phone_number']
+        }
+        // NOTE: Removed Payment and Staff includes as these associations don't exist
+      ]
+    });
+
+    if (!booking) {
+      return res.status(404).json({
+        success: false,
+        message: 'Booking not found or access denied'
+      });
+    }
+
+    // Verify merchant ownership through store
+    if (Store && booking.store && booking.store.merchant_id !== merchantId) {
+      console.log('Access denied: booking store merchant_id does not match authenticated merchant');
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied for this booking'
+      });
+    }
+
+    // Process booking data for response
+    const bookingJson = booking.toJSON();
+    
+    // Add computed fields for frontend compatibility
+    bookingJson.isOfferBooking = booking.bookingType === 'offer' || !!booking.offerId;
+    bookingJson.isServiceBooking = booking.bookingType === 'service' || (!booking.offerId && !!booking.serviceId);
+    bookingJson.requiresPayment = bookingJson.isOfferBooking;
+    bookingJson.accessFeePaid = bookingJson.isOfferBooking && !!booking.paymentId;
+
+    // Map associations for frontend compatibility
+    if (booking.bookingUser) {
+      bookingJson.User = booking.bookingUser;
+    }
+
+    // Calculate pricing information for offers
+    if (bookingJson.isOfferBooking && booking.offer?.service) {
+      const originalPrice = parseFloat(booking.offer.service.price) || 0;
+      const discount = parseFloat(booking.offer.discount) || 0;
+      const accessFee = parseFloat(booking.accessFee) || 0;
+      
+      bookingJson.pricingInfo = {
+        originalPrice,
+        discount,
+        discountedPrice: originalPrice * (1 - discount / 100),
+        accessFee,
+        remainingAtStore: (originalPrice * (1 - discount / 100)) - accessFee
+      };
+    }
+
+    console.log('✅ Merchant booking retrieved successfully');
+
+    res.status(200).json({
+      success: true,
+      booking: bookingJson,
+      message: 'Booking retrieved successfully'
+    });
+
+  } catch (error) {
+    console.error('💥 Error getting merchant booking by ID:', error);
+    
+    if (error.name === 'SequelizeEagerLoadingError') {
+      return res.status(500).json({
+        success: false,
+        message: 'Database association error occurred',
+        error: process.env.NODE_ENV === 'development' ? error.message : 'Association error'
+      });
+    }
+    
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch booking',
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+    });
+  }
+}
+/**
+   * Get booking by ID (merchant version with ownership verification)
+   */
+  async getMerchantBookingById(req, res) {
+    try {
+      const { bookingId } = req.params;
+
+      console.log('🔍 Getting merchant booking by ID:', bookingId);
+
+      if (!Booking) {
+        return res.status(503).json({
+          success: false,
+          message: 'Booking service temporarily unavailable'
+        });
+      }
+
+      // Verify merchant authentication
+      const merchantId = req.user?.merchantId || req.merchant?.id || req.user?.id;
+      if (!merchantId) {
+        return res.status(401).json({
+          success: false,
+          message: 'Merchant authentication required'
+        });
+      }
+
+      console.log('🏪 Merchant ID:', merchantId);
+
+      // Find the booking with merchant ownership verification
+      const booking = await Booking.findOne({
+        where: { id: bookingId },
+        include: [
+          {
+            model: Store,
+            as: 'store',
+            required: false,
+            where: Store ? { merchant_id: merchantId } : undefined,
+            attributes: ['id', 'name', 'location', 'phone_number']
+          },
+          {
+            model: User,
+            as: 'bookingUser',
+            required: false,
+            attributes: ['id', 'firstName', 'lastName', 'email', 'phoneNumber', 'createdAt']
+          },
+          {
+            model: Offer,
+            as: 'offer',
+            required: false,
+            include: [{
+              model: Service,
+              as: 'service',
+              required: false,
+              attributes: ['id', 'name', 'duration', 'price', 'description', 'category']
+            }]
+          },
+          ...(Service ? [{
+            model: Service,
+            as: 'service',
+            required: false,
+            attributes: ['id', 'name', 'duration', 'price', 'description', 'category'],
+            include: [{
+              model: Store,
+              as: 'store',
+              required: false,
+              attributes: ['id', 'name', 'location']
+            }]
+          }] : []),
+          ...(Payment ? [{
+            model: Payment,
+            as: 'payment',
+            required: false,
+            attributes: ['id', 'status', 'amount', 'method', 'transaction_id', 'unique_code']
+          }] : []),
+          ...(Staff ? [{
+            model: Staff,
+            as: 'staff',
+            required: false,
+            attributes: ['id', 'name', 'role', 'email']
+          }] : [])
+        ]
+      });
+
+      if (!booking) {
+        return res.status(404).json({
+          success: false,
+          message: 'Booking not found or access denied'
+        });
+      }
+
+      // Additional ownership verification if Store model exists
+      if (Store && booking.store && booking.store.merchant_id !== merchantId) {
+        return res.status(403).json({
+          success: false,
+          message: 'Access denied for this booking'
+        });
+      }
+
+      // Process booking data for response
+      const bookingJson = booking.toJSON();
+      
+      // Add computed fields for frontend compatibility
+      bookingJson.isOfferBooking = booking.bookingType === 'offer' || !!booking.offerId;
+      bookingJson.isServiceBooking = booking.bookingType === 'service' || (!booking.offerId && !!booking.serviceId);
+      bookingJson.requiresPayment = bookingJson.isOfferBooking;
+      bookingJson.accessFeePaid = bookingJson.isOfferBooking && !!booking.paymentId;
+
+      // Map associations for frontend compatibility
+      if (booking.bookingUser) {
+        bookingJson.User = booking.bookingUser;
+      }
+
+      // Calculate pricing information for offers
+      if (bookingJson.isOfferBooking && booking.offer?.service) {
+        const originalPrice = parseFloat(booking.offer.service.price) || 0;
+        const discount = parseFloat(booking.offer.discount) || 0;
+        const accessFee = parseFloat(booking.accessFee) || 0;
+        
+        bookingJson.pricingInfo = {
+          originalPrice,
+          discount,
+          discountedPrice: originalPrice * (1 - discount / 100),
+          accessFee,
+          remainingAtStore: (originalPrice * (1 - discount / 100)) - accessFee
+        };
+      }
+
+      console.log('✅ Merchant booking retrieved successfully');
+
+      res.status(200).json({
+        success: true,
+        booking: bookingJson,
+        message: 'Booking retrieved successfully'
+      });
+
+    } catch (error) {
+      console.error('💥 Error getting merchant booking by ID:', error);
+      
+      if (error.name === 'SequelizeEagerLoadingError') {
+        return res.status(500).json({
+          success: false,
+          message: 'Database association error occurred',
+          error: process.env.NODE_ENV === 'development' ? error.message : 'Association error'
+        });
+      }
+      
+      res.status(500).json({
+        success: false,
+        message: 'Failed to fetch booking',
+        error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+      });
+    }
+  }
+  
+  /**
+   * Get bookings for a specific merchant store
+   */
+  async getMerchantStoreBookings(req, res) {
+    try {
+      const { storeId } = req.params;
+      console.log('🏪 Getting bookings for merchant store:', storeId);
+
+      if (!Booking) {
+        return res.status(503).json({
+          success: false,
+          message: 'Booking service temporarily unavailable'
+        });
+      }
+
+      // Verify the store belongs to the authenticated merchant
+      const merchantId = req.user?.merchantId || req.merchant?.id;
+      if (!merchantId) {
+        return res.status(401).json({
+          success: false,
+          message: 'Merchant authentication required'
+        });
+      }
+
+      if (Store) {
+        const store = await Store.findOne({
+          where: { id: storeId, merchant_id: merchantId }
+        });
+
+        if (!store) {
+          return res.status(404).json({
+            success: false,
+            message: 'Store not found or access denied'
+          });
+        }
+      }
+
+      const { bookingType, status, page = 1, limit = 50 } = req.query;
+      
+      const whereClause = { storeId };
+      
+      if (bookingType) whereClause.bookingType = bookingType;
+      if (status) whereClause.status = status;
+
+      const offset = (parseInt(page) - 1) * parseInt(limit);
+
+      const { count, rows: bookings } = await Booking.findAndCountAll({
+        where: whereClause,
+        include: [
+          {
+            model: User,
+            as: 'bookingUser',
+            required: false,
+            attributes: ['id', 'firstName', 'lastName', 'email', 'phoneNumber']
+          },
+          {
+            model: Offer,
+            as: 'offer',
+            required: false,
+            include: [{
+              model: Service,
+              as: 'service',
+              required: false,
+              attributes: ['id', 'name', 'duration', 'price']
+            }]
+          },
+          {
+            model: Store,
+            as: 'store',
+            required: false,
+            attributes: ['id', 'name', 'location']
+          },
+          ...(Staff ? [{
+            model: Staff,
+            as: 'staff',
+            required: false,
+            attributes: ['id', 'name', 'role']
+          }] : [])
+        ],
+        order: [['startTime', 'DESC']],
+        limit: parseInt(limit),
+        offset: offset
+      });
+
+      console.log(`✅ Retrieved ${count} store bookings`);
+
+      res.status(200).json({
+        success: true,
+        bookings: bookings,
+        pagination: {
+          total: count,
+          page: parseInt(page),
+          limit: parseInt(limit),
+          totalPages: Math.ceil(count / parseInt(limit))
+        }
+      });
+
+    } catch (error) {
+      console.error('💥 Error getting store bookings:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to fetch store bookings',
+        error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+      });
+    }
+  }
+
+  /**
+   * Update booking status (merchant action)
+   */
+  async merchantUpdateBookingStatus(req, res) {
+    try {
+      const { bookingId } = req.params;
+      const { status, notes } = req.body;
+      
+      console.log(`🔄 Merchant updating booking ${bookingId} status to: ${status}`);
+
+      if (!Booking) {
+        return res.status(503).json({
+          success: false,
+          message: 'Booking service temporarily unavailable'
+        });
+      }
+
+      // Verify merchant ownership
+      const merchantId = req.user?.merchantId || req.merchant?.id;
+      if (!merchantId) {
+        return res.status(401).json({
+          success: false,
+          message: 'Merchant authentication required'
+        });
+      }
+
+      // Find the booking and verify ownership
+      const booking = await Booking.findByPk(bookingId, {
+        include: [{
+          model: Store,
+          as: 'store',
+          required: true,
+          where: { merchant_id: merchantId }
+        }]
+      });
+
+      if (!booking) {
+        return res.status(404).json({
+          success: false,
+          message: 'Booking not found or access denied'
+        });
+      }
+
+      // Validate status
+      const validStatuses = ['pending', 'confirmed', 'completed', 'cancelled', 'no-show'];
+      if (!validStatuses.includes(status)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid status',
+          validStatuses
+        });
+      }
+
+      // Update the booking
+      await booking.update({
+        status,
+        ...(notes && { merchantNotes: notes }),
+        updatedBy: 'merchant',
+        updatedAt: new Date()
+      });
+
+      console.log('✅ Booking status updated successfully');
+
+      res.status(200).json({
+        success: true,
+        booking: booking,
+        message: 'Booking status updated successfully'
+      });
+
+    } catch (error) {
+      console.error('💥 Error updating booking status:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to update booking status',
+        error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+      });
+    }
+  }
+
   // ==================== UTILITY METHODS ====================
 
   /**
@@ -2235,6 +3437,13 @@ module.exports = {
   getBookingById: enhancedBookingController.getBookingById.bind(enhancedBookingController),
   updateBookingStatus: enhancedBookingController.updateBookingStatus.bind(enhancedBookingController),
   cancelBooking: enhancedBookingController.cancelBooking.bind(enhancedBookingController),
+
+  // FIXED: Add the missing merchant booking methods
+  getMerchantBookings: enhancedBookingController.getMerchantBookings.bind(enhancedBookingController),
+  getMerchantStoreBookings: enhancedBookingController.getMerchantStoreBookings.bind(enhancedBookingController),
+  getAllMerchantBookings: enhancedBookingController.getAllMerchantBookings.bind(enhancedBookingController),
+  getMerchantBookingById: enhancedBookingController.getMerchantBookingById.bind(enhancedBookingController),
+  merchantUpdateBookingStatus: enhancedBookingController.merchantUpdateBookingStatus.bind(enhancedBookingController),
 
   // Debug methods
   debugWorkingDays: enhancedBookingController.debugWorkingDays.bind(enhancedBookingController),

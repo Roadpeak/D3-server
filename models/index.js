@@ -1,4 +1,4 @@
-// models/index.js - FIXED VERSION with Favorite export
+// models/index.js - FIXED VERSION with Booking-Staff association
 
 'use strict';
 
@@ -38,19 +38,20 @@ const Follow = require('./follow')(sequelize, DataTypes);
 const Category = require('./category')(sequelize, DataTypes);
 const Chat = require('./chat')(sequelize, DataTypes);
 const Message = require('./message')(sequelize, DataTypes);
-const Favorite = require('./Favorite')(sequelize, DataTypes); // ✅ This line exists
+const Favorite = require('./Favorite')(sequelize, DataTypes);
 const StoreSubscription = require('./storesubscription')(sequelize, DataTypes);
 
 // ADD NEW BRANCH MODEL
 const Branch = require('./Branch')(sequelize, DataTypes);
 
-// ✅ NEW SERVICE MARKETPLACE MODELS
+// NEW SERVICE MARKETPLACE MODELS
 const ServiceRequest = require('./serviceRequest')(sequelize, DataTypes);
 const ServiceOffer = require('./ServiceOffer')(sequelize, DataTypes);
 const Notification = require('./notification')(sequelize, DataTypes);
 
-// All your existing associations (keeping them as they are)...
-// [All the existing association code remains the same]
+// ==========================================
+// MODEL ASSOCIATIONS
+// ==========================================
 
 // Service-Store
 Service.belongsTo(Store, { foreignKey: 'store_id', as: 'store', onDelete: 'CASCADE' });
@@ -87,6 +88,17 @@ Store.hasMany(Booking, { foreignKey: 'storeId', as: 'bookings' });
 // Booking-User
 Booking.belongsTo(User, { foreignKey: 'userId', as: 'bookingUser', onDelete: 'CASCADE' });
 User.hasMany(Booking, { foreignKey: 'userId', as: 'bookings' });
+
+// CRITICAL FIX: Booking-Staff association (THIS WAS MISSING!)
+Booking.belongsTo(Staff, { 
+  foreignKey: 'staffId', 
+  as: 'staff', 
+  onDelete: 'SET NULL' 
+});
+Staff.hasMany(Booking, { 
+  foreignKey: 'staffId', 
+  as: 'bookings' 
+});
 
 // Offer-Store
 Offer.belongsTo(Store, { foreignKey: 'storeId', as: 'store', onDelete: 'CASCADE' });
@@ -189,7 +201,7 @@ Social.belongsTo(Store, { foreignKey: 'store_id', as: 'store', onDelete: 'CASCAD
 Store.hasMany(Social, { foreignKey: 'store_id', as: 'socialLinks' });
 
 // ==========================================
-// ✅ FAVORITES ASSOCIATIONS (IMPORTANT!)
+// FAVORITES ASSOCIATIONS
 // ==========================================
 
 // Favorite-User
@@ -240,6 +252,28 @@ Branch.belongsTo(Merchant, {
 Merchant.hasMany(Branch, { 
   foreignKey: 'merchantId',
   as: 'Branches'
+});
+
+// ADDITIONAL FIX: Staff-Branch association (if your staff table has branchId)
+Staff.belongsTo(Branch, { 
+  foreignKey: 'branchId', 
+  as: 'branch', 
+  onDelete: 'SET NULL' 
+});
+Branch.hasMany(Staff, { 
+  foreignKey: 'branchId', 
+  as: 'staff' 
+});
+
+// Service-Branch association (if your services table has branch_id)
+Service.belongsTo(Branch, { 
+  foreignKey: 'branch_id', 
+  as: 'branch', 
+  onDelete: 'SET NULL' 
+});
+Branch.hasMany(Service, { 
+  foreignKey: 'branch_id', 
+  as: 'services' 
 });
 
 // ==========================================
@@ -323,7 +357,7 @@ Notification.belongsTo(User, { foreignKey: 'senderId', as: 'sender', onDelete: '
 User.hasMany(Notification, { foreignKey: 'senderId', as: 'sentNotifications' });
 
 // ==========================================
-// ✅ FIXED EXPORTS - INCLUDING FAVORITE!
+// EXPORTS
 // ==========================================
 
 module.exports = {
@@ -349,7 +383,7 @@ module.exports = {
   Category,
   Chat,
   Message,
-  Favorite, // ✅ ADDED THIS - THIS WAS MISSING!
+  Favorite,
   Branch,
   // SERVICE MARKETPLACE MODELS
   ServiceRequest,
