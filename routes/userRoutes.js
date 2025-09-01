@@ -20,6 +20,13 @@ const {
   validateReferral
 } = require('../controllers/userController');
 
+// Import Google authentication controllers
+const {
+  googleSignInUser,
+  linkGoogleAccount,
+  unlinkGoogleAccount
+} = require('../controllers/googleAuthController');
+
 // Import the fixed favorites controller
 const favoritesController = require('../controllers/favoritesController');
 
@@ -60,6 +67,9 @@ router.post('/test-otp', (req, res) => {
 router.post('/register', register);
 router.post('/login', login);
 
+// NEW: Google Authentication routes
+router.post('/google-signin', googleSignInUser);
+
 // OTP routes
 router.post('/verify-otp', verifyOtp);
 router.post('/resend-otp', resendOtp);
@@ -92,6 +102,41 @@ router.get('/protected', verifyToken, (req, res) => {
 router.get('/profile', authenticateUser, getProfile);
 router.get('/me', verifyToken, getProfile); // Alternative endpoint name
 router.put('/profile', authenticateUser, updateProfile);
+
+// NEW: Google Account Management (Protected)
+router.post('/link-google', authenticateUser, linkGoogleAccount);
+router.delete('/unlink-google', authenticateUser, unlinkGoogleAccount);
+
+// Get account connection status
+router.get('/account-connections', authenticateUser, async (req, res) => {
+  try {
+    const userService = require('../services/userService');
+    const user = await userService.findUserById(req.user.userId);
+    
+    if (!user) {
+      return res.status(404).json({
+        message: 'User not found'
+      });
+    }
+
+    res.json({
+      connections: {
+        google: {
+          connected: !!user.googleId,
+          email: user.googleId ? user.email : null,
+          linkedAt: user.googleLinkedAt || user.createdAt
+        },
+        hasPassword: !!user.password,
+        authProvider: user.authProvider || 'email'
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching account connections:', error);
+    res.status(500).json({
+      message: 'Error fetching account connections'
+    });
+  }
+});
 
 // User-specific data routes
 router.get('/bookings', authenticateUser, getUserBookings);

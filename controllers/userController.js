@@ -81,7 +81,7 @@ exports.register = async (req, res) => {
 
     // Generate unique referral slug and link for the new user
     const newUserReferralSlug = generateReferralSlug(Math.random().toString(), userData.firstName, userData.lastName);
-    const newUserReferralLink = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/accounts/sign-up?ref=${newUserReferralSlug}`;
+    const newUserReferralLink = `${process.env.FRONTEND_URL || 'https://discoun3ree.com'}/accounts/sign-up?ref=${newUserReferralSlug}`;
 
     // Create user with referral data
     const newUser = await userService.createUser(
@@ -605,7 +605,7 @@ exports.getEarnings = async (req, res) => {
     let referralLink = user.referralLink;
     if (!referralLink) {
       const uniqueSlug = generateReferralSlug(user.id, user.firstName, user.lastName);
-      referralLink = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/accounts/sign-up?ref=${uniqueSlug}`;
+      referralLink = `${process.env.FRONTEND_URL || 'https://discoun3ree.com'}/accounts/sign-up?ref=${uniqueSlug}`;
       
       try {
         await user.update({ 
@@ -630,7 +630,7 @@ exports.getEarnings = async (req, res) => {
     res.status(200).json({
       success: true,
       earnings,
-      referralLink: referralLink || `${process.env.FRONTEND_URL || 'http://localhost:3000'}/accounts/sign-up?ref=temp-${userId.substring(0, 8)}`
+      referralLink: referralLink || `${process.env.FRONTEND_URL || 'https://discoun3ree.com'}/accounts/sign-up?ref=temp-${userId.substring(0, 8)}`
     });
 
   } catch (error) {
