@@ -43,7 +43,7 @@ module.exports = (sequelize, DataTypes) => {
     },
     password: {
       type: DataTypes.STRING,
-      allowNull: false,
+      allowNull: true, // 
       validate: {
         len: [6, 255]
       }
@@ -146,6 +146,26 @@ module.exports = (sequelize, DataTypes) => {
       allowNull: true,
       comment: 'Customer postal code'
     },
+
+    // Google Authentication fields
+    googleId: {
+      type: DataTypes.STRING(100),
+      allowNull: true,
+      unique: true,
+      comment: 'Google OAuth ID for this user'
+    },
+    authProvider: {
+      type: DataTypes.ENUM('email', 'google', 'facebook', 'apple'),
+      defaultValue: 'email',
+      allowNull: false,
+      comment: 'Primary authentication provider used to create account'
+    },
+    googleLinkedAt: {
+      type: DataTypes.DATE,
+      allowNull: true,
+      comment: 'When Google account was first linked'
+    },
+
     // NEW: Privacy settings
     profileVisibility: {
       type: DataTypes.ENUM('public', 'private', 'friends_only'),
@@ -224,7 +244,7 @@ module.exports = (sequelize, DataTypes) => {
       {
         fields: ['referralSlug'],
         name: 'idx_referral_slug',
-        unique: true
+        
       },
       {
         fields: ['referredBy'],
@@ -657,23 +677,23 @@ module.exports = (sequelize, DataTypes) => {
     //   as: 'referralEarnings'
     // });
 
-     // User has many favorites
-  User.hasMany(models.Favorite, {
-    foreignKey: 'user_id',
-    as: 'favorites',
-    onDelete: 'CASCADE',
-    onUpdate: 'CASCADE'
-  });
+    // User has many favorites
+    User.hasMany(models.Favorite, {
+      foreignKey: 'user_id',
+      as: 'favorites',
+      onDelete: 'CASCADE',
+      onUpdate: 'CASCADE'
+    });
 
-  // User has many favorite offers through Favorite model
-  User.belongsToMany(models.Offer, {
-    through: models.Favorite,
-    foreignKey: 'user_id',
-    otherKey: 'offer_id',
-    as: 'favoriteOffers',
-    onDelete: 'CASCADE',
-    onUpdate: 'CASCADE'
-  });
+    // User has many favorite offers through Favorite model
+    User.belongsToMany(models.Offer, {
+      through: models.Favorite,
+      foreignKey: 'user_id',
+      otherKey: 'offer_id',
+      as: 'favoriteOffers',
+      onDelete: 'CASCADE',
+      onUpdate: 'CASCADE'
+    });
 
     // User has many wishlists (if you have a Wishlist model)
     if (models.Wishlist) {
