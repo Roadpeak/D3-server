@@ -30,7 +30,7 @@ const homedealsstores = require('./routes/homedealsstoresRoutes');
 const favoritesRoutes = require('./routes/favoritesRoutes');
 const serviceRequestRoutes = require('./routes/serviceRequestRoutes');
 const locationRoutes = require('./routes/locationRoutes'); 
-const notificationRoutes = require('./routes/notifications');
+const notificationRoutes = require('./routes/notificationRoutes');
 const swaggerUi = require('swagger-ui-express');
 const fs = require('fs');
 const path = require('path');
@@ -783,5 +783,6 @@ process.on('unhandledRejection', (reason, promise) => {
   console.error('Unhandled Rejection at:', promise, 'reason:', reason);
   gracefulShutdown('unhandledRejection');
 });
+
 
 module.exports = app;

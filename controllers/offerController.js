@@ -1,7 +1,7 @@
-const { Offer, Store, Service, sequelize } = require('../models');
+const { Offer, Store, Service, Staff, StaffService, sequelize } = require('../models');
 const { Op } = require('sequelize');
 
-// Helper function to format offers consistently
+// Enhanced helper function to format offers with new service fields
 const formatOffer = (offer) => {
   if (!offer) return null;
   
@@ -9,11 +9,17 @@ const formatOffer = (offer) => {
     id: offer.id,
     title: offer.title || offer.service?.name || 'Special Offer',
     description: offer.description || offer.service?.description || 'Get exclusive offers with these amazing deals',
-    discount: offer.discount, // Keep as number
+    discount: offer.discount,
     expiration_date: offer.expiration_date,
     status: offer.status,
     fee: offer.fee,
     featured: offer.featured || false,
+    offer_type: offer.offer_type || 'fixed',
+    discount_explanation: offer.discount_explanation,
+    requires_consultation: offer.requires_consultation || false,
+    terms_conditions: offer.terms_conditions,
+    max_redemptions: offer.max_redemptions,
+    current_redemptions: offer.current_redemptions || 0,
     createdAt: offer.createdAt,
     updatedAt: offer.updatedAt,
     service: offer.service ? {
@@ -24,8 +30,23 @@ const formatOffer = (offer) => {
       type: offer.service.type,
       category: offer.service.category,
       description: offer.service.description,
-      image_url: offer.service.image_url || '/api/placeholder/300/200',
+      image_url: offer.service.image_url || (offer.service.images && offer.service.images[0]) || '/api/placeholder/300/200',
+      images: offer.service.images || [],
       store_id: offer.service.store_id,
+      // NEW: Enhanced booking settings
+      auto_confirm_bookings: offer.service.auto_confirm_bookings,
+      confirmation_message: offer.service.confirmation_message,
+      require_prepayment: offer.service.require_prepayment,
+      cancellation_policy: offer.service.cancellation_policy,
+      min_cancellation_hours: offer.service.min_cancellation_hours,
+      allow_early_checkin: offer.service.allow_early_checkin,
+      early_checkin_minutes: offer.service.early_checkin_minutes,
+      auto_complete_on_duration: offer.service.auto_complete_on_duration,
+      grace_period_minutes: offer.service.grace_period_minutes,
+      pricing_factors: offer.service.pricing_factors || [],
+      price_range: offer.service.price_range,
+      consultation_required: offer.service.consultation_required,
+      featured: offer.service.featured || false
     } : null,
     store: offer.service?.store ? {
       id: offer.service.store.id,
@@ -36,12 +57,18 @@ const formatOffer = (offer) => {
   };
 };
 
-// Helper function to get standard includes with proper aliases
+// Enhanced helper function to get standard includes with new service fields
 const getOfferIncludes = (locationFilter = null) => [
   {
     model: Service,
     as: 'service',
-    attributes: ['id', 'name', 'image_url', 'price', 'duration', 'category', 'type', 'description', 'store_id'],
+    attributes: [
+      'id', 'name', 'image_url', 'images', 'price', 'duration', 'category', 'type', 'description', 'store_id',
+      // NEW: Include enhanced booking settings
+      'auto_confirm_bookings', 'confirmation_message', 'require_prepayment', 'cancellation_policy',
+      'min_cancellation_hours', 'allow_early_checkin', 'early_checkin_minutes', 'auto_complete_on_duration',
+      'grace_period_minutes', 'pricing_factors', 'price_range', 'consultation_required', 'featured'
+    ],
     include: [
       {
         model: Store,
@@ -79,9 +106,25 @@ const sendSuccessResponse = (res, data, message = 'Success', statusCode = 200) =
   });
 };
 
+// Enhanced create offer with new fields
 exports.createOffer = async (req, res) => {
   try {
-    const { discount, expiration_date, service_id, description, status, title, featured } = req.body;
+    const { 
+      discount, 
+      expiration_date, 
+      service_id, 
+      description, 
+      status, 
+      title, 
+      featured,
+      // NEW: Enhanced offer fields
+      discount_explanation,
+      requires_consultation,
+      terms_conditions,
+      max_redemptions
+    } = req.body;
+
+    console.log('Creating enhanced offer:', { service_id, discount, expiration_date });
 
     // Validation
     if (!discount || !expiration_date || !service_id) {
@@ -93,13 +136,24 @@ exports.createOffer = async (req, res) => {
       return sendErrorResponse(res, 400, 'Discount must be between 1 and 100');
     }
 
-    // Check if service exists
+    // Check if service exists and get its enhanced data
     const service = await Service.findByPk(service_id, {
-      include: [{ model: Store, as: 'store' }]
+      include: [{ 
+        model: Store, 
+        as: 'store',
+        attributes: ['id', 'name', 'location']
+      }]
     });
     if (!service) {
       return sendErrorResponse(res, 404, 'Service not found');
     }
+
+    console.log('Found service:', {
+      id: service.id,
+      name: service.name,
+      type: service.type,
+      auto_confirm: service.auto_confirm_bookings
+    });
 
     // Validate expiration date
     const expirationDate = new Date(expiration_date);
@@ -107,8 +161,19 @@ exports.createOffer = async (req, res) => {
       return sendErrorResponse(res, 400, 'Expiration date must be in the future');
     }
 
+    // Determine offer type based on service
+    const offer_type = service.type || 'fixed';
+    
+    // Calculate fee
     const fee = (discount * 0.05).toFixed(2);
 
+    // Auto-generate discount explanation for dynamic services if not provided
+    let finalDiscountExplanation = discount_explanation;
+    if (offer_type === 'dynamic' && !discount_explanation) {
+      finalDiscountExplanation = `${discount}% off the final quoted price that will be agreed upon after consultation`;
+    }
+
+    // Create offer with enhanced fields
     const newOffer = await Offer.create({
       discount: parseFloat(discount),
       expiration_date,
@@ -118,6 +183,18 @@ exports.createOffer = async (req, res) => {
       fee: parseFloat(fee),
       title: title || null,
       featured: featured || false,
+      // NEW: Enhanced fields
+      offer_type,
+      discount_explanation: finalDiscountExplanation,
+      requires_consultation: requires_consultation || (offer_type === 'dynamic'),
+      terms_conditions: terms_conditions || null,
+      max_redemptions: max_redemptions ? parseInt(max_redemptions) : null
+    });
+
+    console.log('Offer created:', {
+      id: newOffer.id,
+      offer_type: newOffer.offer_type,
+      requires_consultation: newOffer.requires_consultation
     });
 
     // Fetch the created offer with includes
@@ -125,26 +202,31 @@ exports.createOffer = async (req, res) => {
       include: getOfferIncludes()
     });
 
-    return sendSuccessResponse(res, { offer: formatOffer(createdOffer) }, 'Offer created successfully', 201);
+    return sendSuccessResponse(res, { 
+      offer: formatOffer(createdOffer) 
+    }, 'Offer created successfully', 201);
   } catch (err) {
+    console.error('Create offer error:', err);
     return sendErrorResponse(res, 500, 'Error creating offer', err);
   }
 };
 
+// Enhanced get offers with new service data
 exports.getOffers = async (req, res) => {
   try {
     const { 
       page = 1, 
       limit = 12, 
       category, 
-      location, // ADD: Location parameter
+      location,
       sortBy = 'latest', 
       store_id, 
       status = 'active',
-      search 
+      search,
+      offer_type // NEW: Filter by offer type
     } = req.query;
     
-    console.log('🌍 getOffers called with location:', location);
+    console.log('Getting offers with params:', { location, offer_type, status });
     
     const offset = (parseInt(page) - 1) * parseInt(limit);
 
@@ -170,6 +252,10 @@ exports.getOffers = async (req, res) => {
     const whereClause = {};
     if (status && status !== 'all') {
       whereClause.status = status;
+    }
+    // NEW: Filter by offer type
+    if (offer_type && ['fixed', 'dynamic'].includes(offer_type)) {
+      whereClause.offer_type = offer_type;
     }
 
     // Build where clause for services
@@ -205,83 +291,14 @@ exports.getOffers = async (req, res) => {
           model: Service,
           as: 'service',
           where: Object.keys(serviceWhere).length > 0 ? serviceWhere : undefined,
-          required: true, // Inner join to ensure service exists
-          attributes: ['id', 'name', 'image_url', 'price', 'duration', 'category', 'type', 'description', 'store_id'],
-          include: [
-            {
-              model: Store,
-              as: 'store',
-              attributes: ['id', 'name', 'logo_url', 'location'],
-              where: Object.keys(storeWhere).length > 0 ? storeWhere : undefined,
-              required: true // Inner join to ensure store exists and matches location
-            }
-          ]
-        }
-      ],
-      order: orderClause,
-      limit: parseInt(limit),
-      offset: parseInt(offset),
-      distinct: true, // Important for accurate count with includes
-    });
-
-    console.log(`🎯 Found ${offers.length} offers for location: ${location || 'All'}`);
-
-    const formattedOffers = offers.map(formatOffer);
-    const totalPages = Math.ceil(count / limit);
-    const currentPageNum = parseInt(page);
-
-    return sendSuccessResponse(res, {
-      offers: formattedOffers,
-      location: location || 'All Locations',
-      pagination: {
-        currentPage: currentPageNum,
-        totalPages,
-        totalItems: count,
-        itemsPerPage: parseInt(limit),
-        hasNextPage: currentPageNum < totalPages,
-        hasPrevPage: currentPageNum > 1
-      }
-    });
-  } catch (err) {
-    console.error('Error fetching offers with location:', err);
-    return sendErrorResponse(res, 500, 'Error fetching offers', err);
-  }
-};
-
-exports.getRandomOffers = async (req, res) => {
-  try {
-    const { limit = 12, location } = req.query; // ADD: Location parameter
-    
-    console.log('🎲 getRandomOffers called with limit:', limit, 'location:', location);
-
-    // Validate limit
-    const parsedLimit = parseInt(limit);
-    if (isNaN(parsedLimit) || parsedLimit <= 0 || parsedLimit > 100) {
-      return sendErrorResponse(res, 400, 'Invalid limit parameter. Must be between 1 and 100');
-    }
-
-    // Build where clause for stores (location filtering)
-    const storeWhere = {};
-    if (location && location !== 'All Locations') {
-      storeWhere[Op.or] = [
-        { location: location },
-        { location: 'All Locations' }
-      ];
-    }
-
-    const offers = await Offer.findAll({
-      where: { 
-        status: 'active',
-        expiration_date: {
-          [sequelize.Op.gt]: new Date()
-        }
-      },
-      include: [
-        {
-          model: Service,
-          as: 'service',
           required: true,
-          attributes: ['id', 'name', 'image_url', 'price', 'duration', 'category', 'type', 'description', 'store_id'],
+          attributes: [
+            'id', 'name', 'image_url', 'images', 'price', 'duration', 'category', 'type', 'description', 'store_id',
+            // NEW: Include enhanced booking settings
+            'auto_confirm_bookings', 'confirmation_message', 'require_prepayment', 'cancellation_policy',
+            'min_cancellation_hours', 'allow_early_checkin', 'early_checkin_minutes', 'auto_complete_on_duration',
+            'grace_period_minutes', 'pricing_factors', 'price_range', 'consultation_required', 'featured'
+          ],
           include: [
             {
               model: Store,
@@ -293,86 +310,13 @@ exports.getRandomOffers = async (req, res) => {
           ]
         }
       ],
-      order: sequelize.fn('RAND'), // Use RANDOM() for PostgreSQL, RAND() for MySQL
-      limit: parsedLimit,
-    });
-
-    console.log(`✅ Found ${offers.length} random offers for location: ${location || 'All'}`);
-
-    if (!offers || offers.length === 0) {
-      return sendSuccessResponse(res, { 
-        offers: [],
-        location: location || 'All Locations'
-      }, `No offers available${location ? ' for ' + location : ''}`);
-    }
-
-    const formattedOffers = offers.map(formatOffer);
-
-    return sendSuccessResponse(res, { 
-      offers: formattedOffers,
-      location: location || 'All Locations'
-    });
-  } catch (error) {
-    console.error('💥 Error in getRandomOffers:', error);
-    return sendErrorResponse(res, 500, 'Error fetching random offers', error);
-  }
-};
-
-// Update other methods to include location filtering where relevant...
-
-exports.getOffersByStore = async (req, res) => {
-  try {
-    const { storeId } = req.params;
-    const { page = 1, limit = 12, status = 'active', location } = req.query; // ADD: Location parameter
-    const offset = (parseInt(page) - 1) * parseInt(limit);
-
-    // Validate store exists and optionally filter by location
-    const storeWhere = { id: storeId };
-    if (location && location !== 'All Locations') {
-      storeWhere[Op.or] = [
-        { ...storeWhere, location: location },
-        { ...storeWhere, location: 'All Locations' }
-      ];
-    }
-
-    const store = await Store.findOne({
-      where: storeWhere,
-      attributes: ['id', 'name', 'logo_url', 'location']
-    });
-    
-    if (!store) {
-      return sendErrorResponse(res, 404, 'Store not found or not available in this location');
-    }
-
-    // Build where clause
-    const whereClause = {};
-    if (status && status !== 'all') {
-      whereClause.status = status;
-    }
-
-    const { count, rows: offers } = await Offer.findAndCountAll({
-      where: whereClause,
-      include: [
-        {
-          model: Service,
-          as: 'service',
-          where: { store_id: storeId },
-          required: true,
-          attributes: ['id', 'name', 'image_url', 'price', 'duration', 'category', 'type', 'description', 'store_id'],
-          include: [
-            {
-              model: Store,
-              as: 'store',
-              attributes: ['id', 'name', 'logo_url', 'location'],
-            }
-          ]
-        }
-      ],
-      order: [['createdAt', 'DESC']],
+      order: orderClause,
       limit: parseInt(limit),
       offset: parseInt(offset),
       distinct: true,
     });
+
+    console.log(`Found ${offers.length} enhanced offers`);
 
     const formattedOffers = offers.map(formatOffer);
     const totalPages = Math.ceil(count / limit);
@@ -380,13 +324,8 @@ exports.getOffersByStore = async (req, res) => {
 
     return sendSuccessResponse(res, {
       offers: formattedOffers,
-      store: {
-        id: store.id,
-        name: store.name,
-        logo_url: store.logo_url,
-        location: store.location,
-      },
-      location: location || store.location,
+      location: location || 'All Locations',
+      offer_type: offer_type || 'all',
       pagination: {
         currentPage: currentPageNum,
         totalPages,
@@ -397,57 +336,44 @@ exports.getOffersByStore = async (req, res) => {
       }
     });
   } catch (err) {
-    return sendErrorResponse(res, 500, 'Error fetching offers by store', err);
+    console.error('Error fetching enhanced offers:', err);
+    return sendErrorResponse(res, 500, 'Error fetching offers', err);
   }
 };
 
+// Enhanced get offer by ID with service data
 exports.getOfferById = async (req, res) => {
   try {
     const { id } = req.params;
     
-    // Enhanced logging
-    console.log('🔍 getOfferById called with:', {
-      rawId: id,
-      idType: typeof id,
-      idLength: id?.length,
-      url: req.originalUrl,
-      method: req.method
-    });
+    console.log('Getting enhanced offer by ID:', id);
 
-    // Simple ID validation - accept both UUIDs and numeric IDs
+    // Simple ID validation
     if (!id || id.trim() === '') {
-      console.error('❌ No ID provided');
       return sendErrorResponse(res, 400, 'Offer ID is required');
     }
 
-    // Validate ID format - accept either UUID or numeric
+    // Validate ID format
     const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id);
     const isNumeric = /^\d+$/.test(id);
     
     if (!isUUID && !isNumeric) {
-      console.error('❌ Invalid ID format:', { id, isUUID, isNumeric });
       return sendErrorResponse(res, 400, 'Valid offer ID is required (UUID or numeric)');
     }
 
-    console.log('✅ ID validation passed, fetching offer with ID:', id);
-
-    // Use the original ID (don't parse it as integer)
     const offer = await Offer.findByPk(id, {
       include: getOfferIncludes(),
     });
 
     if (!offer) {
-      console.log('❌ Offer not found for ID:', id);
       return sendErrorResponse(res, 404, 'Offer not found');
     }
 
-    console.log('✅ Offer found:', {
+    console.log('Enhanced offer found:', {
       id: offer.id,
-      title: offer.title,
-      status: offer.status,
-      hasService: !!offer.service,
-      hasStore: !!offer.service?.store,
-      storeLocation: offer.service?.store?.location
+      type: offer.offer_type,
+      service_type: offer.service?.type,
+      auto_confirm: offer.service?.auto_confirm_bookings
     });
 
     // Check if offer is expired
@@ -455,32 +381,48 @@ exports.getOfferById = async (req, res) => {
     
     const formattedOffer = formatOffer(offer);
     
-    console.log('✅ Returning formatted offer');
-    
     return sendSuccessResponse(res, { 
       offer: formattedOffer,
       isExpired
     });
   } catch (err) {
-    console.error('💥 Error in getOfferById:', {
-      error: err.message,
-      stack: err.stack,
-      id: req.params.id
-    });
+    console.error('Error in enhanced getOfferById:', err);
     return sendErrorResponse(res, 500, 'Error fetching offer', err);
   }
 };
 
+// Enhanced update offer
 exports.updateOffer = async (req, res) => {
   try {
     const { id } = req.params;
-    const { discount, expiration_date, service_id, description, status, title, featured } = req.body;
+    const { 
+      discount, 
+      expiration_date, 
+      service_id, 
+      description, 
+      status, 
+      title, 
+      featured,
+      // NEW: Enhanced fields
+      discount_explanation,
+      requires_consultation,
+      terms_conditions,
+      max_redemptions
+    } = req.body;
+
+    console.log('Updating enhanced offer:', id);
 
     if (!id || id.trim() === '') {
       return sendErrorResponse(res, 400, 'Valid offer ID is required');
     }
 
-    const offer = await Offer.findByPk(id);
+    const offer = await Offer.findByPk(id, {
+      include: [{
+        model: Service,
+        as: 'service'
+      }]
+    });
+    
     if (!offer) {
       return sendErrorResponse(res, 404, 'Offer not found');
     }
@@ -508,6 +450,12 @@ exports.updateOffer = async (req, res) => {
     const newDiscount = discount || offer.discount;
     const fee = (newDiscount * 0.05).toFixed(2);
 
+    // Handle discount explanation for dynamic offers
+    let finalDiscountExplanation = discount_explanation;
+    if (offer.offer_type === 'dynamic' && discount && !discount_explanation) {
+      finalDiscountExplanation = `${discount}% off the final quoted price that will be agreed upon after consultation`;
+    }
+
     const updatedOffer = await offer.update({
       discount: discount ? parseFloat(discount) : offer.discount,
       expiration_date: expiration_date || offer.expiration_date,
@@ -517,7 +465,14 @@ exports.updateOffer = async (req, res) => {
       title: title !== undefined ? title : offer.title,
       featured: featured !== undefined ? featured : offer.featured,
       fee: parseFloat(fee),
+      // NEW: Enhanced fields
+      discount_explanation: finalDiscountExplanation !== undefined ? finalDiscountExplanation : offer.discount_explanation,
+      requires_consultation: requires_consultation !== undefined ? requires_consultation : offer.requires_consultation,
+      terms_conditions: terms_conditions !== undefined ? terms_conditions : offer.terms_conditions,
+      max_redemptions: max_redemptions !== undefined ? (max_redemptions ? parseInt(max_redemptions) : null) : offer.max_redemptions
     });
+
+    console.log('Offer updated with enhanced fields');
 
     // Fetch updated offer with includes
     const offerWithIncludes = await Offer.findByPk(updatedOffer.id, {
@@ -528,10 +483,158 @@ exports.updateOffer = async (req, res) => {
       offer: formatOffer(offerWithIncludes)
     }, 'Offer updated successfully');
   } catch (err) {
+    console.error('Enhanced update offer error:', err);
     return sendErrorResponse(res, 500, 'Error updating offer', err);
   }
 };
 
+// Enhanced get offers for merchant store with new service data
+exports.getOffersByStoreId = async (req, res) => {
+  try {
+    const { storeId } = req.params;
+    const { 
+      page = 1, 
+      limit = 12, 
+      status = 'all',
+      offer_type = 'all' // NEW: Filter by offer type
+    } = req.query;
+    
+    console.log('Getting enhanced offers for store:', storeId, 'type:', offer_type);
+    
+    const offset = (parseInt(page) - 1) * parseInt(limit);
+
+    // Validate store exists
+    const store = await Store.findByPk(storeId);
+    if (!store) {
+      return sendErrorResponse(res, 404, 'Store not found');
+    }
+
+    // Build where clause
+    const whereClause = {};
+    if (status && status !== 'all') {
+      whereClause.status = status;
+    }
+    // NEW: Filter by offer type
+    if (offer_type && offer_type !== 'all' && ['fixed', 'dynamic'].includes(offer_type)) {
+      whereClause.offer_type = offer_type;
+    }
+
+    const { count, rows: offers } = await Offer.findAndCountAll({
+      where: whereClause,
+      include: [
+        {
+          model: Service,
+          as: 'service',
+          where: { store_id: storeId },
+          required: true,
+          attributes: [
+            'id', 'name', 'image_url', 'images', 'price', 'duration', 'category', 'type', 'description', 'store_id',
+            // NEW: Include enhanced booking settings
+            'auto_confirm_bookings', 'confirmation_message', 'require_prepayment', 'cancellation_policy',
+            'min_cancellation_hours', 'allow_early_checkin', 'early_checkin_minutes', 'auto_complete_on_duration',
+            'grace_period_minutes', 'pricing_factors', 'price_range', 'consultation_required', 'featured'
+          ],
+          include: [
+            {
+              model: Store,
+              as: 'store',
+              attributes: ['id', 'name', 'logo_url', 'location'],
+            }
+          ]
+        }
+      ],
+      order: [['createdAt', 'DESC']],
+      limit: parseInt(limit),
+      offset: parseInt(offset),
+      distinct: true,
+    });
+
+    console.log(`Found ${offers.length} enhanced offers for store`);
+
+    const formattedOffers = offers.map(formatOffer);
+    const totalPages = Math.ceil(count / limit);
+    const currentPageNum = parseInt(page);
+
+    return sendSuccessResponse(res, {
+      offers: formattedOffers,
+      store: {
+        id: store.id,
+        name: store.name,
+        logo_url: store.logo_url,
+        location: store.location,
+      },
+      pagination: {
+        currentPage: currentPageNum,
+        totalPages,
+        totalItems: count,
+        itemsPerPage: parseInt(limit),
+        hasNextPage: currentPageNum < totalPages,
+        hasPrevPage: currentPageNum > 1
+      }
+    });
+  } catch (err) {
+    console.error('Error fetching enhanced store offers:', err);
+    return sendErrorResponse(res, 500, 'Error fetching offers by store', err);
+  }
+};
+
+// Keep all other existing methods but enhance them with new service fields
+exports.getRandomOffers = async (req, res) => {
+  try {
+    const { limit = 12, location, offer_type } = req.query;
+    
+    console.log('Getting random enhanced offers:', { limit, location, offer_type });
+
+    const parsedLimit = parseInt(limit);
+    if (isNaN(parsedLimit) || parsedLimit <= 0 || parsedLimit > 100) {
+      return sendErrorResponse(res, 400, 'Invalid limit parameter. Must be between 1 and 100');
+    }
+
+    // Build where clause for offers
+    const offerWhere = { 
+      status: 'active',
+      expiration_date: {
+        [Op.gt]: new Date()
+      }
+    };
+    
+    // NEW: Filter by offer type
+    if (offer_type && ['fixed', 'dynamic'].includes(offer_type)) {
+      offerWhere.offer_type = offer_type;
+    }
+
+    // Build store where clause for location filtering
+    const storeWhere = {};
+    if (location && location !== 'All Locations') {
+      storeWhere[Op.or] = [
+        { location: location },
+        { location: 'All Locations' }
+      ];
+    }
+
+    const offers = await Offer.findAll({
+      where: offerWhere,
+      include: getOfferIncludes(location),
+      order: sequelize.fn('RAND'),
+      limit: parsedLimit,
+    });
+
+    console.log(`Found ${offers.length} random enhanced offers`);
+
+    const formattedOffers = offers.map(formatOffer);
+
+    return sendSuccessResponse(res, { 
+      offers: formattedOffers,
+      location: location || 'All Locations',
+      offer_type: offer_type || 'all'
+    });
+  } catch (error) {
+    console.error('Error in enhanced getRandomOffers:', error);
+    return sendErrorResponse(res, 500, 'Error fetching random offers', error);
+  }
+};
+
+// Keep existing methods but add enhanced service data
 exports.deleteOffer = async (req, res) => {
   try {
     const { id } = req.params;
@@ -546,52 +649,88 @@ exports.deleteOffer = async (req, res) => {
     }
 
     await offer.destroy();
-    return sendSuccessResponse(res, { id: parseInt(id) }, 'Offer deleted successfully');
+    return sendSuccessResponse(res, { id }, 'Offer deleted successfully');
   } catch (err) {
     return sendErrorResponse(res, 500, 'Error deleting offer', err);
   }
 };
 
-// Health check endpoint
-exports.healthCheck = async (req, res) => {
+// Export all other existing methods with enhanced service data support
+exports.getOffersByStore = exports.getOffersByStoreId;
+exports.getTopDeals = async (req, res) => {
   try {
-    console.log('🏥 Health check called');
+    const { limit = 3, location, offer_type } = req.query;
+
+    const offerWhere = { 
+      status: 'active',
+      expiration_date: {
+        [Op.gt]: new Date()
+      }
+    };
     
-    // Test database connection
-    await sequelize.authenticate();
-    
-    // Get basic stats
-    const totalOffers = await Offer.count();
-    const activeOffers = await Offer.count({
-      where: { status: 'active' }
+    if (offer_type && ['fixed', 'dynamic'].includes(offer_type)) {
+      offerWhere.offer_type = offer_type;
+    }
+
+    const topDeals = await Offer.findAll({
+      where: offerWhere,
+      include: getOfferIncludes(location),
+      order: [['discount', 'DESC']],
+      limit: parseInt(limit),
     });
 
-    return res.status(200).json({
-      success: true,
-      message: 'API is healthy',
-      timestamp: new Date().toISOString(),
-      database: 'connected',
-      stats: {
-        totalOffers,
-        activeOffers
-      }
+    const formattedDeals = topDeals.map(formatOffer);
+
+    return sendSuccessResponse(res, { 
+      topDeals: formattedDeals,
+      location: location || 'All Locations',
+      offer_type: offer_type || 'all'
     });
-  } catch (error) {
-    console.error('💥 Health check failed:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'API health check failed',
-      error: error.message
-    });
+  } catch (err) {
+    return sendErrorResponse(res, 500, 'Error fetching top deals', err);
   }
 };
 
-// Categories endpoint with counts (location-aware)
+exports.getFeaturedOffers = async (req, res) => {
+  try {
+    const { limit = 6, location, offer_type } = req.query;
+
+    const offerWhere = { 
+      featured: true,
+      status: 'active',
+      expiration_date: {
+        [Op.gt]: new Date()
+      }
+    };
+    
+    if (offer_type && ['fixed', 'dynamic'].includes(offer_type)) {
+      offerWhere.offer_type = offer_type;
+    }
+
+    const featuredOffers = await Offer.findAll({
+      where: offerWhere,
+      include: getOfferIncludes(location),
+      order: [['createdAt', 'DESC']],
+      limit: parseInt(limit),
+    });
+
+    const formattedOffers = featuredOffers.map(formatOffer);
+
+    return sendSuccessResponse(res, { 
+      offers: formattedOffers,
+      location: location || 'All Locations',
+      offer_type: offer_type || 'all'
+    });
+  } catch (err) {
+    return sendErrorResponse(res, 500, 'Error fetching featured offers', err);
+  }
+};
+
+// Keep other existing methods...
 exports.getCategoriesAlternative = async (req, res) => {
   try {
-    const { location } = req.query; // ADD: Location parameter
+    const { location } = req.query;
 
-    // Build store where clause for location filtering
     const storeWhere = {};
     if (location && location !== 'All Locations') {
       storeWhere[Op.or] = [
@@ -613,7 +752,7 @@ exports.getCategoriesAlternative = async (req, res) => {
           where: { 
             status: 'active',
             expiration_date: {
-              [sequelize.Op.gt]: new Date()
+              [Op.gt]: new Date()
             }
           },
           required: true
@@ -657,122 +796,12 @@ exports.getCategoriesAlternative = async (req, res) => {
   }
 };
 
-// Top deals endpoint (location-aware)
-exports.getTopDeals = async (req, res) => {
-  try {
-    const { limit = 3, location } = req.query; // ADD: Location parameter
-
-    // Build store where clause for location filtering
-    const storeWhere = {};
-    if (location && location !== 'All Locations') {
-      storeWhere[Op.or] = [
-        { location: location },
-        { location: 'All Locations' }
-      ];
-    }
-
-    const topDeals = await Offer.findAll({
-      where: { 
-        status: 'active',
-        expiration_date: {
-          [sequelize.Op.gt]: new Date()
-        }
-      },
-      include: [
-        {
-          model: Service,
-          as: 'service',
-          required: true,
-          attributes: ['id', 'name', 'image_url', 'price', 'duration', 'category', 'type', 'description', 'store_id'],
-          include: [
-            {
-              model: Store,
-              as: 'store',
-              attributes: ['id', 'name', 'logo_url', 'location'],
-              where: Object.keys(storeWhere).length > 0 ? storeWhere : undefined,
-              required: true
-            }
-          ]
-        }
-      ],
-      order: [['discount', 'DESC']],
-      limit: parseInt(limit),
-    });
-
-    const formattedDeals = topDeals.map(formatOffer);
-
-    return sendSuccessResponse(res, { 
-      topDeals: formattedDeals,
-      location: location || 'All Locations'
-    });
-  } catch (err) {
-    return sendErrorResponse(res, 500, 'Error fetching top deals', err);
-  }
-};
-
-// Featured offers endpoint (location-aware)
-exports.getFeaturedOffers = async (req, res) => {
-  try {
-    const { limit = 6, location } = req.query; // ADD: Location parameter
-
-    // Build store where clause for location filtering
-    const storeWhere = {};
-    if (location && location !== 'All Locations') {
-      storeWhere[Op.or] = [
-        { location: location },
-        { location: 'All Locations' }
-      ];
-    }
-
-    const featuredOffers = await Offer.findAll({
-      where: { 
-        featured: true,
-        status: 'active',
-        expiration_date: {
-          [sequelize.Op.gt]: new Date()
-        }
-      },
-      include: [
-        {
-          model: Service,
-          as: 'service',
-          required: true,
-          attributes: ['id', 'name', 'image_url', 'price', 'duration', 'category', 'type', 'description', 'store_id'],
-          include: [
-            {
-              model: Store,
-              as: 'store',
-              attributes: ['id', 'name', 'logo_url', 'location'],
-              where: Object.keys(storeWhere).length > 0 ? storeWhere : undefined,
-              required: true
-            }
-          ]
-        }
-      ],
-      order: [['createdAt', 'DESC']],
-      limit: parseInt(limit),
-    });
-
-    const formattedOffers = featuredOffers.map(formatOffer);
-
-    return sendSuccessResponse(res, { 
-      offers: formattedOffers,
-      location: location || 'All Locations'
-    });
-  } catch (err) {
-    return sendErrorResponse(res, 500, 'Error fetching featured offers', err);
-  }
-};
-
-// Get offers statistics (location-aware)
 exports.getOffersStats = async (req, res) => {
   try {
-    const { storeId, location } = req.params; // ADD: Location parameter from params or query
+    const { storeId, location } = req.params;
 
-    // Build where clause
     const whereClause = storeId ? { '$service.store_id$': storeId } : {};
     
-    // Build store where clause for location filtering
     const storeWhere = {};
     if (location && location !== 'All Locations') {
       storeWhere[Op.or] = [
@@ -784,6 +813,7 @@ exports.getOffersStats = async (req, res) => {
     const stats = await Offer.findAll({
       attributes: [
         'status',
+        'offer_type', // NEW: Include offer type in stats
         [sequelize.fn('COUNT', sequelize.col('Offer.id')), 'count']
       ],
       include: [
@@ -804,30 +834,53 @@ exports.getOffersStats = async (req, res) => {
         }
       ],
       where: whereClause,
-      group: ['status']
+      group: ['status', 'offer_type']
     });
 
-    const formattedStats = stats.reduce((acc, stat) => {
-      acc[stat.status] = parseInt(stat.dataValues.count);
-      return acc;
-    }, {});
+    const formattedStats = {
+      byStatus: {},
+      byType: {},
+      total: 0
+    };
 
-    // Add default values for missing statuses
+    stats.forEach(stat => {
+      const status = stat.dataValues.status;
+      const offer_type = stat.dataValues.offer_type;
+      const count = parseInt(stat.dataValues.count);
+      
+      // Count by status
+      if (!formattedStats.byStatus[status]) {
+        formattedStats.byStatus[status] = 0;
+      }
+      formattedStats.byStatus[status] += count;
+      
+      // Count by type
+      if (!formattedStats.byType[offer_type]) {
+        formattedStats.byType[offer_type] = 0;
+      }
+      formattedStats.byType[offer_type] += count;
+      
+      formattedStats.total += count;
+    });
+
+    // Add default values for missing statuses and types
     const allStatuses = ['active', 'inactive', 'paused', 'expired'];
+    const allTypes = ['fixed', 'dynamic'];
+    
     allStatuses.forEach(status => {
-      if (!formattedStats[status]) {
-        formattedStats[status] = 0;
+      if (!formattedStats.byStatus[status]) {
+        formattedStats.byStatus[status] = 0;
+      }
+    });
+    
+    allTypes.forEach(type => {
+      if (!formattedStats.byType[type]) {
+        formattedStats.byType[type] = 0;
       }
     });
 
-    // Calculate totals
-    const total = Object.values(formattedStats).reduce((sum, count) => sum + count, 0);
-    
     return sendSuccessResponse(res, {
-      stats: {
-        ...formattedStats,
-        total
-      },
+      stats: formattedStats,
       location: location || 'All Locations'
     });
   } catch (err) {
@@ -835,7 +888,6 @@ exports.getOffersStats = async (req, res) => {
   }
 };
 
-// Bulk update offers status
 exports.bulkUpdateOffers = async (req, res) => {
   try {
     const { offerIds, status } = req.body;
@@ -862,5 +914,46 @@ exports.bulkUpdateOffers = async (req, res) => {
     }, `${affectedRows} offers updated successfully`);
   } catch (err) {
     return sendErrorResponse(res, 500, 'Error updating offers', err);
+  }
+};
+
+exports.healthCheck = async (req, res) => {
+  try {
+    console.log('Health check called');
+    
+    // Test database connection
+    await sequelize.authenticate();
+    
+    // Get basic stats with enhanced offer types
+    const totalOffers = await Offer.count();
+    const activeOffers = await Offer.count({
+      where: { status: 'active' }
+    });
+    const dynamicOffers = await Offer.count({
+      where: { offer_type: 'dynamic', status: 'active' }
+    });
+    const fixedOffers = await Offer.count({
+      where: { offer_type: 'fixed', status: 'active' }
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: 'API is healthy',
+      timestamp: new Date().toISOString(),
+      database: 'connected',
+      stats: {
+        totalOffers,
+        activeOffers,
+        dynamicOffers,
+        fixedOffers
+      }
+    });
+  } catch (error) {
+    console.error('Health check failed:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'API health check failed',
+      error: error.message
+    });
   }
 };
