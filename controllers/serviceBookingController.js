@@ -27,6 +27,7 @@ const {
 const SlotGenerationService = require('../services/slotGenerationService');
 const slotService = new SlotGenerationService(models);
 
+
 class ServiceBookingController {
 
   normalizeDateTime(dateTimeStr) {
