@@ -15,7 +15,7 @@ const MPESA_CONFIG = {
   baseURL: process.env.MPESA_BASE_URL || 'https://sandbox.safaricom.co.ke',
   shortCode: process.env.MPESA_SHORTCODE || '174379',
   passKey: process.env.MPESA_PASSKEY || 'bfb279f9aa9bdbcf158e97dd71a467cd2e0c893059b10f78e6b72ada1ed2c919',
-   callbackURL: 'https://5dfa35924a51.ngrok-free.app/api/v1/payments'
+   callbackURL: 'https://9f5f5ea6f2af.ngrok-free.app/api/v1/payments'
 };
 
 // ========================================

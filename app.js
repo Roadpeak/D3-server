@@ -36,6 +36,8 @@ const fs = require('fs');
 const path = require('path');
 const swaggerFile = path.join(__dirname, 'swagger_output.json');
 const merchantBookingRoutes = require('./routes/merchantBookingRoutes.js')
+const NoShowHandlerService = require('./services/noShowHandlerService');
+const AutoCompletionService = require('./services/autoCompletionService');
 
 // Import API key middleware
 const { apiKeyMiddleware } = require('./middleware/apiKey');
@@ -43,6 +45,8 @@ const { apiKeyMiddleware } = require('./middleware/apiKey');
 require('dotenv').config();
 
 const app = express();
+
+
 
 // ===============================
 // CORS CONFIGURATION
@@ -784,6 +788,24 @@ process.on('uncaughtException', (error) => {
 process.on('unhandledRejection', (reason, promise) => {
   console.error('Unhandled Rejection at:', promise, 'reason:', reason);
   gracefulShutdown('unhandledRejection');
+});
+
+const noShowHandler = new NoShowHandlerService(require('./models'));
+const autoCompletionHandler = new AutoCompletionService(require('./models'));
+noShowHandler.start();
+autoCompletionHandler.start();
+
+// Graceful shutdown
+process.on('SIGTERM', () => {
+  console.log('Shutting down booking automation services...');
+  noShowHandler.stop();
+  autoCompletionHandler.stop();
+});
+
+process.on('SIGINT', () => {
+  console.log('Shutting down booking automation services...');
+  noShowHandler.stop();
+  autoCompletionHandler.stop();
 });
 
 

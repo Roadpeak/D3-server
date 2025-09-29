@@ -157,6 +157,34 @@ module.exports = (sequelize, DataTypes) => {
       allowNull: true,
       comment: 'Time between slots in minutes'
     },
+
+    require_prepayment: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: false,
+      comment: 'Whether prepayment is required before confirmation'
+    },
+    blackout_dates: {
+      type: DataTypes.JSON,
+      allowNull: true,
+      defaultValue: [],
+      comment: 'Array of blackout dates/periods for this service'
+    },
+    allow_overbooking: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: false,
+      comment: 'Whether to allow bookings beyond max_concurrent_bookings'
+    },
+    min_advance_booking: {
+      type: DataTypes.INTEGER,
+      defaultValue: 30,
+      comment: 'Minimum minutes in advance that booking can be made'
+    },
+    max_advance_booking: {
+      type: DataTypes.INTEGER,
+      defaultValue: 10080, // 7 days in minutes
+      comment: 'Maximum minutes in advance that booking can be made'
+    },
+
     buffer_time: {
       type: DataTypes.INTEGER,
       defaultValue: 0,
@@ -178,6 +206,11 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.ENUM('active', 'inactive', 'suspended'),
       defaultValue: 'active',
     },
+    grace_period_minutes: {
+      type: DataTypes.INTEGER,
+      defaultValue: 10,
+      comment: 'Grace period after scheduled time before marking as no-show'
+    },
     booking_enabled: {
       type: DataTypes.BOOLEAN,
       defaultValue: true,
@@ -193,6 +226,16 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.BOOLEAN,
       defaultValue: false,
       comment: 'Whether service should be featured'
+    },
+    buffer_time: {
+      type: DataTypes.INTEGER,
+      defaultValue: 0,
+      comment: 'Buffer time in minutes before auto-completion'
+    },
+    auto_complete_on_duration: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: true,
+      comment: 'Whether to automatically complete after service duration'
     }
   }, {
     tableName: 'services',

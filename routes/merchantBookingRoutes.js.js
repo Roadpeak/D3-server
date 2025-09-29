@@ -16,6 +16,8 @@ const { Booking, Service, Store, User, Staff, Offer, Payment } = require('../mod
 // MERCHANT SERVICE BOOKINGS
 // ==========================================
 
+// FINAL FIXED VERSION - routes/merchantBookingRoutes.js
+
 /**
  * Get all service bookings for authenticated merchant
  * GET /api/v1/merchant/bookings/services
@@ -72,34 +74,34 @@ router.get('/services', authenticateMerchant, async (req, res) => {
       whereConditions.staffId = staffId;
     }
 
-    // Query bookings with merchant filtering
+    // CORRECTED: Use exact aliases from your models/index.js
     const bookings = await Booking.findAndCountAll({
       where: whereConditions,
       include: [
         {
           model: User,
-          as: 'User',
+          as: 'bookingUser', // This matches: Booking.belongsTo(User, { as: 'bookingUser' })
           attributes: ['id', 'firstName', 'lastName', 'email', 'phoneNumber'],
           required: false
         },
         {
           model: Service,
-          as: 'Service',
-          required: true,
+          as: 'service', // This matches: Booking.belongsTo(Service, { as: 'service' })
+          required: false,
           attributes: ['id', 'name', 'price', 'duration'],
           include: [{
             model: Store,
-            as: 'store',
+            as: 'store', // This matches: Service.belongsTo(Store, { as: 'store' })
             where: {
               merchant_id: merchantId // Filter by merchant's stores
             },
             attributes: ['id', 'name', 'location'],
-            required: true
+            required: true // This ensures only merchant's bookings are returned
           }]
         },
         {
           model: Staff,
-          as: 'Staff',
+          as: 'staff', // This matches: Booking.belongsTo(Staff, { as: 'staff' })
           required: false,
           attributes: ['id', 'name', 'email', 'phoneNumber', 'role', 'status']
         }
@@ -111,13 +113,14 @@ router.get('/services', authenticateMerchant, async (req, res) => {
 
     console.log(`Found ${bookings.count} service bookings for merchant ${merchantId}`);
 
-    // Format response with flexible property access
+    // Format response with CORRECTED property access
     const formattedBookings = bookings.rows.map(booking => {
       const bookingData = booking.toJSON();
       
-      const user = bookingData.User || bookingData.user;
-      const service = bookingData.Service || bookingData.service;
-      const staff = bookingData.Staff || bookingData.staff;
+      // CORRECTED: Use the exact aliases from your associations
+      const user = bookingData.bookingUser; // This is the correct alias
+      const service = bookingData.service;   // This is the correct alias
+      const staff = bookingData.staff;       // This is the correct alias
       
       return {
         ...bookingData,
@@ -133,7 +136,7 @@ router.get('/services', authenticateMerchant, async (req, res) => {
         canModify: ['pending', 'confirmed'].includes(bookingData.status) && 
                   new Date(bookingData.startTime) > new Date(),
         
-        // Ensure User property exists for frontend compatibility
+        // IMPORTANT: Also provide the capitalized versions for frontend compatibility
         User: user ? {
           id: user.id,
           firstName: user.firstName,
@@ -142,7 +145,6 @@ router.get('/services', authenticateMerchant, async (req, res) => {
           phoneNumber: user.phoneNumber
         } : null,
         
-        // Ensure Service property exists for frontend compatibility
         Service: service ? {
           id: service.id,
           name: service.name,
@@ -151,7 +153,6 @@ router.get('/services', authenticateMerchant, async (req, res) => {
           store: service.store
         } : null,
         
-        // Ensure Staff property exists for frontend compatibility
         Staff: staff ? {
           id: staff.id,
           name: staff.name,
@@ -179,13 +180,49 @@ router.get('/services', authenticateMerchant, async (req, res) => {
         in_progress: formattedBookings.filter(b => b.status === 'in_progress').length,
         completed: formattedBookings.filter(b => b.status === 'completed').length,
         cancelled: formattedBookings.filter(b => b.status === 'cancelled').length
+      },
+      debug: {
+        merchantId: merchantId,
+        totalBookingsFound: bookings.count,
+        queryUsed: {
+          aliases: ['bookingUser', 'service', 'staff'],
+          merchantFilter: `store.merchant_id = ${merchantId}`
+        }
       }
     });
 
   } catch (error) {
     console.error('Error fetching merchant service bookings:', error);
     
-    // Provide fallback mock data if there's an error (for development)
+    // Enhanced error handling for debugging
+    if (error.name === 'SequelizeEagerLoadingError') {
+      console.error('Association error details:', {
+        message: error.message,
+        include: error.include
+      });
+      
+      return res.status(500).json({
+        success: false,
+        message: 'Database association error - check model relationships',
+        error: process.env.NODE_ENV === 'development' ? {
+          name: error.name,
+          message: error.message,
+          include: error.include,
+          stack: error.stack
+        } : 'Internal server error',
+        debug: {
+          merchantId: merchantId,
+          expectedAssociations: [
+            'Booking -> User (as: bookingUser)',
+            'Booking -> Service (as: service)',
+            'Service -> Store (as: store)', 
+            'Booking -> Staff (as: staff)'
+          ]
+        }
+      });
+    }
+    
+    // Provide fallback mock data for development
     if (process.env.NODE_ENV === 'development') {
       console.log('Providing mock service bookings for development');
       return res.json({
@@ -198,7 +235,14 @@ router.get('/services', authenticateMerchant, async (req, res) => {
           hasMore: false
         },
         message: 'Using mock data - database query failed',
-        error: error.message
+        error: error.message,
+        debug: {
+          merchantId: merchantId,
+          errorDetails: {
+            name: error.name,
+            message: error.message
+          }
+        }
       });
     }
 
@@ -1202,6 +1246,69 @@ router.put('/:bookingId/status', authenticateMerchant, async (req, res) => {
   }
 });
 
+/**
+ * Manual no-show endpoint
+ * PUT /api/v1/merchant/bookings/:bookingId/no-show
+ */
+router.put('/:bookingId/no-show', authenticateMerchant, async (req, res) => {
+  try {
+    const { bookingId } = req.params;
+    const { reason } = req.body;
+    const merchantId = req.user.id;
+
+    const NoShowHandlerService = require('../services/noShowHandlerService');
+    const noShowHandler = new NoShowHandlerService(require('../models'));
+
+    const result = await noShowHandler.manualNoShow(bookingId, reason, merchantId);
+
+    if (result.success) {
+      return res.json({
+        success: true,
+        message: 'Booking marked as no-show successfully',
+        booking: result.booking
+      });
+    } else {
+      return res.status(400).json({
+        success: false,
+        message: result.reason
+      });
+    }
+
+  } catch (error) {
+    console.error('Error marking booking as no-show:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to mark booking as no-show',
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+    });
+  }
+});
+
+/**
+ * Get no-show statistics
+ * GET /api/v1/merchant/bookings/no-show/statistics
+ */
+router.get('/no-show/statistics', authenticateMerchant, async (req, res) => {
+  try {
+    const { period = '30d', storeId } = req.query;
+
+    const NoShowHandlerService = require('../services/noShowHandlerService');
+    const noShowHandler = new NoShowHandlerService(require('../models'));
+
+    const result = await noShowHandler.getNoShowStatistics(storeId, period);
+
+    return res.json(result);
+
+  } catch (error) {
+    console.error('Error getting no-show statistics:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to get no-show statistics',
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+    });
+  }
+});
+
 // ==========================================
 // STORE-SPECIFIC BOOKING ROUTES
 // ==========================================
@@ -1537,6 +1644,664 @@ router.get('/summary/today', authenticateMerchant, async (req, res) => {
     return res.status(500).json({
       success: false,
       message: 'Failed to fetch today booking summary',
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+    });
+  }
+});
+
+// ==========================================
+// SERVICE BOOKING ACTION ROUTES
+// ==========================================
+
+/**
+ * Check in a service booking
+ * PUT /api/v1/merchant/bookings/services/:bookingId/checkin
+ */
+router.put('/services/:bookingId/checkin', authenticateMerchant, serviceBookingController.checkInServiceBooking);
+
+/**
+ * Confirm a service booking
+ * PUT /api/v1/merchant/bookings/services/:bookingId/confirm
+ */
+router.put('/services/:bookingId/confirm', authenticateMerchant, serviceBookingController.confirmServiceBooking);
+
+
+/**
+ * Complete a service booking
+ * PUT /api/v1/merchant/bookings/services/:bookingId/complete
+ */
+router.put('/services/:bookingId/complete', authenticateMerchant, serviceBookingController.completeServiceBooking);
+
+/**
+ * Cancel a service booking
+ * PUT /api/v1/merchant/bookings/services/:bookingId/cancel
+ */
+router.put('/services/:bookingId/cancel', authenticateMerchant, serviceBookingController.cancelServiceBooking);
+
+/**
+ * Update service booking status (generic)
+ * PUT /api/v1/merchant/bookings/services/:bookingId/status
+ */
+router.put('/services/:bookingId/status', authenticateMerchant, serviceBookingController.updateServiceBookingStatus);
+
+// ==========================================
+// BULK OPERATIONS FOR SERVICE BOOKINGS
+// ==========================================
+
+/**
+ * Bulk update service booking statuses
+ * PUT /api/v1/merchant/bookings/services/bulk-status
+ */
+router.put('/services/bulk-status', authenticateMerchant, async (req, res) => {
+  try {
+    const merchantId = req.user.id;
+    const { bookingIds, status, notes } = req.body;
+
+    if (!Array.isArray(bookingIds) || bookingIds.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Booking IDs array is required'
+      });
+    }
+
+    if (bookingIds.length > 50) {
+      return res.status(400).json({
+        success: false,
+        message: 'Cannot update more than 50 bookings at once'
+      });
+    }
+
+    const validStatuses = ['pending', 'confirmed', 'in_progress', 'completed', 'cancelled', 'no_show'];
+    if (!validStatuses.includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid status provided',
+        validStatuses
+      });
+    }
+
+    // Find all bookings and verify merchant ownership
+    const bookings = await Booking.findAll({
+      where: {
+        id: { [Op.in]: bookingIds },
+        serviceId: { [Op.ne]: null },
+        bookingType: 'service'
+      },
+      include: [{
+        model: Service,
+        as: 'service',
+        required: true,
+        include: [{
+          model: Store,
+          as: 'store',
+          where: {
+            merchant_id: merchantId
+          },
+          required: true
+        }]
+      }]
+    });
+
+    if (bookings.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'No accessible service bookings found with the provided IDs'
+      });
+    }
+
+    // Update all bookings
+    const updateData = { 
+      status,
+      updatedBy: merchantId
+    };
+
+    // Add timestamp fields based on status
+    switch (status) {
+      case 'confirmed':
+        updateData.confirmedAt = new Date();
+        updateData.confirmed_at = new Date();
+        updateData.confirmed_by = req.user.name || req.user.email || 'Merchant';
+        updateData.manually_confirmed = true;
+        break;
+      case 'in_progress':
+        updateData.checked_in_at = new Date();
+        updateData.service_started_at = new Date();
+        updateData.checked_in_by = req.user.name || req.user.email || 'Merchant';
+        break;
+      case 'completed':
+        updateData.completedAt = new Date();
+        updateData.completed_by = req.user.name || req.user.email || 'Merchant';
+        break;
+      case 'cancelled':
+        updateData.cancelledAt = new Date();
+        updateData.cancellationReason = notes || 'Bulk cancelled by merchant';
+        break;
+      case 'no_show':
+        updateData.no_show_reason = notes || 'Customer did not arrive';
+        break;
+    }
+
+    // Add notes if provided
+    if (notes) {
+      updateData.merchantNotes = notes;
+    }
+
+    const updatePromises = bookings.map(booking => booking.update(updateData));
+    await Promise.all(updatePromises);
+
+    return res.json({
+      success: true,
+      message: `Successfully updated ${bookings.length} service bookings to ${status}`,
+      results: {
+        updated: bookings.length,
+        requested: bookingIds.length,
+        skipped: bookingIds.length - bookings.length
+      }
+    });
+
+  } catch (error) {
+    console.error('Error bulk updating service booking statuses:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to bulk update service booking statuses',
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+    });
+  }
+});
+
+/**
+ * Bulk check-in service bookings
+ * PUT /api/v1/merchant/bookings/services/bulk-checkin
+ */
+router.put('/services/bulk-checkin', authenticateMerchant, async (req, res) => {
+  try {
+    const merchantId = req.user.id;
+    const { bookingIds, notes } = req.body;
+
+    if (!Array.isArray(bookingIds) || bookingIds.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Booking IDs array is required'
+      });
+    }
+
+    // Find confirmed bookings only
+    const bookings = await Booking.findAll({
+      where: {
+        id: { [Op.in]: bookingIds },
+        serviceId: { [Op.ne]: null },
+        status: 'confirmed',
+        checked_in_at: null
+      },
+      include: [{
+        model: Service,
+        as: 'service',
+        required: true,
+        include: [{
+          model: Store,
+          as: 'store',
+          where: {
+            merchant_id: merchantId
+          },
+          required: true
+        }]
+      }]
+    });
+
+    if (bookings.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'No eligible service bookings found for check-in'
+      });
+    }
+
+    const updateData = {
+      status: 'in_progress',
+      checked_in_at: new Date(),
+      service_started_at: new Date(),
+      checked_in_by: req.user.name || req.user.email || 'Merchant',
+      checkin_notes: notes || 'Bulk check-in',
+      updatedBy: merchantId
+    };
+
+    const updatePromises = bookings.map(booking => booking.update(updateData));
+    await Promise.all(updatePromises);
+
+    return res.json({
+      success: true,
+      message: `Successfully checked in ${bookings.length} service bookings`,
+      results: {
+        checked_in: bookings.length,
+        requested: bookingIds.length,
+        skipped: bookingIds.length - bookings.length
+      }
+    });
+
+  } catch (error) {
+    console.error('Error bulk checking in service bookings:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to bulk check-in service bookings',
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+    });
+  }
+});
+
+// ==========================================
+// MERCHANT LISTING AND FILTERING ROUTES
+// ==========================================
+
+/**
+ * Get merchant's service bookings for a specific store
+ * GET /api/v1/merchant/bookings/stores/:storeId/services
+ */
+router.get('/stores/:storeId/services', authenticateMerchant, serviceBookingController.getMerchantStoreBookings);
+
+/**
+ * Get all merchant's service bookings across all stores
+ * GET /api/v1/merchant/bookings/services
+ */
+router.get('/services', authenticateMerchant, async (req, res) => {
+  try {
+    const merchantId = req.user.id;
+    const { status, limit = 50, offset = 0, startDate, endDate, storeId, serviceId } = req.query;
+    
+    const whereConditions = { 
+      serviceId: { [Op.ne]: null },
+      bookingType: 'service'
+    };
+    
+    if (status) {
+      whereConditions.status = status;
+    }
+
+    if (startDate) {
+      whereConditions.startTime = { [Op.gte]: new Date(startDate) };
+    }
+
+    if (endDate) {
+      whereConditions.startTime = {
+        ...whereConditions.startTime,
+        [Op.lte]: new Date(endDate)
+      };
+    }
+
+    if (storeId) {
+      whereConditions.storeId = storeId;
+    }
+
+    if (serviceId) {
+      whereConditions.serviceId = serviceId;
+    }
+
+    const bookings = await Booking.findAndCountAll({
+      where: whereConditions,
+      include: [
+        {
+          model: User,
+          as: 'User',
+          attributes: ['id', 'firstName', 'lastName', 'email', 'phoneNumber']
+        },
+        {
+          model: Service,
+          as: 'Service',
+          required: true,
+          attributes: ['id', 'name', 'price', 'duration'],
+          include: [{
+            model: Store,
+            as: 'store',
+            where: {
+              merchant_id: merchantId
+            },
+            required: true,
+            attributes: ['id', 'name', 'location']
+          }]
+        },
+        {
+          model: Staff,
+          as: 'Staff',
+          required: false,
+          attributes: ['id', 'name', 'email', 'phoneNumber', 'role', 'status']
+        }
+      ],
+      order: [['createdAt', 'DESC']],
+      limit: parseInt(limit),
+      offset: parseInt(offset)
+    });
+
+    return res.json({
+      success: true,
+      bookings: bookings.rows,
+      pagination: {
+        total: bookings.count,
+        limit: parseInt(limit),
+        offset: parseInt(offset)
+      }
+    });
+
+  } catch (error) {
+    console.error('Error getting merchant service bookings:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to fetch merchant service bookings',
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+    });
+  }
+});
+
+/**
+ * Get service booking analytics for merchant
+ * GET /api/v1/merchant/bookings/services/analytics
+ */
+router.get('/services/analytics', authenticateMerchant, async (req, res) => {
+  try {
+    const merchantId = req.user.id;
+    const { period = '30', storeId } = req.query; // days
+    
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - parseInt(period));
+    
+    const baseWhere = {
+      serviceId: { [Op.ne]: null },
+      bookingType: 'service',
+      createdAt: { [Op.gte]: startDate }
+    };
+
+    const includeCondition = {
+      model: Service,
+      as: 'service',
+      required: true,
+      include: [{
+        model: Store,
+        as: 'store',
+        where: {
+          merchant_id: merchantId,
+          ...(storeId && { id: storeId })
+        },
+        required: true
+      }]
+    };
+
+    // Get booking counts by status
+    const statusCounts = await Booking.findAll({
+      where: baseWhere,
+      include: [includeCondition],
+      attributes: [
+        'status',
+        [models.sequelize.fn('COUNT', models.sequelize.col('Booking.id')), 'count']
+      ],
+      group: ['status']
+    });
+
+    // Get revenue data (assuming you want to calculate potential revenue)
+    const revenueData = await Booking.findAll({
+      where: {
+        ...baseWhere,
+        status: { [Op.in]: ['completed', 'confirmed', 'in_progress'] }
+      },
+      include: [
+        {
+          ...includeCondition,
+          attributes: ['price']
+        }
+      ],
+      attributes: [
+        [models.sequelize.fn('SUM', models.sequelize.col('service.price')), 'total_revenue'],
+        [models.sequelize.fn('COUNT', models.sequelize.col('Booking.id')), 'completed_bookings']
+      ]
+    });
+
+    // Get daily booking trends
+    const dailyTrends = await Booking.findAll({
+      where: baseWhere,
+      include: [includeCondition],
+      attributes: [
+        [models.sequelize.fn('DATE', models.sequelize.col('Booking.createdAt')), 'date'],
+        [models.sequelize.fn('COUNT', models.sequelize.col('Booking.id')), 'bookings'],
+        'status'
+      ],
+      group: [
+        models.sequelize.fn('DATE', models.sequelize.col('Booking.createdAt')),
+        'status'
+      ],
+      order: [[models.sequelize.fn('DATE', models.sequelize.col('Booking.createdAt')), 'ASC']]
+    });
+
+    // Get popular services
+    const popularServices = await Booking.findAll({
+      where: baseWhere,
+      include: [
+        {
+          ...includeCondition,
+          attributes: ['id', 'name', 'price']
+        }
+      ],
+      attributes: [
+        'serviceId',
+        [models.sequelize.fn('COUNT', models.sequelize.col('Booking.id')), 'booking_count']
+      ],
+      group: ['serviceId', 'service.id', 'service.name', 'service.price'],
+      order: [[models.sequelize.fn('COUNT', models.sequelize.col('Booking.id')), 'DESC']],
+      limit: 10
+    });
+
+    return res.json({
+      success: true,
+      analytics: {
+        period_days: parseInt(period),
+        status_breakdown: statusCounts.reduce((acc, item) => {
+          acc[item.status] = parseInt(item.get('count'));
+          return acc;
+        }, {}),
+        revenue: {
+          total: parseFloat(revenueData[0]?.get('total_revenue') || 0),
+          completed_bookings: parseInt(revenueData[0]?.get('completed_bookings') || 0)
+        },
+        daily_trends: dailyTrends,
+        popular_services: popularServices.map(service => ({
+          service_id: service.serviceId,
+          service_name: service.service.name,
+          service_price: service.service.price,
+          booking_count: parseInt(service.get('booking_count'))
+        }))
+      }
+    });
+
+  } catch (error) {
+    console.error('Error getting service booking analytics:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to fetch service booking analytics',
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+    });
+  }
+});
+
+// ==========================================
+// QUICK ACTION ENDPOINTS (Alternative shorter routes)
+// ==========================================
+
+/**
+ * Quick check-in endpoint
+ * POST /api/v1/merchant/bookings/:bookingId/checkin
+ */
+router.post('/:bookingId/checkin', authenticateMerchant, async (req, res) => {
+  // Route to service-specific endpoint
+  req.params.bookingId = req.params.bookingId;
+  return serviceBookingController.checkInServiceBooking(req, res);
+});
+
+/**
+ * Quick confirm endpoint
+ * POST /api/v1/merchant/bookings/:bookingId/confirm
+ */
+router.post('/:bookingId/confirm', authenticateMerchant, async (req, res) => {
+  // Route to service-specific endpoint
+  req.params.bookingId = req.params.bookingId;
+  return serviceBookingController.confirmServiceBooking(req, res);
+});
+
+/**
+ * Quick complete endpoint
+ * POST /api/v1/merchant/bookings/:bookingId/complete
+ */
+router.post('/:bookingId/complete', authenticateMerchant, async (req, res) => {
+  // Route to service-specific endpoint
+  req.params.bookingId = req.params.bookingId;
+  return serviceBookingController.completeServiceBooking(req, res);
+});
+
+/**
+ * Quick cancel endpoint
+ * POST /api/v1/merchant/bookings/:bookingId/cancel
+ */
+router.post('/:bookingId/cancel', authenticateMerchant, async (req, res) => {
+  // Route to service-specific endpoint
+  req.params.bookingId = req.params.bookingId;
+  return serviceBookingController.cancelServiceBooking(req, res);
+});
+
+// ==========================================
+// BOOKING DETAILS AND MANAGEMENT
+// ==========================================
+
+/**
+ * Get specific service booking details for merchant
+ * GET /api/v1/merchant/bookings/services/:bookingId
+ */
+router.get('/services/:bookingId', authenticateMerchant, async (req, res) => {
+  try {
+    const { bookingId } = req.params;
+    const merchantId = req.user.id;
+    
+    const booking = await Booking.findOne({
+      where: {
+        id: bookingId,
+        serviceId: { [Op.ne]: null },
+        bookingType: 'service'
+      },
+      include: [
+        {
+          model: User,
+          as: 'User',
+          attributes: ['id', 'firstName', 'lastName', 'email', 'phoneNumber']
+        },
+        {
+          model: Service,
+          as: 'Service',
+          required: true,
+          include: [{
+            model: Store,
+            as: 'store',
+            where: {
+              merchant_id: merchantId
+            },
+            required: true
+          }]
+        },
+        {
+          model: Staff,
+          as: 'Staff',
+          required: false,
+          attributes: ['id', 'name', 'email', 'phoneNumber', 'role']
+        }
+      ]
+    });
+
+    if (!booking) {
+      return res.status(404).json({
+        success: false,
+        message: 'Service booking not found or not accessible'
+      });
+    }
+
+    return res.json({
+      success: true,
+      booking
+    });
+
+  } catch (error) {
+    console.error('Error getting service booking details:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to fetch service booking details',
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+    });
+  }
+});
+
+/**
+ * Add notes to a service booking
+ * PUT /api/v1/merchant/bookings/services/:bookingId/notes
+ */
+router.put('/services/:bookingId/notes', authenticateMerchant, async (req, res) => {
+  try {
+    const { bookingId } = req.params;
+    const { notes } = req.body;
+    const merchantId = req.user.id;
+
+    if (!notes || notes.trim() === '') {
+      return res.status(400).json({
+        success: false,
+        message: 'Notes content is required'
+      });
+    }
+
+    const booking = await Booking.findOne({
+      where: {
+        id: bookingId,
+        serviceId: { [Op.ne]: null },
+        bookingType: 'service'
+      },
+      include: [{
+        model: Service,
+        as: 'service',
+        required: true,
+        include: [{
+          model: Store,
+          as: 'store',
+          where: {
+            merchant_id: merchantId
+          },
+          required: true
+        }]
+      }]
+    });
+
+    if (!booking) {
+      return res.status(404).json({
+        success: false,
+        message: 'Service booking not found or not accessible'
+      });
+    }
+
+    const timestamp = new Date().toISOString();
+    const merchantName = req.user.name || req.user.email || 'Merchant';
+    const newNote = `[${timestamp}] ${merchantName}: ${notes}`;
+    
+    const updatedNotes = booking.merchantNotes 
+      ? `${booking.merchantNotes}\n\n${newNote}`
+      : newNote;
+
+    await booking.update({
+      merchantNotes: updatedNotes,
+      updatedBy: merchantId
+    });
+
+    return res.json({
+      success: true,
+      message: 'Notes added successfully',
+      booking: {
+        id: booking.id,
+        merchantNotes: updatedNotes
+      }
+    });
+
+  } catch (error) {
+    console.error('Error adding notes to service booking:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to add notes to service booking',
       error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
