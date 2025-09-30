@@ -33,13 +33,13 @@ module.exports = (sequelize, DataTypes) => {
         'Music & Audio',
         'Programming',
         'Business',
-        'Health & Fitness',      // ✅ ADDED - was "Fitness"
-        'Beauty & Salon',        // ✅ ADDED - was "Beauty & Wellness"
+        'Health & Fitness',      
+        'Beauty & Salon',        
         'Photography',
         'Home Services',
-        'Automotive',            // ✅ UPDATED - was "Auto Services"
-        'Education',             // ✅ ADDED - was "Tutoring"
-        'Technology',            // ✅ ADDED - was "Tech Support"
+        'Automotive',           
+        'Education',             
+        'Technology',            
         'Legal Services',
         'Consulting',
         'Healthcare',

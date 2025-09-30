@@ -201,7 +201,7 @@ router.get('/offers', authenticateToken, requireUserType('customer'), async (req
       avatar: offer.provider?.avatar || null,
       rating: offer.store?.rating || 0,
       reviews: 0, // ✅ TODO: Add review count logic
-      price: `$${offer.quotedPrice}`,
+      price: `KSH ${offer.quotedPrice}`,
       quotedPrice: offer.quotedPrice,
       message: offer.message,
       availability: offer.availability,
@@ -209,7 +209,7 @@ router.get('/offers', authenticateToken, requireUserType('customer'), async (req
       requestTitle: offer.request?.title || 'Unknown Request',
       requestCategory: offer.request?.category || '',
       requestBudget: offer.request ? 
-        `$${offer.request.budgetMin} - $${offer.request.budgetMax}` : '',
+       `KSH ${offer.request.budgetMin} - KSH ${offer.request.budgetMax}` : '',
       estimatedDuration: offer.estimatedDuration,
       includesSupplies: offer.includesSupplies,
       warranty: offer.warranty,
@@ -306,7 +306,7 @@ router.get('/my-requests', authenticateToken, requireUserType('customer'), async
       title: request.title,
       category: request.category,
       description: request.description,
-      budget: `$${request.budgetMin} - $${request.budgetMax}`,
+      budget: `KSH ${request.budgetMin} - KSH ${request.budgetMax}`,
       timeline: request.timeline,
       location: request.location,
       priority: request.priority,
@@ -325,7 +325,7 @@ router.get('/my-requests', authenticateToken, requireUserType('customer'), async
         storeName: request.acceptedOffer.store?.name || 
           `${request.acceptedOffer.provider?.firstName} ${request.acceptedOffer.provider?.lastName}`,
         storeId: request.acceptedOffer.storeId,
-        price: `$${request.acceptedOffer.quotedPrice}`,
+        price: `KSH ${request.acceptedOffer.quotedPrice}`,
         rating: request.finalRating,
         providerName: request.acceptedOffer.provider ? 
           `${request.acceptedOffer.provider.firstName} ${request.acceptedOffer.provider.lastName}` : 
@@ -465,7 +465,7 @@ router.get('/for-merchants', authenticateToken, requireUserType('merchant'), asy
         title: request.title,
         category: request.category,
         description: request.description,
-        budget: `$${request.budgetMin} - $${request.budgetMax}`,
+        budget: `KSH ${request.budgetMin} - KSH ${request.budgetMax}`,
         budgetMin: request.budgetMin,
         budgetMax: request.budgetMax,
         timeline: request.timeline,
@@ -609,7 +609,7 @@ router.get('/', async (req, res) => {
       title: request.title,
       category: request.category,
       description: request.description,
-      budget: `$${request.budgetMin} - $${request.budgetMax}`,
+      budget: `KSH ${request.budgetMin} - KSH ${request.budgetMax}`,
       budgetMin: request.budgetMin,
       budgetMax: request.budgetMax,
       timeline: request.timeline,
@@ -759,7 +759,7 @@ router.post('/', authenticateToken, requireUserType('customer'), async (req, res
         title: serviceRequest.title,
         category: serviceRequest.category,
         status: serviceRequest.status,
-        budget: `$${serviceRequest.budgetMin} - $${serviceRequest.budgetMax}`,
+        budget: `KSH ${serviceRequest.budgetMin} - KSH ${serviceRequest.budgetMax}`,
         timeline: serviceRequest.timeline,
         location: serviceRequest.location,
         createdAt: serviceRequest.createdAt

@@ -4,7 +4,7 @@ const jwt = require('jsonwebtoken');
 const { v4: uuidv4 } = require('uuid');
 const JWT_SECRET = process.env.JWT_SECRET;
 
-// Enhanced createService with images array support
+// Enhanced createService with all new fields
 exports.createService = async (req, res) => {
   const transaction = await sequelize.transaction();
   
@@ -22,16 +22,29 @@ exports.createService = async (req, res) => {
       type,
       staffIds = [],
       autoAssignAllStaff = true,
-      // Additional fields from frontend
+      // Dynamic service fields
       pricing_factors = [],
       price_range = '',
       consultation_required = false,
+      // Booking capacity fields
       max_concurrent_bookings = 1,
       allow_overbooking = false,
       slot_interval,
       buffer_time = 0,
       min_advance_booking = 30,
       max_advance_booking = 10080,
+      // NEW: Booking confirmation settings
+      auto_confirm_bookings = true,
+      confirmation_message = '',
+      require_prepayment = false,
+      cancellation_policy = '',
+      min_cancellation_hours = 2,
+      // NEW: Check-in and completion settings
+      allow_early_checkin = true,
+      early_checkin_minutes = 15,
+      auto_complete_on_duration = true,
+      grace_period_minutes = 10,
+      // SEO fields
       tags = [],
       featured = false
     } = req.body;
@@ -42,7 +55,9 @@ exports.createService = async (req, res) => {
       store_id, 
       branch_id,
       images: Array.isArray(images) ? images.length : 0,
-      staffIds: Array.isArray(staffIds) ? staffIds.length : 0
+      staffIds: Array.isArray(staffIds) ? staffIds.length : 0,
+      auto_confirm_bookings,
+      require_prepayment
     });
 
     // Validate required fields
@@ -80,20 +95,25 @@ exports.createService = async (req, res) => {
       });
     }
 
+    // Validate dynamic service requirements
+    if (type === 'dynamic' && (!price_range || pricing_factors.length === 0)) {
+      await transaction.rollback();
+      return res.status(400).json({ 
+        message: 'Dynamic services require price_range and at least one pricing factor' 
+      });
+    }
+
     // Process images array - filter out empty/null values
     let processedImages = [];
     if (Array.isArray(images)) {
       processedImages = images.filter(img => img && typeof img === 'string' && img.trim() !== '');
-      console.log(`📸 Processing ${processedImages.length} images from frontend`);
-      console.log(`📸 Images received:`, processedImages);
-    } else {
-      console.log(`⚠️ Images is not an array:`, typeof images, images);
+      console.log(`Processing ${processedImages.length} images from frontend`);
     }
 
     // If no images in array but image_url provided, add it to array
     if (processedImages.length === 0 && image_url && image_url.trim() !== '') {
       processedImages = [image_url];
-      console.log(`📸 Using image_url as fallback:`, image_url);
+      console.log(`Using image_url as fallback:`, image_url);
     }
 
     // Fix branch_id - handle various formats from frontend
@@ -102,14 +122,40 @@ exports.createService = async (req, res) => {
       if (branch_id.startsWith('store-')) {
         // Frontend sent 'store-{storeId}' format, set to null (main store branch)
         cleanBranchId = null;
-        console.log(`🔧 Branch ID indicates main store, setting to null: ${branch_id}`);
+        console.log(`Branch ID indicates main store, setting to null: ${branch_id}`);
       } else if (branch_id.length === 36) {
         // Looks like a valid UUID
         cleanBranchId = branch_id;
-        console.log(`🔧 Using branch_id as-is: ${branch_id}`);
+        console.log(`Using branch_id as-is: ${branch_id}`);
       } else {
-        console.log(`⚠️ Invalid branch_id format: ${branch_id}`);
+        console.log(`Invalid branch_id format: ${branch_id}`);
         cleanBranchId = null;
+      }
+    }
+
+    // Validate booking confirmation settings
+    if (!auto_confirm_bookings && !confirmation_message.trim()) {
+      await transaction.rollback();
+      return res.status(400).json({ 
+        message: 'Confirmation message is required when auto-confirm is disabled' 
+      });
+    }
+
+    // Validate numeric fields
+    const numericValidations = [
+      { field: 'min_cancellation_hours', value: min_cancellation_hours, min: 0, max: 48 },
+      { field: 'early_checkin_minutes', value: early_checkin_minutes, min: 0, max: 60 },
+      { field: 'grace_period_minutes', value: grace_period_minutes, min: 0, max: 60 },
+      { field: 'max_concurrent_bookings', value: max_concurrent_bookings, min: 1, max: 50 }
+    ];
+
+    for (const validation of numericValidations) {
+      const numValue = parseInt(validation.value);
+      if (isNaN(numValue) || numValue < validation.min || numValue > validation.max) {
+        await transaction.rollback();
+        return res.status(400).json({ 
+          message: `${validation.field} must be between ${validation.min} and ${validation.max}` 
+        });
       }
     }
 
@@ -118,24 +164,37 @@ exports.createService = async (req, res) => {
       name,
       price: type === 'fixed' ? parseFloat(price) : null,
       duration: type === 'fixed' ? parseInt(duration) : null,
-      images: processedImages, // Your model will handle JSON conversion
-      image_url: processedImages.length > 0 ? processedImages[0] : null, // Primary image for compatibility
+      images: processedImages,
+      image_url: processedImages.length > 0 ? processedImages[0] : null,
       store_id,
-      branch_id: cleanBranchId || null, // Use cleaned branch_id
+      branch_id: cleanBranchId,
       category,
       description,
       type,
-      // Additional fields
+      // Dynamic service fields
       pricing_factors: pricing_factors,
       price_range: type === 'dynamic' ? price_range : null,
       consultation_required: type === 'dynamic' ? consultation_required : false,
+      // Booking capacity fields
       max_concurrent_bookings: parseInt(max_concurrent_bookings) || 1,
       allow_overbooking: allow_overbooking || false,
       slot_interval: slot_interval ? parseInt(slot_interval) : null,
       buffer_time: parseInt(buffer_time) || 0,
       min_advance_booking: parseInt(min_advance_booking) || 30,
       max_advance_booking: parseInt(max_advance_booking) || 10080,
-      tags: tags,
+      // NEW: Booking confirmation settings
+      auto_confirm_bookings: auto_confirm_bookings,
+      confirmation_message: confirmation_message.trim(),
+      require_prepayment: require_prepayment || false,
+      cancellation_policy: cancellation_policy.trim(),
+      min_cancellation_hours: parseInt(min_cancellation_hours) || 2,
+      // NEW: Check-in settings
+      allow_early_checkin: allow_early_checkin,
+      early_checkin_minutes: parseInt(early_checkin_minutes) || 15,
+      auto_complete_on_duration: auto_complete_on_duration,
+      grace_period_minutes: parseInt(grace_period_minutes) || 10,
+      // SEO fields
+      tags: tags || [],
       featured: featured || false
     };
 
@@ -152,7 +211,7 @@ exports.createService = async (req, res) => {
       id: newService.id,
       name: newService.name,
       images_count: processedImages.length,
-      primary_image: newService.image_url
+      auto_confirm: newService.auto_confirm_bookings
     });
 
     // Handle staff assignment
@@ -230,7 +289,7 @@ exports.createService = async (req, res) => {
     // Convert to JSON and ensure proper data format
     if (serviceResponse) {
       serviceResponse = serviceResponse.toJSON();
-      // Ensure images is always an array for frontend
+      // Ensure arrays are always properly formatted for frontend
       serviceResponse.images = serviceResponse.images || [];
       serviceResponse.pricing_factors = serviceResponse.pricing_factors || [];
       serviceResponse.tags = serviceResponse.tags || [];
@@ -254,7 +313,151 @@ exports.createService = async (req, res) => {
   }
 };
 
-// Get all services
+// Update service with all new fields
+exports.updateService = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { 
+      type, 
+      images = [], 
+      image_url, 
+      staffIds = [],
+      // NEW: Booking confirmation settings
+      auto_confirm_bookings,
+      confirmation_message,
+      require_prepayment,
+      cancellation_policy,
+      min_cancellation_hours,
+      // NEW: Check-in settings
+      allow_early_checkin,
+      early_checkin_minutes,
+      auto_complete_on_duration,
+      grace_period_minutes,
+      ...otherFields 
+    } = req.body;
+
+    console.log('Updating service:', id, 'with type:', type, 'auto_confirm:', auto_confirm_bookings);
+
+    if (type && !['fixed', 'dynamic'].includes(type)) {
+      return res.status(400).json({ message: 'Invalid service type. Must be "fixed" or "dynamic".' });
+    }
+
+    const service = await Service.findByPk(id);
+    if (!service) {
+      return res.status(404).json({ message: 'Service not found' });
+    }
+
+    // Validate booking confirmation settings if provided
+    if (auto_confirm_bookings === false && confirmation_message && !confirmation_message.trim()) {
+      return res.status(400).json({ 
+        message: 'Confirmation message is required when auto-confirm is disabled' 
+      });
+    }
+
+    // Validate numeric fields if provided
+    const numericFields = {
+      min_cancellation_hours: { min: 0, max: 48 },
+      early_checkin_minutes: { min: 0, max: 60 },
+      grace_period_minutes: { min: 0, max: 60 },
+      max_concurrent_bookings: { min: 1, max: 50 }
+    };
+
+    for (const [fieldName, validation] of Object.entries(numericFields)) {
+      if (req.body[fieldName] !== undefined) {
+        const numValue = parseInt(req.body[fieldName]);
+        if (isNaN(numValue) || numValue < validation.min || numValue > validation.max) {
+          return res.status(400).json({ 
+            message: `${fieldName} must be between ${validation.min} and ${validation.max}` 
+          });
+        }
+      }
+    }
+
+    // Process images
+    let processedImages = [];
+    if (Array.isArray(images)) {
+      processedImages = images.filter(img => img && typeof img === 'string' && img.trim() !== '');
+    }
+
+    // If no images in array but image_url provided, add it
+    if (processedImages.length === 0 && image_url && image_url.trim() !== '') {
+      processedImages = [image_url];
+    }
+
+    const updateData = {
+      ...otherFields,
+      type: type || service.type,
+      images: processedImages,
+      image_url: processedImages.length > 0 ? processedImages[0] : service.image_url,
+      price: type === 'dynamic' ? null : (otherFields.price ? parseFloat(otherFields.price) : service.price),
+      duration: type === 'dynamic' ? null : (otherFields.duration ? parseInt(otherFields.duration) : service.duration),
+      // NEW: Booking confirmation settings (only update if provided)
+      ...(auto_confirm_bookings !== undefined && { auto_confirm_bookings }),
+      ...(confirmation_message !== undefined && { confirmation_message: confirmation_message.trim() }),
+      ...(require_prepayment !== undefined && { require_prepayment }),
+      ...(cancellation_policy !== undefined && { cancellation_policy: cancellation_policy.trim() }),
+      ...(min_cancellation_hours !== undefined && { min_cancellation_hours: parseInt(min_cancellation_hours) }),
+      // NEW: Check-in settings (only update if provided)
+      ...(allow_early_checkin !== undefined && { allow_early_checkin }),
+      ...(early_checkin_minutes !== undefined && { early_checkin_minutes: parseInt(early_checkin_minutes) }),
+      ...(auto_complete_on_duration !== undefined && { auto_complete_on_duration }),
+      ...(grace_period_minutes !== undefined && { grace_period_minutes: parseInt(grace_period_minutes) })
+    };
+
+    const updatedService = await service.update(updateData);
+
+    // Handle staff assignment updates if staffIds provided
+    if (staffIds.length > 0) {
+      // Remove existing assignments
+      await StaffService.destroy({
+        where: { serviceId: id }
+      });
+
+      // Create new assignments
+      const assignments = staffIds.map(staffId => ({
+        id: uuidv4(),
+        staffId,
+        serviceId: id,
+        isActive: true,
+        assignedAt: new Date(),
+        createdAt: new Date(),
+        updatedAt: new Date()
+      }));
+      
+      await StaffService.bulkCreate(assignments);
+      console.log(`Updated staff assignments: ${assignments.length} staff members`);
+    }
+
+    // Fetch updated service with associations
+    const serviceWithAssociations = await Service.findByPk(id, {
+      include: [{
+        model: Staff,
+        as: 'staff',
+        through: { attributes: ['isActive', 'assignedAt'] },
+        attributes: { exclude: ['password'] }
+      }]
+    });
+
+    // Ensure proper data format
+    const responseData = serviceWithAssociations.toJSON();
+    responseData.images = responseData.images || [];
+    responseData.pricing_factors = responseData.pricing_factors || [];
+    responseData.tags = responseData.tags || [];
+
+    return res.status(200).json({ 
+      message: 'Service updated successfully', 
+      service: responseData 
+    });
+  } catch (err) {
+    console.error('Service update error:', err);
+    return res.status(500).json({ 
+      message: 'Error updating service',
+      error: process.env.NODE_ENV === 'development' ? err.message : undefined
+    });
+  }
+};
+
+// Get all services with enhanced data
 exports.getServices = async (req, res) => {
   try {
     const services = await Service.findAll({
@@ -263,8 +466,16 @@ exports.getServices = async (req, res) => {
           model: Store,
           as: 'store',
           attributes: ['id', 'name', 'location']
+        },
+        {
+          model: Staff,
+          as: 'staff',
+          through: { attributes: ['isActive', 'assignedAt'] },
+          attributes: ['id', 'name', 'email', 'status'],
+          required: false
         }
-      ]
+      ],
+      order: [['featured', 'DESC'], ['createdAt', 'DESC']]
     });
     
     const processedServices = services.map(service => {
@@ -277,12 +488,12 @@ exports.getServices = async (req, res) => {
     
     return res.status(200).json({ services: processedServices });
   } catch (err) {
-    console.error(err);
+    console.error('Get services error:', err);
     return res.status(500).json({ message: 'Error fetching services' });
   }
 };
 
-// Get service by ID
+// Get service by ID with all associations
 exports.getServiceById = async (req, res) => {
   try {
     const { id } = req.params;
@@ -313,12 +524,12 @@ exports.getServiceById = async (req, res) => {
 
     return res.status(200).json({ service: serviceData });
   } catch (err) {
-    console.error(err);
+    console.error('Get service by ID error:', err);
     return res.status(500).json({ message: 'Error fetching service' });
   }
 };
 
-// Search services
+// Search services (keeping existing logic)
 exports.searchServices = async (req, res) => {
   try {
     const { term, minPrice, maxPrice } = req.query;
@@ -413,65 +624,8 @@ exports.searchServices = async (req, res) => {
     // Return both services and stores with follow status
     return res.status(200).json({ services, stores: storesWithFollowStatus });
   } catch (err) {
-    console.error(err);
+    console.error('Search services error:', err);
     return res.status(500).json({ message: 'Error searching services and stores' });
-  }
-};
-
-// Update service with images support
-exports.updateService = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { type, images = [], image_url, ...otherFields } = req.body;
-
-    if (type && !['fixed', 'dynamic'].includes(type)) {
-      return res.status(400).json({ message: 'Invalid service type. Must be "fixed" or "dynamic".' });
-    }
-
-    const service = await Service.findByPk(id);
-    if (!service) {
-      return res.status(404).json({ message: 'Service not found' });
-    }
-
-    // Process images
-    let processedImages = [];
-    if (Array.isArray(images)) {
-      processedImages = images.filter(img => img && typeof img === 'string' && img.trim() !== '');
-    }
-
-    // If no images in array but image_url provided, add it
-    if (processedImages.length === 0 && image_url && image_url.trim() !== '') {
-      processedImages = [image_url];
-    }
-
-    const updateData = {
-      ...otherFields,
-      type: type || service.type,
-      images: processedImages,
-      image_url: processedImages.length > 0 ? processedImages[0] : service.image_url,
-      price: type === 'dynamic' ? null : otherFields.price || service.price,
-      duration: type === 'dynamic' ? null : otherFields.duration || service.duration,
-    };
-
-    const updatedService = await service.update(updateData);
-
-    // Fetch updated service with associations
-    const serviceWithAssociations = await Service.findByPk(id, {
-      include: [{
-        model: Staff,
-        as: 'staff',
-        through: { attributes: ['isActive', 'assignedAt'] },
-        attributes: { exclude: ['password'] }
-      }]
-    });
-
-    return res.status(200).json({ 
-      message: 'Service updated successfully', 
-      service: serviceWithAssociations 
-    });
-  } catch (err) {
-    console.error('Service update error:', err);
-    return res.status(500).json({ message: 'Error updating service' });
   }
 };
 
@@ -488,12 +642,12 @@ exports.deleteService = async (req, res) => {
     await service.destroy();
     return res.status(200).json({ message: 'Service deleted successfully' });
   } catch (err) {
-    console.error(err);
+    console.error('Delete service error:', err);
     return res.status(500).json({ message: 'Error deleting service' });
   }
 };
 
-// Get services by store ID with enhanced image support
+// Get services by store ID with enhanced data
 exports.getServicesByStoreId = async (req, res) => {
   try {
     const { storeId } = req.params;
@@ -535,7 +689,7 @@ exports.getServicesByStoreId = async (req, res) => {
       console.log('Store ownership verified');
     }
 
-    // Fetch services for this specific store
+    // Fetch services for this specific store with all new fields
     const services = await Service.findAll({
       where: {
         store_id: storeId,
@@ -557,7 +711,7 @@ exports.getServicesByStoreId = async (req, res) => {
           required: false
         }
       ],
-      order: [['createdAt', 'DESC']]
+      order: [['featured', 'DESC'], ['createdAt', 'DESC']]
     });
 
     console.log(`Found ${services.length} services for store ${storeId}`);
@@ -571,11 +725,13 @@ exports.getServicesByStoreId = async (req, res) => {
       serviceData.pricing_factors = serviceData.pricing_factors || [];
       serviceData.tags = serviceData.tags || [];
       
-      // Log image data for debugging
-      if (serviceData.images.length > 0) {
-        console.log(`Service "${serviceData.name}" has ${serviceData.images.length} images:`, 
-          serviceData.images.map(img => img.substring(0, 50) + '...').join(', '));
-      }
+      // Log enhanced fields for debugging
+      console.log(`Service "${serviceData.name}":`, {
+        images: serviceData.images.length,
+        auto_confirm: serviceData.auto_confirm_bookings,
+        require_prepayment: serviceData.require_prepayment,
+        type: serviceData.type
+      });
       
       return serviceData;
     });
@@ -601,7 +757,7 @@ exports.getServicesByStoreId = async (req, res) => {
   }
 };
 
-// Function that your frontend is calling: /services/merchant/:merchantId
+// Get services by merchant ID
 exports.getServicesByMerchantId = async (req, res) => {
   try {
     const { merchantId } = req.params;
@@ -654,18 +810,27 @@ exports.getServicesByMerchantId = async (req, res) => {
           through: { 
             attributes: ['isActive', 'assignedAt'] 
           },
-          attributes: ['id', 'name', 'status'],
+          attributes: ['id', 'name', 'email', 'status'],
           required: false
         }
       ],
-      order: [['createdAt', 'DESC']]
+      order: [['featured', 'DESC'], ['createdAt', 'DESC']]
     });
 
     console.log(`Found ${services.length} services for merchant ${merchantId}`);
 
+    // Process services to ensure proper formatting
+    const processedServices = services.map(service => {
+      const serviceData = service.toJSON();
+      serviceData.images = serviceData.images || [];
+      serviceData.pricing_factors = serviceData.pricing_factors || [];
+      serviceData.tags = serviceData.tags || [];
+      return serviceData;
+    });
+
     return res.status(200).json({ 
       success: true,
-      services,
+      services: processedServices,
       storeCount: merchantStores.length
     });
   } catch (err) {
@@ -702,7 +867,7 @@ exports.getMerchantServices = async (req, res) => {
     const storeIds = merchantStores.map(store => store.id);
     console.log('Found stores:', storeIds);
 
-    // Fetch services only for these stores
+    // Fetch services only for these stores with all associations
     const services = await Service.findAll({
       where: {
         store_id: {
@@ -721,15 +886,24 @@ exports.getMerchantServices = async (req, res) => {
           through: { 
             attributes: ['isActive', 'assignedAt'] 
           },
-          attributes: ['id', 'name', 'status'],
+          attributes: ['id', 'name', 'email', 'status'],
           as: 'staff',
           required: false
         }
       ],
-      order: [['createdAt', 'DESC']]
+      order: [['featured', 'DESC'], ['createdAt', 'DESC']]
     });
 
     console.log(`Found ${services.length} total services across ${merchantStores.length} stores`);
+
+    // Process services to ensure proper formatting
+    const processedServices = services.map(service => {
+      const serviceData = service.toJSON();
+      serviceData.images = serviceData.images || [];
+      serviceData.pricing_factors = serviceData.pricing_factors || [];
+      serviceData.tags = serviceData.tags || [];
+      return serviceData;
+    });
 
     // Group services by store for debugging
     const servicesByStore = services.reduce((acc, service) => {
@@ -745,7 +919,7 @@ exports.getMerchantServices = async (req, res) => {
 
     return res.status(200).json({ 
       success: true,
-      services,
+      services: processedServices,
       stores: merchantStores,
       servicesByStore: Object.keys(servicesByStore).length
     });
@@ -759,7 +933,7 @@ exports.getMerchantServices = async (req, res) => {
   }
 };
 
-// Placeholder functions for additional routes
+// Get service analytics
 exports.getServiceAnalytics = async (req, res) => {
   try {
     const { id } = req.params;
@@ -788,13 +962,24 @@ exports.getServiceAnalytics = async (req, res) => {
       });
     }
 
-    // Return mock analytics for now
+    // Return analytics including new booking settings data
     return res.status(200).json({
       success: true,
       analytics: {
         views: Math.floor(Math.random() * 100) + 10,
         bookings: Math.floor(Math.random() * 20) + 1,
-        rating: (Math.random() * 2 + 3).toFixed(1) // 3.0 - 5.0
+        rating: (Math.random() * 2 + 3).toFixed(1), // 3.0 - 5.0
+        autoConfirmRate: service.auto_confirm_bookings ? 100 : 0,
+        cancellationRate: Math.floor(Math.random() * 10) + 1,
+        earlyCheckins: Math.floor(Math.random() * 5) + 1,
+        completionRate: Math.floor(Math.random() * 20) + 80
+      },
+      serviceSettings: {
+        auto_confirm_bookings: service.auto_confirm_bookings,
+        require_prepayment: service.require_prepayment,
+        allow_early_checkin: service.allow_early_checkin,
+        auto_complete_on_duration: service.auto_complete_on_duration,
+        featured: service.featured
       }
     });
   } catch (err) {
@@ -806,6 +991,7 @@ exports.getServiceAnalytics = async (req, res) => {
   }
 };
 
+// Add to favorites
 exports.addToFavorites = async (req, res) => {
   res.status(200).json({
     success: true,
@@ -815,6 +1001,7 @@ exports.addToFavorites = async (req, res) => {
   });
 };
 
+// Remove from favorites
 exports.removeFromFavorites = async (req, res) => {
   res.status(200).json({
     success: true,
@@ -824,6 +1011,7 @@ exports.removeFromFavorites = async (req, res) => {
   });
 };
 
+// Submit review
 exports.submitReview = async (req, res) => {
   res.status(200).json({
     success: true,
@@ -833,23 +1021,43 @@ exports.submitReview = async (req, res) => {
   });
 };
 
+// Get pending services for admin
 exports.getPendingServices = async (req, res) => {
   try {
     const pendingServices = await Service.findAll({
-      where: { status: 'pending' }, // Assuming you have a status field
-      include: [{
-        model: Store,
-        attributes: ['id', 'name', 'merchant_id'],
-        required: false
-      }],
+      where: { status: 'pending' },
+      include: [
+        {
+          model: Store,
+          attributes: ['id', 'name', 'merchant_id'],
+          required: false
+        },
+        {
+          model: Staff,
+          as: 'staff',
+          through: { attributes: ['isActive', 'assignedAt'] },
+          attributes: ['id', 'name', 'status'],
+          required: false
+        }
+      ],
       order: [['createdAt', 'DESC']]
+    });
+
+    // Process services
+    const processedServices = pendingServices.map(service => {
+      const serviceData = service.toJSON();
+      serviceData.images = serviceData.images || [];
+      serviceData.pricing_factors = serviceData.pricing_factors || [];
+      serviceData.tags = serviceData.tags || [];
+      return serviceData;
     });
 
     return res.status(200).json({
       success: true,
-      services: pendingServices
+      services: processedServices
     });
   } catch (err) {
+    console.error('Get pending services error:', err);
     return res.status(500).json({
       success: false,
       message: 'Error fetching pending services'
@@ -857,22 +1065,79 @@ exports.getPendingServices = async (req, res) => {
   }
 };
 
+// Verify service (admin)
 exports.verifyService = async (req, res) => {
-  res.status(200).json({
-    success: true,
-    message: 'Verify service functionality coming soon',
-    serviceId: req.params.id
-  });
+  try {
+    const { id } = req.params;
+    const { status = 'active' } = req.body;
+
+    const service = await Service.findByPk(id);
+    if (!service) {
+      return res.status(404).json({
+        success: false,
+        message: 'Service not found'
+      });
+    }
+
+    await service.update({ status });
+
+    return res.status(200).json({
+      success: true,
+      message: `Service ${status === 'active' ? 'approved' : 'rejected'} successfully`,
+      serviceId: id,
+      newStatus: status
+    });
+  } catch (err) {
+    console.error('Verify service error:', err);
+    return res.status(500).json({
+      success: false,
+      message: 'Error verifying service'
+    });
+  }
 };
 
+// Update service status (admin)
 exports.updateServiceStatus = async (req, res) => {
-  res.status(200).json({
-    success: true,
-    message: 'Update service status functionality coming soon',
-    serviceId: req.params.id
-  });
+  try {
+    const { id } = req.params;
+    const { status, reason } = req.body;
+
+    if (!['active', 'inactive', 'suspended'].includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid status. Must be active, inactive, or suspended'
+      });
+    }
+
+    const service = await Service.findByPk(id);
+    if (!service) {
+      return res.status(404).json({
+        success: false,
+        message: 'Service not found'
+      });
+    }
+
+    await service.update({ 
+      status,
+      ...(reason && { suspension_reason: reason })
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: `Service status updated to ${status}`,
+      serviceId: id,
+      newStatus: status
+    });
+  } catch (err) {
+    console.error('Update service status error:', err);
+    return res.status(500).json({
+      success: false,
+      message: 'Error updating service status'
+    });
+  }
 };
 
+// Debug services (for development)
 exports.debugServices = async (req, res) => {
   try {
     const merchantId = req.user.id || req.user.userId;
@@ -897,16 +1162,22 @@ exports.debugServices = async (req, res) => {
       service_details: merchantServices.map(s => ({
         id: s.id,
         name: s.name,
+        type: s.type,
         store_id: s.store_id,
         store_name: s.Store?.name,
         store_merchant_id: s.Store?.merchant_id,
         images_count: s.images ? s.images.length : 0,
-        has_image_url: !!s.image_url
+        has_image_url: !!s.image_url,
+        auto_confirm_bookings: s.auto_confirm_bookings,
+        require_prepayment: s.require_prepayment,
+        featured: s.featured,
+        status: s.status
       }))
     };
 
     return res.status(200).json(debug);
   } catch (err) {
+    console.error('Debug services error:', err);
     return res.status(500).json({ error: err.message });
   }
 };

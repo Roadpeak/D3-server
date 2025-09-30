@@ -19,7 +19,7 @@ class PaymentService {
   async getMpesaAccessToken() {
     try {
       const auth = Buffer.from(`${this.mpesaConfig.consumerKey}:${this.mpesaConfig.consumerSecret}`).toString('base64');
-      
+
       const response = await axios.get(
         `${this.mpesaConfig.baseURL}/oauth/v1/generate?grant_type=client_credentials`,
         {
@@ -49,7 +49,11 @@ class PaymentService {
       console.log('🔄 Initiating M-Pesa STK Push:', { phoneNumber, amount, bookingId });
 
       const accessToken = await this.getMpesaAccessToken();
-      const timestamp = new Date().toISOString().replace(/[^0-9]/g, '').slice(0, -3);
+      const timestamp = new Date()
+        .toISOString()
+        .replace(/[-:TZ.]/g, '') // remove separators
+        .slice(0, 14); // ensure 14 digits
+
       const password = this.generateMpesaPassword(timestamp);
 
       // Format phone number (ensure it starts with 254)
@@ -69,7 +73,7 @@ class PaymentService {
         PartyA: formattedPhone,
         PartyB: this.mpesaConfig.shortCode,
         PhoneNumber: formattedPhone,
-        CallBackURL: `${this.mpesaConfig.callbackURL}/mpesa/callback`,
+        CallBackURL: this.mpesaConfig.callbackURL,
         AccountReference: `BOOKING_${bookingId}`,
         TransactionDesc: description
       };
@@ -225,7 +229,7 @@ class PaymentService {
   async checkPaymentStatus(paymentId) {
     try {
       const payment = await Payment.findByPk(paymentId);
-      
+
       if (!payment) {
         return { success: false, message: 'Payment not found' };
       }
@@ -333,7 +337,7 @@ class PaymentService {
   async getPaymentSummary(filters = {}) {
     try {
       const { startDate, endDate, status, method } = filters;
-      
+
       const whereClause = {};
       if (startDate && endDate) {
         whereClause.createdAt = {

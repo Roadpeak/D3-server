@@ -30,11 +30,14 @@ const homedealsstores = require('./routes/homedealsstoresRoutes');
 const favoritesRoutes = require('./routes/favoritesRoutes');
 const serviceRequestRoutes = require('./routes/serviceRequestRoutes');
 const locationRoutes = require('./routes/locationRoutes'); 
-const notificationRoutes = require('./routes/notifications');
+const notificationRoutes = require('./routes/notificationRoutes');
 const swaggerUi = require('swagger-ui-express');
 const fs = require('fs');
 const path = require('path');
 const swaggerFile = path.join(__dirname, 'swagger_output.json');
+const merchantBookingRoutes = require('./routes/merchantBookingRoutes.js')
+const NoShowHandlerService = require('./services/noShowHandlerService');
+const AutoCompletionService = require('./services/autoCompletionService');
 
 // Import API key middleware
 const { apiKeyMiddleware } = require('./middleware/apiKey');
@@ -42,6 +45,8 @@ const { apiKeyMiddleware } = require('./middleware/apiKey');
 require('dotenv').config();
 
 const app = express();
+
+
 
 // ===============================
 // CORS CONFIGURATION
@@ -225,7 +230,7 @@ app.use('/api/v1/upload', uploadRoutes);
 app.use('/api/v1/payments', paymentRoutes);
 app.use('/api/v1/staff', staffRoutes);
 app.use('/api/v1/offers', offerRoutes);
-app.use('/api/v1/bookings', bookingRoutes);
+app.use('/api/v1/bookings', bookingRoutes); // User-facing booking routes
 app.use('/api/v1/hero', heroRoutes);
 app.use('/api/v1', socialsRoutes);
 app.use('/api/v1/branches', branchRoutes);
@@ -243,6 +248,7 @@ app.use('/api/v1/form-responses', formResponseRoutes);
 app.use('/api/v1/users', favoritesRoutes);     
 app.use('/api/v1/offers', favoritesRoutes); 
 app.use('/api/v1/notifications', notificationRoutes);
+app.use('/api/v1/merchant/bookings', merchantBookingRoutes);
 
 // Static file serving
 app.use('/qrcodes', express.static(path.join(__dirname, 'public', 'qrcodes')));
@@ -783,5 +789,24 @@ process.on('unhandledRejection', (reason, promise) => {
   console.error('Unhandled Rejection at:', promise, 'reason:', reason);
   gracefulShutdown('unhandledRejection');
 });
+
+const noShowHandler = new NoShowHandlerService(require('./models'));
+const autoCompletionHandler = new AutoCompletionService(require('./models'));
+noShowHandler.start();
+autoCompletionHandler.start();
+
+// Graceful shutdown
+process.on('SIGTERM', () => {
+  console.log('Shutting down booking automation services...');
+  noShowHandler.stop();
+  autoCompletionHandler.stop();
+});
+
+process.on('SIGINT', () => {
+  console.log('Shutting down booking automation services...');
+  noShowHandler.stop();
+  autoCompletionHandler.stop();
+});
+
 
 module.exports = app;

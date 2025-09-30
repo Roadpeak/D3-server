@@ -2,6 +2,7 @@
 const { Model, DataTypes } = require('sequelize');
 const { v4: uuidv4 } = require('uuid');
 
+
 module.exports = (sequelize) => {
   class Booking extends Model {
     static associate(models) {
@@ -247,6 +248,83 @@ module.exports = (sequelize) => {
       reviewDate: {
         type: DataTypes.DATE,
         allowNull: true,
+      },
+
+      auto_confirmed: {
+        type: DataTypes.BOOLEAN,
+        defaultValue: false,
+        comment: 'Whether booking was auto-confirmed by system'
+      },
+      confirmation_notes: {
+        type: DataTypes.TEXT,
+        allowNull: true,
+        comment: 'Notes about confirmation decision'
+      },
+      audit_trail: {
+        type: DataTypes.JSON,
+        allowNull: true,
+        comment: 'Audit trail of auto-confirmation decisions'
+      },
+      manually_confirmed: {
+        type: DataTypes.BOOLEAN,
+        defaultValue: false,
+        comment: 'Whether booking was manually confirmed by merchant'
+      },
+      confirmed_by: {
+        type: DataTypes.STRING,
+        allowNull: true,
+        comment: 'Who confirmed the booking (system/merchant name)'
+      },
+      confirmed_at: {
+        type: DataTypes.DATE,
+        allowNull: true,
+        comment: 'When the booking was confirmed'
+      },
+
+      no_show_marked_at: {
+        type: DataTypes.DATE,
+        allowNull: true,
+        comment: 'When the booking was marked as no-show'
+      },
+      no_show_reason: {
+        type: DataTypes.TEXT,
+        allowNull: true,
+        comment: 'Reason for no-show status'
+      },
+      no_show_details: {
+        type: DataTypes.JSON,
+        allowNull: true,
+        comment: 'Additional details about no-show processing'
+      },
+      auto_completed: {
+        type: DataTypes.BOOLEAN,
+        defaultValue: false,
+        comment: 'Whether booking was auto-completed by system'
+      },
+      completion_method: {
+        type: DataTypes.ENUM('manual', 'automatic'),
+        allowNull: true,
+        comment: 'How the booking was completed'
+      },
+      completion_details: {
+        type: DataTypes.JSON,
+        allowNull: true,
+        comment: 'Details about the completion process'
+      },
+      actual_duration: {
+        type: DataTypes.INTEGER,
+        allowNull: true,
+        comment: 'Actual service duration in minutes'
+      },
+      service_started_at: {
+        type: DataTypes.DATE,
+        allowNull: true,
+        comment: 'When the service actually started (usually same as checked_in_at)'
+      },
+      service_end_time: {
+        type: DataTypes.DATE,
+        allowNull: true,
+        comment: 'Calculated end time based on start time + duration'
       }
     },
     {
@@ -299,6 +377,10 @@ module.exports = (sequelize) => {
         {
           fields: ['createdAt'],
           name: 'bookings_created_at_index'
+        },
+        {
+          fields: ['staffId', 'startTime', 'endTime', 'status'],
+          name: 'bookings_staff_schedule_index'
         }
       ],
       hooks: {

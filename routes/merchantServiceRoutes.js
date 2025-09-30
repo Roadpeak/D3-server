@@ -374,7 +374,7 @@ router.get('/service-requests', authenticateMerchant, async (req, res) => {
       description: request.description,
       category: request.category,
       location: request.location,
-      budget: `$${request.budgetMin} - $${request.budgetMax}`,
+      budget: `KSH ${request.budgetMin} - KSH ${request.budgetMax}`,
       budgetMin: request.budgetMin,
       budgetMax: request.budgetMax,
       timeline: request.timeline,
@@ -586,7 +586,7 @@ router.get('/offers', authenticateMerchant, async (req, res) => {
         'Unknown',
       submittedAt: calculateTimeAgo(offer.createdAt),
       requestBudget: offer.request ? 
-        `$${offer.request.budgetMin} - $${offer.request.budgetMax}` : '',
+        `KSH ${offer.request.budgetMin} - KSH ${offer.request.budgetMax}` : '',
       requestLocation: offer.request?.location || '',
       createdAt: offer.createdAt
     }));

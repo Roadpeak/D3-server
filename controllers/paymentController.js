@@ -1,20 +1,27 @@
-// controllers/paymentController.js - Complete M-Pesa Integration
+// controllers/paymentController.js - Complete Updated Version
 
 const paymentService = require('../services/paymentService');
-const { Payment, Booking } = require('../models');
+const { Payment, Booking, sequelize } = require('../models');
 
 class PaymentController {
   
   // ==================== M-PESA INTEGRATION ====================
 
   /**
-   * Initiate M-Pesa STK Push payment
+   * Initiate M-Pesa STK Push payment with enhanced merchant validation
    */
   async initiateMpesaPayment(req, res) {
     try {
-      const { phoneNumber, amount, bookingId, type = 'booking_access_fee' } = req.body;
+      const { phoneNumber, amount, bookingId, type = 'booking_access_fee', offerId, serviceId } = req.body;
 
-      console.log('💳 Initiating M-Pesa payment:', { phoneNumber, amount, bookingId, type });
+      console.log('💳 M-Pesa Payment Request:', {
+        phoneNumber,
+        amount,
+        bookingId,
+        type,
+        offerId,
+        serviceId
+      });
 
       // Validate required fields
       if (!phoneNumber || !amount) {
@@ -29,6 +36,224 @@ class PaymentController {
         return res.status(400).json({
           success: false,
           message: 'Invalid phone number format. Use format: 0712345678 or +254712345678'
+        });
+      }
+
+      // ENHANCED: Merchant validation with multiple fallback methods
+      let merchantExists = false;
+      let merchantInfo = null;
+      let debugInfo = {
+        offerId,
+        serviceId,
+        searchMethod: '',
+        errors: []
+      };
+
+      if (offerId) {
+        try {
+          console.log('🔍 Searching for offer merchant:', offerId);
+          
+          // Import models from the correct path
+          const { Offer, Service, Store } = require('../models');
+          
+          // METHOD 1: Try the association-based approach first
+          try {
+            const offer = await Offer.findByPk(offerId, {
+              include: [{
+                model: Service,
+                as: 'service',
+                include: [{
+                  model: Store,
+                  as: 'store'
+                }]
+              }]
+            });
+
+            console.log('📋 Association-based query result:', {
+              hasOffer: !!offer,
+              hasService: !!offer?.service,
+              hasStore: !!offer?.service?.store
+            });
+
+            if (offer && offer.service && offer.service.store) {
+              merchantExists = true;
+              merchantInfo = {
+                type: 'offer',
+                entityId: offerId,
+                storeId: offer.service.store.id,
+                storeName: offer.service.store.name,
+                serviceId: offer.service.id,
+                serviceName: offer.service.name
+              };
+              debugInfo.searchMethod = 'association_based';
+              console.log('✅ Merchant found via associations');
+            } else if (offer) {
+              debugInfo.errors.push('Offer found but missing service/store associations');
+            }
+          } catch (associationError) {
+            console.warn('⚠️ Association-based query failed:', associationError.message);
+            debugInfo.errors.push(`Association error: ${associationError.message}`);
+          }
+
+          // METHOD 2: Fallback to manual joins if associations fail
+          if (!merchantExists) {
+            try {
+              console.log('🔄 Trying manual join approach...');
+              
+              const offerData = await Offer.findByPk(offerId);
+              
+              if (offerData && offerData.service_id) {
+                const serviceData = await Service.findByPk(offerData.service_id, {
+                  include: [{
+                    model: Store,
+                    as: 'store'
+                  }]
+                });
+
+                console.log('📋 Manual join result:', {
+                  hasOffer: !!offerData,
+                  hasService: !!serviceData,
+                  hasStore: !!serviceData?.store
+                });
+
+                if (serviceData && serviceData.store) {
+                  merchantExists = true;
+                  merchantInfo = {
+                    type: 'offer',
+                    entityId: offerId,
+                    storeId: serviceData.store.id,
+                    storeName: serviceData.store.name,
+                    serviceId: serviceData.id,
+                    serviceName: serviceData.name
+                  };
+                  debugInfo.searchMethod = 'manual_join';
+                  console.log('✅ Merchant found via manual join');
+                } else {
+                  debugInfo.errors.push('Service found but missing store association');
+                }
+              } else {
+                debugInfo.errors.push('Offer not found or missing service_id');
+              }
+            } catch (manualError) {
+              console.error('❌ Manual join failed:', manualError.message);
+              debugInfo.errors.push(`Manual join error: ${manualError.message}`);
+            }
+          }
+
+          // METHOD 3: Raw SQL as last resort
+          if (!merchantExists) {
+            try {
+              console.log('🔄 Trying raw SQL approach...');
+              
+              const [results] = await sequelize.query(`
+                SELECT 
+                  o.id as offer_id,
+                  o.title as offer_title,
+                  s.id as service_id,
+                  s.name as service_name,
+                  st.id as store_id,
+                  st.name as store_name,
+                  st.status as store_status
+                FROM offers o
+                JOIN services s ON o.service_id = s.id
+                JOIN stores st ON s.store_id = st.id
+                WHERE o.id = :offerId
+                AND o.status = 'active'
+                AND st.status = 'open'
+              `, {
+                replacements: { offerId },
+                type: sequelize.QueryTypes.SELECT
+              });
+
+              console.log('📋 Raw SQL result:', results);
+
+              if (results && results.length > 0) {
+                const result = results[0];
+                merchantExists = true;
+                merchantInfo = {
+                  type: 'offer',
+                  entityId: offerId,
+                  storeId: result.store_id,
+                  storeName: result.store_name,
+                  serviceId: result.service_id,
+                  serviceName: result.service_name
+                };
+                debugInfo.searchMethod = 'raw_sql';
+                console.log('✅ Merchant found via raw SQL');
+              } else {
+                debugInfo.errors.push('Raw SQL returned no results');
+              }
+            } catch (sqlError) {
+              console.error('❌ Raw SQL failed:', sqlError.message);
+              debugInfo.errors.push(`Raw SQL error: ${sqlError.message}`);
+            }
+          }
+
+        } catch (error) {
+          console.error('❌ Error validating offer merchant:', error);
+          debugInfo.errors.push(`Database error: ${error.message}`);
+        }
+      } else if (serviceId) {
+        // Handle direct service bookings
+        try {
+          const { Service, Store } = require('../models');
+          
+          const service = await Service.findByPk(serviceId, {
+            include: [{
+              model: Store,
+              as: 'store'
+            }]
+          });
+
+          if (service && service.store) {
+            merchantExists = true;
+            merchantInfo = {
+              type: 'service',
+              entityId: serviceId,
+              storeId: service.store.id,
+              storeName: service.store.name,
+              serviceId: serviceId,
+              serviceName: service.name
+            };
+            debugInfo.searchMethod = 'service_direct';
+            console.log('✅ Merchant found for service booking');
+          } else {
+            debugInfo.errors.push('Service not found or missing store association');
+          }
+        } catch (error) {
+          debugInfo.errors.push(`Service validation error: ${error.message}`);
+        }
+      }
+
+      // Log final merchant validation result
+      console.log('🏪 Final merchant validation:', {
+        merchantExists,
+        merchantInfo,
+        debugInfo
+      });
+
+      // Return detailed error if merchant doesn't exist
+      if (!merchantExists) {
+        return res.status(400).json({
+          success: false,
+          message: 'Merchant does not exist',
+          error: 'The offer/service is not properly associated with a merchant store.',
+          debug: debugInfo,
+          troubleshooting: {
+            possibleCauses: [
+              'Offer exists but service association is broken',
+              'Service exists but store association is broken', 
+              'Sequelize associations not properly defined',
+              'Database foreign key constraints missing',
+              'Store is not in "open" status'
+            ],
+            recommendations: [
+              'Check your Sequelize model associations in models/index.js',
+              'Verify foreign keys exist in database tables',
+              'Ensure store status is "open"',
+              'Run database integrity check'
+            ]
+          }
         });
       }
 
@@ -65,13 +290,14 @@ class PaymentController {
         }
       }
 
-      // Create description based on type
-      let description = 'Payment';
-      if (type === 'booking_access_fee') {
-        description = `Booking Access Fee - ${bookingId || 'Service'}`;
-      } else if (type === 'service_payment') {
-        description = `Service Payment - ${bookingId || 'Service'}`;
-      }
+      // Create enhanced description
+      const description = `Access Fee - ${merchantInfo.storeName} - ${merchantInfo.serviceName}`;
+
+      console.log('🚀 Proceeding with STK Push:', {
+        merchantInfo,
+        amount: paymentAmount,
+        description
+      });
 
       // Initiate STK Push
       const result = await paymentService.initiateSTKPush(
@@ -82,6 +308,19 @@ class PaymentController {
       );
 
       if (result.success) {
+        console.log('✅ STK Push successful');
+        
+        // Update payment record with merchant info
+        if (result.payment) {
+          await result.payment.update({
+            metadata: {
+              ...result.payment.metadata,
+              merchantInfo: merchantInfo,
+              debugInfo: debugInfo
+            }
+          });
+        }
+
         // Update booking with payment ID if booking exists
         if (booking) {
           await booking.update({ 
@@ -90,17 +329,20 @@ class PaymentController {
           });
         }
 
-        console.log('✅ M-Pesa payment initiated successfully');
-
         return res.status(200).json({
           success: true,
-          message: 'M-Pesa payment initiated. Please check your phone for the payment prompt.',
+          message: 'M-Pesa payment initiated successfully. Please check your phone for the payment prompt.',
           payment: {
             id: result.payment.id,
             unique_code: result.payment.unique_code,
             amount: result.payment.amount,
             status: result.payment.status,
             checkoutRequestId: result.checkoutRequestId
+          },
+          merchantInfo: {
+            storeName: merchantInfo.storeName,
+            storeId: merchantInfo.storeId,
+            serviceName: merchantInfo.serviceName
           },
           checkoutRequestId: result.checkoutRequestId,
           instructions: 'Please enter your M-Pesa PIN when prompted on your phone to complete the payment.'
@@ -115,7 +357,7 @@ class PaymentController {
       return res.status(500).json({
         success: false,
         message: error.message || 'Failed to initiate M-Pesa payment',
-        error: process.env.NODE_ENV === 'development' ? error.message : 'Payment service temporarily unavailable'
+        error: process.env.NODE_ENV === 'development' ? error.stack : 'Payment service temporarily unavailable'
       });
     }
   }
@@ -126,29 +368,44 @@ class PaymentController {
   async handleMpesaCallback(req, res) {
     try {
       console.log('📨 Received M-Pesa callback:', JSON.stringify(req.body, null, 2));
-
+  
       const result = await paymentService.processMpesaCallback(req.body);
-
+  
       if (result.success) {
         console.log('✅ M-Pesa callback processed successfully');
         
-        // Update booking status if payment was successful
-        if (result.payment && result.payment.metadata && result.payment.metadata.bookingId) {
+        // If payment was successful and has booking data, create the booking
+        if (result.payment && result.payment.status === 'completed' && result.payment.metadata?.bookingData) {
           try {
-            const booking = await Booking.findOne({
-              where: { paymentId: result.payment.id }
-            });
+            const bookingData = result.payment.metadata.bookingData;
             
-            if (booking) {
-              await booking.update({ status: 'confirmed' });
-              console.log('✅ Booking status updated to confirmed');
-            }
+            // Add payment info to booking data
+            bookingData.paymentId = result.payment.id;
+            bookingData.paymentUniqueCode = result.payment.unique_code;
+            bookingData.accessFee = result.payment.amount;
+            bookingData.status = 'confirmed';
+            bookingData.bookingType = 'offer';
+            
+            // Import booking controller and create the booking
+            const offerBookingController = require('../controllers/offerBookingController');
+            
+            // Create mock req/res objects for the controller
+            const mockReq = { body: bookingData };
+            const mockRes = {
+              status: () => mockRes,
+              json: (data) => {
+                console.log('Booking created after payment:', data.success ? 'SUCCESS' : 'FAILED');
+                return data;
+              }
+            };
+            
+            await offerBookingController.createBooking(mockReq, mockRes);
+            
           } catch (bookingError) {
-            console.error('⚠️ Error updating booking status:', bookingError);
+            console.error('⚠️ Error creating booking after payment:', bookingError);
           }
         }
-
-        // Always return success to M-Pesa
+  
         return res.status(200).json({
           ResultCode: 0,
           ResultDesc: "Callback processed successfully"
@@ -156,17 +413,15 @@ class PaymentController {
       } else {
         console.log('❌ M-Pesa callback processing failed:', result.message);
         
-        // Still return success to M-Pesa to avoid retries
         return res.status(200).json({
           ResultCode: 0,
           ResultDesc: "Callback received"
         });
       }
-
+  
     } catch (error) {
       console.error('❌ M-Pesa callback processing error:', error);
       
-      // Always return success to M-Pesa to avoid infinite retries
       return res.status(200).json({
         ResultCode: 0,
         ResultDesc: "Callback received"

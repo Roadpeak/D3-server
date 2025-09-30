@@ -1,24 +1,28 @@
-// routes/bookingRoutes.js - COMPLETE FIXED VERSION preserving ALL original routes
+// routes/bookingRoutes.js - UPDATED VERSION with frontend compatibility aliases
 
 const express = require('express');
 const router = express.Router();
+
+// Import the separated controllers
+const offerBookingController = require('../controllers/offerBookingController');
+const serviceBookingController = require('../controllers/serviceBookingController');
 const enhancedBookingController = require('../controllers/enhancedBookingController');
+
+// Import middleware
 const { authenticateUser } = require('../middleware/auth');
 const { authenticateMerchant } = require('../middleware/Merchantauth');
 
 // Helper function to safely use controller methods
-const safeControllerMethod = (methodName) => {
+const safeControllerMethod = (controller, methodName) => {
   return (req, res, next) => {
-    if (typeof enhancedBookingController[methodName] === 'function') {
-      return enhancedBookingController[methodName](req, res, next);
+    if (controller && typeof controller[methodName] === 'function') {
+      return controller[methodName](req, res, next);
     } else {
-      console.error(`❌ Controller method ${methodName} not found or not a function`);
+      console.error(`Controller method ${methodName} not found or not a function`);
       return res.status(501).json({
         success: false,
         message: `Method ${methodName} not implemented`,
-        availableMethods: Object.keys(enhancedBookingController).filter(key => 
-          typeof enhancedBookingController[key] === 'function'
-        ),
+        controller: controller ? 'loaded' : 'not loaded',
         requestedMethod: methodName
       });
     }
@@ -26,224 +30,314 @@ const safeControllerMethod = (methodName) => {
 };
 
 // ==========================================
-// UNIFIED SLOT GENERATION ROUTES
+// FRONTEND COMPATIBILITY ALIASES (PRIORITY)
 // ==========================================
 
 /**
- * Get available slots (unified endpoint for both services and offers)
+ * Frontend expects /service-slots
  */
-router.get('/slots/unified', safeControllerMethod('getUnifiedSlots'));
+router.get('/service-slots', safeControllerMethod(serviceBookingController, 'getAvailableSlots'));
 
-// Legacy endpoints for backward compatibility
-router.get('/slots/offer', safeControllerMethod('getAvailableSlotsForOffer'));
-router.get('/slots/service', safeControllerMethod('getAvailableSlotsForService'));
-router.get('/slots', safeControllerMethod('getAvailableSlots'));
+/**
+ * Frontend expects /offer-slots  
+ */
+router.get('/offer-slots', safeControllerMethod(offerBookingController, 'getAvailableSlots'));
+
+/**
+ * Frontend expects /offers/:offerId/staff
+ */
+router.get('/offers/:offerId/staff', safeControllerMethod(offerBookingController, 'getStaff'));
+
+/**
+ * Frontend expects /services/:serviceId/staff
+ */
+router.get('/services/:serviceId/staff', safeControllerMethod(serviceBookingController, 'getStaff'));
+
+/**
+ * Frontend expects /offers/:offerId/branch
+ */
+router.get('/offers/:offerId/branch', safeControllerMethod(offerBookingController, 'getBranch'));
+
+/**
+ * Frontend expects /services/:serviceId/branch
+ */
+router.get('/services/:serviceId/branch', safeControllerMethod(serviceBookingController, 'getBranch'));
 
 // ==========================================
-// BOOKING CREATION ROUTES
-// ==========================================
-
-/**
- * CRITICAL FIX: Add the missing root POST route that your frontend is calling
- * This handles POST /api/v1/bookings (the route causing 404 error)
- */
-router.post('/', authenticateUser, safeControllerMethod('create'));
-
-/**
- * Alternative booking creation routes (keep these for backwards compatibility)
- */
-router.post('/create', authenticateUser, safeControllerMethod('create'));
-router.post('/offer', authenticateUser, safeControllerMethod('createOfferBooking'));
-router.post('/service', authenticateUser, safeControllerMethod('createServiceBooking'));
-
-// ==========================================
-// NEW BRANCH AND STAFF ROUTES
-// ==========================================
-
-/**
- * NEW: Get staff for offer (branch-based staff assignment)
- */
-router.get('/staff/offer/:offerId', safeControllerMethod('getStaffForOffer'));
-
-/**
- * NEW: Get staff for service (branch-based staff assignment)
- */
-router.get('/staff/service/:serviceId', safeControllerMethod('getStaffForService'));
-
-/**
- * NEW: Get branch for offer booking
- */
-router.get('/branches/offer/:offerId', safeControllerMethod('getBranchesForOffer'));
-
-/**
- * NEW: Get branch for service booking
- */
-router.get('/branches/service/:serviceId', safeControllerMethod('getBranchesForService'));
-
-// ==========================================
-// LEGACY COMPATIBILITY ROUTES 
+// OFFER BOOKING ROUTES (Dedicated)
 // ==========================================
 
 /**
- * Legacy: Get stores for offer bookings (now redirects to branches)
+ * Get available slots for offers
  */
-router.get('/stores/offer/:offerId', safeControllerMethod('getStoresForOffer'));
+router.get('/slots/offer', safeControllerMethod(offerBookingController, 'getAvailableSlots'));
 
 /**
- * Legacy: Get stores for service bookings (now redirects to branches)
+ * Create offer booking
  */
-router.get('/stores/service/:serviceId', safeControllerMethod('getStoresForService'));
+router.post('/offer', authenticateUser, safeControllerMethod(offerBookingController, 'createBooking'));
+
+/**
+ * Alternative create offer booking
+ */
+router.post('/offers', authenticateUser, safeControllerMethod(offerBookingController, 'createBooking'));
+
+/**
+ * Get staff for offer
+ */
+router.get('/staff/offer/:offerId', safeControllerMethod(offerBookingController, 'getStaff'));
+
+/**
+ * Get branch for offer
+ */
+router.get('/branches/offer/:offerId', safeControllerMethod(offerBookingController, 'getBranch'));
+
+/**
+ * Get stores for offer (legacy)
+ */
+router.get('/stores/offer/:offerId', safeControllerMethod(offerBookingController, 'getStores'));
+
+// ==========================================
+// SERVICE BOOKING ROUTES (Dedicated)
+// ==========================================
+
+/**
+ * Get available slots for services
+ */
+router.get('/slots/service', safeControllerMethod(serviceBookingController, 'getAvailableSlots'));
+
+/**
+ * Create service booking
+ */
+router.post('/service', authenticateUser, safeControllerMethod(serviceBookingController, 'createBooking'));
+
+/**
+ * Alternative create service booking
+ */
+router.post('/services', authenticateUser, safeControllerMethod(serviceBookingController, 'createBooking'));
+
+/**
+ * Get staff for service
+ */
+router.get('/staff/service/:serviceId', safeControllerMethod(serviceBookingController, 'getStaff'));
+
+/**
+ * Get branch for service
+ */
+router.get('/branches/service/:serviceId', safeControllerMethod(serviceBookingController, 'getBranch'));
+
+/**
+ * Get stores for service (legacy)
+ */
+router.get('/stores/service/:serviceId', safeControllerMethod(serviceBookingController, 'getStores'));
+
+// ==========================================
+// UNIFIED/LEGACY BOOKING ROUTES
+// ==========================================
+
+/**
+ * Unified slot endpoint (uses enhanced controller)
+ */
+router.get('/slots/unified', safeControllerMethod(enhancedBookingController, 'getUnifiedSlots'));
+
+/**
+ * Legacy slots endpoint (uses enhanced controller for backward compatibility)
+ */
+router.get('/slots', safeControllerMethod(enhancedBookingController, 'getAvailableSlots'));
+
+router.get('/offers/:offerId/platform-fee', safeControllerMethod(offerBookingController, 'getPlatformFee'));
+/**
+ * Main booking creation endpoint - routes to appropriate controller based on request
+ */
+router.post('/', authenticateUser, (req, res, next) => {
+  const { offerId, serviceId, bookingType } = req.body;
+  
+  console.log('Main booking endpoint called:', { offerId, serviceId, bookingType });
+  
+  // Determine which controller to use based on request
+  if (offerId || bookingType === 'offer') {
+    console.log('Routing to offer booking controller');
+    // Ensure offerId is set for offer bookings
+    if (!req.body.offerId && bookingType === 'offer') {
+      req.body.offerId = serviceId; // Handle cases where offerId might be passed as serviceId
+    }
+    return safeControllerMethod(offerBookingController, 'createBooking')(req, res, next);
+  } else if (serviceId || bookingType === 'service') {
+    console.log('Routing to service booking controller');
+    return safeControllerMethod(serviceBookingController, 'createBooking')(req, res, next);
+  } else {
+    // Fallback to enhanced controller for backward compatibility
+    console.log('Routing to enhanced booking controller (fallback)');
+    return safeControllerMethod(enhancedBookingController, 'create')(req, res, next);
+  }
+});
+
+/**
+ * Alternative booking creation endpoint (for backward compatibility)
+ */
+router.post('/create', authenticateUser, (req, res, next) => {
+  const { offerId, serviceId, bookingType } = req.body;
+  
+  if (offerId || bookingType === 'offer') {
+    return safeControllerMethod(offerBookingController, 'createBooking')(req, res, next);
+  } else if (serviceId || bookingType === 'service') {
+    return safeControllerMethod(serviceBookingController, 'createBooking')(req, res, next);
+  } else {
+    return safeControllerMethod(enhancedBookingController, 'create')(req, res, next);
+  }
+});
+
+// ==========================================
+// LEGACY STAFF ROUTES (Enhanced Controller)
+// ==========================================
 
 /**
  * Legacy: Get staff for store (enhanced with branch awareness)
  */
-router.get('/staff/store/:storeId', safeControllerMethod('getStaffForStore'));
-
-router.get('/store/:storeId', authenticateMerchant, safeControllerMethod('getMerchantStoreBookings'));
+router.get('/staff/store/:storeId', safeControllerMethod(enhancedBookingController, 'getStaffForStore'));
 
 // ==========================================
-// BOOKING MANAGEMENT ROUTES
+// BOOKING MANAGEMENT ROUTES (Enhanced Controller)
 // ==========================================
-
-
-router.get('/merchant/:bookingId/view', authenticateMerchant, safeControllerMethod('getMerchantBookingById'));
 
 /**
  * Get user's bookings
  */
-router.get('/user', authenticateUser, safeControllerMethod('getUserBookings'));
+router.get('/user', authenticateUser, safeControllerMethod(offerBookingController, 'getUserBookings'));
 
 /**
  * Get specific booking by ID
  */
-router.get('/:bookingId', authenticateUser, safeControllerMethod('getBookingById'));
+router.get('/:bookingId', authenticateUser, safeControllerMethod(offerBookingController, 'getBookingById'));
 
 /**
  * Update booking status
  */
-router.put('/:bookingId/status', authenticateUser, safeControllerMethod('updateBookingStatus'));
+router.put('/:bookingId/status', authenticateUser, safeControllerMethod(offerBookingController, 'updateBookingStatus'));
 
 /**
- * Cancel booking
+ * Cancel booking - route to appropriate controller
  */
-router.put('/:bookingId/cancel', authenticateUser, safeControllerMethod('cancelBooking'));
+router.put('/:bookingId/cancel', authenticateUser, async (req, res, next) => {
+  try {
+    // Determine booking type first
+    const { Booking } = require('../models');
+    const booking = await Booking.findByPk(req.params.bookingId);
+    
+    if (!booking) {
+      return res.status(404).json({
+        success: false,
+        message: 'Booking not found'
+      });
+    }
+
+    // Route to appropriate controller
+    if (booking.offerId) {
+      return safeControllerMethod(offerBookingController, 'cancelBooking')(req, res, next);
+    } else {
+      return safeControllerMethod(serviceBookingController, 'cancelBooking')(req, res, next);
+    }
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: 'Error processing cancellation'
+    });
+  }
+});
+
+
+router.put('/:bookingId/reschedule', authenticateUser, async (req, res, next) => {
+  try {
+    const { Booking } = require('../models');
+    const booking = await Booking.findByPk(req.params.bookingId);
+    
+    if (booking?.offerId) {
+      return safeControllerMethod(offerBookingController, 'rescheduleBooking')(req, res, next);
+    } else {
+      return safeControllerMethod(serviceBookingController, 'rescheduleBooking')(req, res, next);
+    }
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: 'Error processing reschedule'
+    });
+  }
+});
+// ==========================================
+// MERCHANT BOOKING MANAGEMENT
+// ==========================================
+
+/**
+ * Get all bookings for merchant
+ */
+router.get('/merchant/all', authenticateMerchant, safeControllerMethod(serviceBookingController, 'getAllMerchantBookings'));
+
+/**
+ * Get bookings for specific merchant store
+ */
+router.get('/merchant/store/:storeId', authenticateMerchant, safeControllerMethod(serviceBookingController, 'getMerchantStoreBookings'));
+
+/**
+ * Get specific booking by ID (merchant view)
+ */
+router.get('/merchant/:bookingId/view', authenticateMerchant, safeControllerMethod(serviceBookingController, 'getMerchantBookingById'));
+
+/**
+ * Update booking status (merchant action)
+ */
+router.put('/merchant/:bookingId/status', authenticateMerchant, safeControllerMethod(serviceBookingController, 'merchantUpdateBookingStatus'));
+
+/**
+ * Get merchant service bookings specifically
+ */
+router.get('/merchant/services', authenticateMerchant, (req, res) => {
+  req.query.bookingType = 'service';
+  return safeControllerMethod(serviceBookingController, 'getAllMerchantBookings')(req, res);
+});
+
+/**
+ * Get merchant offer bookings specifically
+ */
+router.get('/merchant/offers', authenticateMerchant, (req, res) => {
+  req.query.bookingType = 'offer';
+  return safeControllerMethod(enhancedBookingController, 'getAllMerchantBookings')(req, res);
+});
 
 // ==========================================
-// MERCHANT BOOKING MANAGEMENT (ORIGINAL CONDITIONAL LOGIC PRESERVED)
-// ==========================================
-
-/**
- * Get bookings for merchant's store (only if method exists)
- */
-if (enhancedBookingController.getMerchantBookings) {
-  router.get('/merchant/store/:storeId', authenticateMerchant, safeControllerMethod('getMerchantBookings'));
-}
-
-/**
- * Get all bookings for merchant (only if method exists)
- */
-if (enhancedBookingController.getAllMerchantBookings) {
-  router.get('/merchant/all', authenticateMerchant, safeControllerMethod('getAllMerchantBookings'));
-}
-
-/**
- * Merchant update booking status (only if method exists)
- */
-if (enhancedBookingController.merchantUpdateBookingStatus) {
-  router.put('/merchant/:bookingId/status', authenticateMerchant, safeControllerMethod('merchantUpdateBookingStatus'));
-}
-
-// ==========================================
-// ANALYTICS ROUTES (ORIGINAL CONDITIONAL LOGIC PRESERVED)
+// ANALYTICS ROUTES (CONDITIONAL)
 // ==========================================
 
 /**
  * Get booking analytics (only if method exists)
  */
 if (enhancedBookingController.getBookingAnalytics) {
-  router.get('/analytics', authenticateMerchant, safeControllerMethod('getBookingAnalytics'));
+  router.get('/analytics', authenticateMerchant, safeControllerMethod(enhancedBookingController, 'getBookingAnalytics'));
 }
 
 /**
  * Get service booking statistics (only if method exists)
  */
 if (enhancedBookingController.getServiceBookingStats) {
-  router.get('/analytics/service/:serviceId', authenticateMerchant, safeControllerMethod('getServiceBookingStats'));
+  router.get('/analytics/service/:serviceId', authenticateMerchant, safeControllerMethod(enhancedBookingController, 'getServiceBookingStats'));
 }
 
 // ==========================================
-// SLOT MANAGEMENT ROUTES (ORIGINAL CONDITIONAL LOGIC PRESERVED)
+// SLOT MANAGEMENT ROUTES (CONDITIONAL)
 // ==========================================
 
 /**
  * Check specific slot availability (only if method exists)
  */
 if (enhancedBookingController.checkSlotAvailability) {
-  router.get('/check-slot', safeControllerMethod('checkSlotAvailability'));
+  router.get('/check-slot', safeControllerMethod(enhancedBookingController, 'checkSlotAvailability'));
 }
 
 /**
  * Get slot utilization report (only if method exists)
  */
 if (enhancedBookingController.getSlotUtilization) {
-  router.get('/slot-utilization/:serviceId', authenticateMerchant, safeControllerMethod('getSlotUtilization'));
+  router.get('/slot-utilization/:serviceId', authenticateMerchant, safeControllerMethod(enhancedBookingController, 'getSlotUtilization'));
 }
-
-// ==========================================
-// MERCHANT BOOKING MANAGEMENT ROUTES (EXPLICIT DUPLICATES - ORIGINAL PRESERVED)
-// ==========================================
-
-/**
- * Get all bookings for the current merchant's stores
- * GET /api/v1/bookings/merchant/all
- */
-router.get('/merchant/all', authenticateMerchant, safeControllerMethod('getMerchantBookings'));
-
-/**
- * Get bookings for a specific merchant store
- * GET /api/v1/bookings/merchant/store/:storeId
- */
-router.get('/merchant/store/:storeId', authenticateMerchant, safeControllerMethod('getMerchantStoreBookings'));
-
-/**
- * Update booking status (merchant action)
- * PUT /api/v1/bookings/merchant/:bookingId/status
- */
-router.put('/merchant/:bookingId/status', authenticateMerchant, safeControllerMethod('merchantUpdateBookingStatus'));
-
-/**
- * Get merchant service bookings specifically
- * GET /api/v1/bookings/merchant/services
- */
-router.get('/merchant/services', authenticateMerchant, (req, res) => {
-  // Add bookingType=service to query params
-  req.query.bookingType = 'service';
-  if (typeof enhancedBookingController.getMerchantBookings === 'function') {
-    enhancedBookingController.getMerchantBookings(req, res);
-  } else {
-    res.status(501).json({
-      success: false,
-      message: 'getMerchantBookings method not implemented'
-    });
-  }
-});
-
-/**
- * Get merchant offer bookings specifically
- * GET /api/v1/bookings/merchant/offers
- */
-router.get('/merchant/offers', authenticateMerchant, (req, res) => {
-  // Add bookingType=offer to query params
-  req.query.bookingType = 'offer';
-  if (typeof enhancedBookingController.getMerchantBookings === 'function') {
-    enhancedBookingController.getMerchantBookings(req, res);
-  } else {
-    res.status(501).json({
-      success: false,
-      message: 'getMerchantBookings method not implemented'
-    });
-  }
-});
 
 // ==========================================
 // DEBUG ROUTES
@@ -252,59 +346,38 @@ router.get('/merchant/offers', authenticateMerchant, (req, res) => {
 /**
  * Debug working days endpoint
  */
-router.get('/debug/working-days', safeControllerMethod('debugWorkingDays'));
+router.get('/debug/working-days', safeControllerMethod(enhancedBookingController, 'debugWorkingDays'));
 
-// TEST ROUTE - Enhanced working days test
+/**
+ * Test working days for offers
+ */
 router.get('/test-working-days/:offerId', async (req, res) => {
   try {
     const { offerId } = req.params;
-    const testDate = req.query.date || '2025-08-18'; // Monday
+    const testDate = req.query.date || '2025-08-18';
     
-    console.log('🧪 TESTING WORKING DAYS FIX');
+    console.log('Testing working days with separated controllers');
     console.log('Offer ID:', offerId);
     console.log('Test Date:', testDate);
     
-    // Get your SlotGenerationService instance with safe error handling
-    let SlotGenerationService, slotService, models;
     let debugResult = null, slotsResult = null;
     
     try {
-      SlotGenerationService = require('../services/slotGenerationService');
-      models = require('../models');
-      slotService = new SlotGenerationService(models);
+      const SlotGenerationService = require('../services/slotGenerationService');
+      const models = require('../models');
+      const slotService = new SlotGenerationService(models);
       
-      // Test the debug method if it exists
       if (slotService && typeof slotService.debugOfferWorkingDays === 'function') {
         debugResult = await slotService.debugOfferWorkingDays(offerId);
-      } else {
-        debugResult = { 
-          error: 'debugOfferWorkingDays method not available',
-          slotServiceExists: !!slotService,
-          slotServiceMethods: slotService ? Object.getOwnPropertyNames(Object.getPrototypeOf(slotService)) : []
-        };
       }
       
-      // Test slot generation
       if (slotService && typeof slotService.generateAvailableSlots === 'function') {
         slotsResult = await slotService.generateAvailableSlots(offerId, 'offer', testDate);
-      } else {
-        slotsResult = { 
-          error: 'generateAvailableSlots method not available',
-          slotServiceExists: !!slotService
-        };
       }
       
     } catch (serviceError) {
-      console.error('❌ SlotGenerationService initialization error:', serviceError);
-      debugResult = { 
-        error: 'SlotGenerationService not available', 
-        details: serviceError.message,
-        stack: process.env.NODE_ENV === 'development' ? serviceError.stack : undefined
-      };
-      slotsResult = { 
-        error: 'Cannot test slot generation', 
-        details: serviceError.message 
-      };
+      debugResult = { error: 'SlotGenerationService not available', details: serviceError.message };
+      slotsResult = { error: 'Cannot test slot generation', details: serviceError.message };
     }
     
     res.json({
@@ -313,150 +386,146 @@ router.get('/test-working-days/:offerId', async (req, res) => {
       offerId,
       debugResult,
       slotsResult,
-      message: 'Working days test completed',
-      serviceStatus: {
-        modelsAvailable: !!models,
-        slotServiceCreated: !!slotService,
-        debugMethodExists: slotService && typeof slotService.debugOfferWorkingDays === 'function',
-        slotsMethodExists: slotService && typeof slotService.generateAvailableSlots === 'function'
-      }
+      controllerStatus: {
+        offerController: !!offerBookingController,
+        serviceController: !!serviceBookingController,
+        enhancedController: !!enhancedBookingController
+      },
+      message: 'Working days test completed with separated controllers'
     });
     
   } catch (error) {
-    console.error('❌ Test failed:', error);
+    console.error('Test failed:', error);
     res.status(500).json({
       success: false,
       error: error.message,
-      message: 'Working days test failed',
-      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+      message: 'Working days test failed'
     });
   }
 });
 
 // ==========================================
-// TEST ROUTE FOR DEBUGGING
+// CONTROLLER STATUS TEST ROUTE
 // ==========================================
 
 /**
- * Test route to verify booking routes are working
+ * Test route to verify separated controllers are working
  */
 router.get('/test', (req, res) => {
-  // Check what's actually available in the controller
-  const controllerKeys = enhancedBookingController ? Object.keys(enhancedBookingController) : [];
-  const availableMethods = controllerKeys.filter(key => 
-    typeof enhancedBookingController[key] === 'function'
-  );
-  
-  // Check specific critical methods
-  const criticalMethods = [
-    'create',
-    'createOfferBooking', 
-    'createServiceBooking',
-    'getUnifiedSlots',
-    'getAvailableSlots',
-    'getAvailableSlotsForOffer',
-    'getAvailableSlotsForService',
-    'getUserBookings',
-    'getBookingById',
-    'updateBookingStatus',
-    'cancelBooking',
-    'getMerchantBookings',
-    'getMerchantStoreBookings',
-    'merchantUpdateBookingStatus',
-    'getStaffForOffer',
-    'getStaffForService',
-    'getStaffForStore',
-    'getBranchesForOffer',
-    'getBranchesForService',
-    'getStoresForOffer',
-    'getStoresForService',
-    'debugWorkingDays'
-  ];
-  
-  const methodStatus = {};
-  criticalMethods.forEach(method => {
-    methodStatus[method] = {
-      exists: typeof enhancedBookingController[method] === 'function',
-      type: typeof enhancedBookingController[method]
-    };
-  });
+  // Check controller availability
+  const controllerStatus = {
+    offerController: {
+      loaded: !!offerBookingController,
+      methods: offerBookingController ? Object.keys(offerBookingController).filter(key => 
+        typeof offerBookingController[key] === 'function'
+      ) : []
+    },
+    serviceController: {
+      loaded: !!serviceBookingController,
+      methods: serviceBookingController ? Object.keys(serviceBookingController).filter(key => 
+        typeof serviceBookingController[key] === 'function'
+      ) : []
+    },
+    enhancedController: {
+      loaded: !!enhancedBookingController,
+      methods: enhancedBookingController ? Object.keys(enhancedBookingController).filter(key => 
+        typeof enhancedBookingController[key] === 'function'
+      ) : []
+    }
+  };
 
   res.status(200).json({ 
     success: true, 
-    message: 'Booking routes working!',
-    controllerStatus: {
-      loaded: !!enhancedBookingController,
-      totalKeys: controllerKeys.length,
-      availableMethods: availableMethods,
-      methodCount: availableMethods.length,
-      criticalMethodsStatus: methodStatus,
-      allKeys: controllerKeys
+    message: 'Separated booking controllers test!',
+    controllers: controllerStatus,
+    availableRoutes: {
+      frontendAliases: [
+        'GET /service-slots',
+        'GET /offer-slots',
+        'GET /offers/:offerId/staff',
+        'GET /services/:serviceId/staff',
+        'GET /offers/:offerId/branch',
+        'GET /services/:serviceId/branch'
+      ],
+      offerRoutes: [
+        'GET /slots/offer',
+        'POST /offer', 
+        'POST /offers',
+        'GET /staff/offer/:offerId',
+        'GET /branches/offer/:offerId',
+        'GET /stores/offer/:offerId'
+      ],
+      serviceRoutes: [
+        'GET /slots/service',
+        'POST /service',
+        'POST /services',
+        'GET /staff/service/:serviceId', 
+        'GET /branches/service/:serviceId',
+        'GET /stores/service/:serviceId'
+      ],
+      unifiedRoutes: [
+        'GET /slots/unified',
+        'GET /slots',
+        'POST /',
+        'POST /create',
+        'GET /user',
+        'GET /:bookingId',
+        'PUT /:bookingId/status',
+        'PUT /:bookingId/cancel'
+      ],
+      merchantRoutes: [
+        'GET /merchant/all',
+        'GET /merchant/store/:storeId',
+        'GET /merchant/:bookingId/view',
+        'PUT /merchant/:bookingId/status',
+        'GET /merchant/services',
+        'GET /merchant/offers'
+      ],
+      legacyRoutes: [
+        'GET /staff/store/:storeId'
+      ],
+      debugRoutes: [
+        'GET /debug/working-days',
+        'GET /test-working-days/:offerId',
+        'GET /test'
+      ]
     },
-    availableRoutes: [
-      // Slot routes
-      'GET /slots/unified',
-      'GET /slots/offer', 
-      'GET /slots/service',
-      'GET /slots',
-      
-      // Creation routes
-      'POST /',
-      'POST /create', 
-      'POST /offer',
-      'POST /service',
-      
-      // User booking routes
-      'GET /user',
-      'GET /:bookingId',
-      'PUT /:bookingId/status',
-      'PUT /:bookingId/cancel',
-      
-      // Staff and branch routes
-      'GET /staff/offer/:offerId',
-      'GET /staff/service/:serviceId',
-      'GET /staff/store/:storeId',
-      'GET /branches/offer/:offerId',
-      'GET /branches/service/:serviceId',
-      
-      // Legacy store routes
-      'GET /stores/offer/:offerId',
-      'GET /stores/service/:serviceId',
-      'GET /store/:storeId',
-      
-      // Merchant routes
-      'GET /merchant/all',
-      'GET /merchant/services',
-      'GET /merchant/offers',
-      'GET /merchant/store/:storeId',
-      'PUT /merchant/:bookingId/status',
-      
-      // Analytics routes (conditional)
-      'GET /analytics',
-      'GET /analytics/service/:serviceId',
-      
-      // Slot management routes (conditional)  
-      'GET /check-slot',
-      'GET /slot-utilization/:serviceId',
-      
-      // Debug routes
-      'GET /debug/working-days',
-      'GET /test-working-days/:offerId',
-      'GET /test'
-    ],
-    routeRegistrationOrder: [
-      '1. Unified slot generation routes',
-      '2. Booking creation routes',
-      '3. Branch and staff routes', 
-      '4. Legacy compatibility routes',
-      '5. Booking management routes',
-      '6. Conditional merchant routes',
-      '7. Conditional analytics routes',
-      '8. Conditional slot management routes',
-      '9. Explicit merchant routes (duplicates)',
-      '10. Debug routes',
-      '11. Test routes'
-    ],
     timestamp: new Date().toISOString()
+  });
+});
+
+// ==========================================
+// ROUTE VALIDATION MIDDLEWARE
+// ==========================================
+
+/**
+ * Middleware to validate booking type routing
+ */
+router.use('/validate-routing', (req, res, next) => {
+  const { offerId, serviceId, bookingType } = req.query;
+  
+  let recommendedController = 'unknown';
+  let recommendedRoute = 'unknown';
+  
+  if (offerId || bookingType === 'offer') {
+    recommendedController = 'offerBookingController';
+    recommendedRoute = 'POST /offers or GET /offer-slots';
+  } else if (serviceId || bookingType === 'service') {
+    recommendedController = 'serviceBookingController';  
+    recommendedRoute = 'POST /services or GET /service-slots';
+  }
+  
+  res.json({
+    success: true,
+    recommendation: {
+      controller: recommendedController,
+      route: recommendedRoute,
+      reasoning: offerId ? 'offerId present' : 
+                serviceId ? 'serviceId present' :
+                bookingType === 'offer' ? 'bookingType=offer' :
+                bookingType === 'service' ? 'bookingType=service' : 'unclear'
+    },
+    parameters: { offerId, serviceId, bookingType }
   });
 });
 

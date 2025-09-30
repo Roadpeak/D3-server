@@ -77,6 +77,9 @@ FormResponse.hasOne(Quote, { foreignKey: 'form_response_id', as: 'quote' });
 Booking.belongsTo(Offer, { foreignKey: 'offerId', as: 'offer', onDelete: 'CASCADE' });
 Offer.hasMany(Booking, { foreignKey: 'offerId', as: 'bookings' });
 
+Service.hasMany(Booking, { foreignKey: 'serviceId', as: 'bookings' });
+Booking.belongsTo(Service, { foreignKey: 'serviceId', as: 'service' });
+
 // Offer-Service
 Offer.belongsTo(Service, { foreignKey: 'service_id', as: 'service', onDelete: 'CASCADE' });
 Service.hasMany(Offer, { foreignKey: 'service_id', as: 'offers' });
@@ -88,6 +91,8 @@ Store.hasMany(Booking, { foreignKey: 'storeId', as: 'bookings' });
 // Booking-User
 Booking.belongsTo(User, { foreignKey: 'userId', as: 'bookingUser', onDelete: 'CASCADE' });
 User.hasMany(Booking, { foreignKey: 'userId', as: 'bookings' });
+
+Booking.belongsTo(Payment, { foreignKey: 'paymentId', as: 'payment' });
 
 // CRITICAL FIX: Booking-Staff association (THIS WAS MISSING!)
 Booking.belongsTo(Staff, { 
@@ -349,12 +354,22 @@ ServiceOffer.hasMany(ServiceOffer, {
 });
 
 // Notification-User (recipient)
-Notification.belongsTo(User, { foreignKey: 'recipientId', as: 'recipient', onDelete: 'CASCADE' });
-User.hasMany(Notification, { foreignKey: 'recipientId', as: 'notifications' });
+Notification.belongsTo(User, { foreignKey: 'userId', as: 'recipient', onDelete: 'CASCADE' });
+User.hasMany(Notification, { foreignKey: 'userId', as: 'notifications' });
 
 // Notification-User (sender)
 Notification.belongsTo(User, { foreignKey: 'senderId', as: 'sender', onDelete: 'SET NULL' });
 User.hasMany(Notification, { foreignKey: 'senderId', as: 'sentNotifications' });
+
+Notification.belongsTo(Store, { 
+  foreignKey: 'storeId', 
+  as: 'store', 
+  onDelete: 'CASCADE' 
+});
+Store.hasMany(Notification, { 
+  foreignKey: 'storeId', 
+  as: 'notifications' 
+});
 
 // ==========================================
 // EXPORTS
