@@ -39,13 +39,14 @@ const Category = require('./category')(sequelize, DataTypes);
 const Chat = require('./chat')(sequelize, DataTypes);
 const Message = require('./message')(sequelize, DataTypes);
 const Favorite = require('./Favorite')(sequelize, DataTypes);
-const StoreSubscription = require('./storesubscription')(sequelize, DataTypes);
+const StoreSubscription = require('./StoreSubscription')(sequelize, 
+DataTypes);
 
 // ADD NEW BRANCH MODEL
 const Branch = require('./Branch')(sequelize, DataTypes);
 
 // NEW SERVICE MARKETPLACE MODELS
-const ServiceRequest = require('./serviceRequest')(sequelize, DataTypes);
+const ServiceRequest = require('./ServiceRequest')(sequelize, DataTypes);
 const ServiceOffer = require('./ServiceOffer')(sequelize, DataTypes);
 const Notification = require('./notification')(sequelize, DataTypes);
 
