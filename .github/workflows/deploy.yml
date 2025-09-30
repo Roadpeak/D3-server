@@ -28,10 +28,6 @@ jobs:
           context: .
           push: true
           tags: roadpeak/discoun3-server:latest
-          cache-from: 
-type=registry,ref=roadpeak/discoun3-server:buildcache
-          cache-to: 
-type=registry,ref=roadpeak/discoun3-server:buildcache,mode=max
 
       - name: Deploy to Digital Ocean
         uses: appleboy/ssh-action@master
@@ -40,14 +36,7 @@ type=registry,ref=roadpeak/discoun3-server:buildcache,mode=max
           username: ${{ secrets.DO_USERNAME }}
           key: ${{ secrets.DO_SSH_KEY }}
           script: |
-            cd /root/discoun3-deployment || mkdir -p 
-/root/discoun3-deployment && cd /root/discoun3-deployment
-            if [ ! -f docker-compose.yml ]; then
-              git clone 
-https://github.com/roadpeak/discoun3-deployment.git /tmp/deploy
-              cp /tmp/deploy/docker-compose.yml .
-              rm -rf /tmp/deploy
-            fi
+            cd /root/discoun3-deployment
             docker pull roadpeak/discoun3-server:latest
-            docker-compose up -d --no-deps --build server
+            docker-compose up -d --no-deps server
             docker image prune -f
