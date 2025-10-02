@@ -348,11 +348,8 @@ if (process.env.FORCE_DB_SYNC === 'true') {
     throw error;
   }
 } else {
-  // Normal sync - create tables if they don't exist
-  console.log('Syncing database schema (creating missing tables)...');
-  await sequelize.sync({ alter: false });
-  console.log('✅ Database schema synced');
-}  
+  console.log('Skipping automatic sync - tables should exist already');
+}
     
     // Step 4: Verify models are accessible
     await verifyModelsAccessible();
