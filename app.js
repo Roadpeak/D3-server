@@ -310,18 +310,18 @@ async function initializeDatabase() {
     await removeProblematicConstraints();
     
 
-   // Step 3: Force sync database if environment variable is set
-if (process.env.FORCE_DB_SYNC === 'true') {
-  console.log('🔄 FORCE_DB_SYNC enabled - Syncing database schema...');
-  await sequelize.sync({ alter: true });
-  console.log('✅ Database schema synced successfully');
-}
-
-// Step 4: Verify models are accessible
-await verifyModelsAccessible();
-
-console.log('Database initialization completed successfully');
+    // Step 3: Force sync database if environment variable is set
+    if (process.env.FORCE_DB_SYNC === 'true') {
+      console.log('🔄 FORCE_DB_SYNC enabled - Syncing database schema...');
+      await sequelize.sync({ alter: true });
+      console.log('✅ Database schema synced successfully');
+    }
     
+    // Step 4: Verify models are accessible
+    await verifyModelsAccessible();
+
+    console.log('Database initialization completed successfully');
+        
     console.log('Database initialization completed successfully');
 
   } catch (err) {
