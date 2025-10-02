@@ -312,26 +312,42 @@ async function initializeDatabase() {
    // Step 3: Force sync database if environment variable is set
 if (process.env.FORCE_DB_SYNC === 'true') {
   console.log('🔄 FORCE_DB_SYNC enabled - Syncing database schema...');
-  console.log('⚠️  WARNING: Using force: true - This will DROP all existing tables!');
+  console.log('⚠️  WARNING: This will DROP all existing tables!');
   
   try {
-    // Disable foreign key checks temporarily
-    await sequelize.query('SET FOREIGN_KEY_CHECKS = 0');
+    // Get all table names
+    const [tables] = await sequelize.query(
+      "SELECT table_name FROM information_schema.tables WHERE table_schema = DATABASE()"
+    );
     
-    // Force sync (drop and recreate all tables)
-    await sequelize.sync({ force: true });
+    if (tables.length > 0) {
+      console.log(`Dropping ${tables.length} existing tables...`);
+      
+      // Disable foreign key checks
+      await sequelize.query('SET FOREIGN_KEY_CHECKS = 0');
+      
+      // Drop all tables
+      for (const table of tables) {
+        await sequelize.query(`DROP TABLE IF EXISTS \`${table.table_name}\``);
+      }
+      
+      // Re-enable foreign key checks
+      await sequelize.query('SET FOREIGN_KEY_CHECKS = 1');
+      
+      console.log('✅ All tables dropped');
+    }
     
-    // Re-enable foreign key checks
-    await sequelize.query('SET FOREIGN_KEY_CHECKS = 1');
+    // Now sync to create fresh tables
+    console.log('Creating fresh tables...');
+    await sequelize.sync({ force: false });
     
     console.log('✅ Database schema synced successfully');
   } catch (error) {
     console.error('❌ Database sync failed:', error.message);
-    // Re-enable foreign key checks even if sync failed
-    await sequelize.query('SET FOREIGN_KEY_CHECKS = 1');
+    await sequelize.query('SET FOREIGN_KEY_CHECKS = 1').catch(() => {});
     throw error;
   }
-}
+}   
     
     // Step 4: Verify models are accessible
     await verifyModelsAccessible();
