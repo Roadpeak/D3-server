@@ -354,8 +354,14 @@ if (process.env.FORCE_DB_SYNC === 'true') {
 
     console.log('Database initialization completed successfully');
         
-    console.log('Database initialization completed successfully');
-
+     // Step 5: Start background services AFTER database is ready
+    console.log('Starting background services...');
+    const noShowHandler = new NoShowHandlerService(require('./models'));
+    const autoCompletionHandler = new AutoCompletionService(require('./models'));
+    noShowHandler.start();
+    autoCompletionHandler.start();
+    console.log('✅ Background services started');
+    
   } catch (err) {
     console.error('Database initialization failed:', err.message);
     
@@ -832,10 +838,6 @@ process.on('unhandledRejection', (reason, promise) => {
   gracefulShutdown('unhandledRejection');
 });
 
-const noShowHandler = new NoShowHandlerService(require('./models'));
-const autoCompletionHandler = new AutoCompletionService(require('./models'));
-noShowHandler.start();
-autoCompletionHandler.start();
 
 // Graceful shutdown
 process.on('SIGTERM', () => {
