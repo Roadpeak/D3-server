@@ -308,14 +308,15 @@ async function initializeDatabase() {
     
     // Step 2: Remove any problematic foreign key constraints
     await removeProblematicConstraints();
-    
+   
+   // Step 3: Force sync database if environment variable is set
+   if (process.env.FORCE_DB_SYNC === 'true') {
+   console.log('🔄 FORCE_DB_SYNC enabled - Syncing database schema...');
+   console.log('⚠️  WARNING: Using force: true - This will DROP all existing tables!');
+   await sequelize.sync({ force: true });
+   console.log('✅ Database schema synced successfully');
+  } 
 
-    // Step 3: Force sync database if environment variable is set
-    if (process.env.FORCE_DB_SYNC === 'true') {
-      console.log('🔄 FORCE_DB_SYNC enabled - Syncing database schema...');
-      await sequelize.sync({ alter: true });
-      console.log('✅ Database schema synced successfully');
-    }
     
     // Step 4: Verify models are accessible
     await verifyModelsAccessible();
