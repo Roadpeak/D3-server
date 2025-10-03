@@ -56,102 +56,83 @@ module.exports = {
       },
       isOnline: {
         type: Sequelize.BOOLEAN,
-        defaultValue: false,
-        comment: 'Real-time online status for chat system'
+        defaultValue: false
       },
       lastSeenAt: {
         type: Sequelize.DATE,
-        allowNull: true,
-        comment: 'Last seen timestamp for chat system'
+        allowNull: true
       },
       chatNotifications: {
         type: Sequelize.BOOLEAN,
-        defaultValue: true,
-        comment: 'Whether to receive chat notifications'
+        defaultValue: true
       },
       emailNotifications: {
         type: Sequelize.BOOLEAN,
-        defaultValue: true,
-        comment: 'Whether to receive email notifications'
+        defaultValue: true
       },
       smsNotifications: {
         type: Sequelize.BOOLEAN,
-        defaultValue: true,
-        comment: 'Whether to receive SMS notifications'
+        defaultValue: true
       },
       pushNotifications: {
         type: Sequelize.BOOLEAN,
-        defaultValue: true,
-        comment: 'Whether to receive push notifications'
+        defaultValue: true
       },
       marketingEmails: {
         type: Sequelize.BOOLEAN,
-        defaultValue: false,
-        comment: 'Whether to receive marketing emails'
+        defaultValue: false
       },
       dateOfBirth: {
         type: Sequelize.DATE,
-        allowNull: true,
-        comment: 'Customer date of birth'
+        allowNull: true
       },
       gender: {
         type: Sequelize.ENUM('male', 'female', 'other', 'prefer_not_to_say'),
-        allowNull: true,
-        comment: 'Customer gender'
+        allowNull: true
       },
       address: {
         type: Sequelize.TEXT,
-        allowNull: true,
-        comment: 'Customer address'
+        allowNull: true
       },
       city: {
         type: Sequelize.STRING,
-        allowNull: true,
-        comment: 'Customer city'
+        allowNull: true
       },
       country: {
         type: Sequelize.STRING,
         allowNull: true,
-        defaultValue: 'Kenya',
-        comment: 'Customer country'
+        defaultValue: 'Kenya'
       },
       postalCode: {
         type: Sequelize.STRING,
-        allowNull: true,
-        comment: 'Customer postal code'
+        allowNull: true
       },
       googleId: {
         type: Sequelize.STRING(100),
         allowNull: true,
-        unique: true,
-        comment: 'Google OAuth ID for this user'
+        unique: true
       },
       authProvider: {
         type: Sequelize.ENUM('email', 'google', 'facebook', 'apple'),
         defaultValue: 'email',
-        allowNull: false,
-        comment: 'Primary authentication provider used to create account'
+        allowNull: false
       },
       googleLinkedAt: {
         type: Sequelize.DATE,
-        allowNull: true,
-        comment: 'When Google account was first linked'
+        allowNull: true
       },
       profileVisibility: {
         type: Sequelize.ENUM('public', 'private', 'friends_only'),
-        defaultValue: 'public',
-        comment: 'Profile visibility setting'
+        defaultValue: 'public'
       },
       referralSlug: {
         type: Sequelize.STRING(50),
         allowNull: true,
-        unique: true,
-        comment: 'Unique referral slug for this user (user-friendly)'
+        unique: true
       },
       referralLink: {
         type: Sequelize.STRING(255),
-        allowNull: true,
-        comment: 'Full referral link for this user'
+        allowNull: true
       },
       referredBy: {
         type: Sequelize.UUID,
@@ -161,13 +142,11 @@ module.exports = {
           key: 'id'
         },
         onUpdate: 'CASCADE',
-        onDelete: 'SET NULL',
-        comment: 'ID of user who referred this user'
+        onDelete: 'SET NULL'
       },
       referredAt: {
         type: Sequelize.DATE,
-        allowNull: true,
-        comment: 'When this user was referred'
+        allowNull: true
       },
       createdAt: {
         type: Sequelize.DATE,
@@ -181,25 +160,11 @@ module.exports = {
       }
     });
 
-    // Add indexes
-    await queryInterface.addIndex('users', ['phoneNumber'], {
-      name: 'idx_phone_number'
-    });
-
+    // MINIMAL INDEXES - Only the most essential ones
+    // Total: 2 manual indexes + 3 unique (email, googleId, referralSlug) + 1 primary = 6 total
+    
     await queryInterface.addIndex('users', ['userType', 'isActive'], {
       name: 'idx_user_type_active'
-    });
-
-    await queryInterface.addIndex('users', ['userType', 'isOnline'], {
-      name: 'idx_user_type_online'
-    });
-
-    await queryInterface.addIndex('users', ['userType', 'createdAt'], {
-      name: 'idx_user_type_created'
-    });
-
-    await queryInterface.addIndex('users', ['country', 'city'], {
-      name: 'idx_location'
     });
 
     await queryInterface.addIndex('users', ['referredBy'], {
