@@ -71,13 +71,8 @@ module.exports = {
       },
       acceptedOfferId: {
         type: Sequelize.UUID,
-        defaultValue: null,
-        references: {
-          model: 'service_offers',
-          key: 'id'
-        },
-        onUpdate: 'CASCADE',
-        onDelete: 'SET NULL'
+        defaultValue: null
+        // Foreign key constraint will be added later after service_offers table exists
       },
       completedAt: {
         type: Sequelize.DATE,
