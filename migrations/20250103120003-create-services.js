@@ -6,8 +6,7 @@ module.exports = {
       id: {
         type: Sequelize.UUID,
         defaultValue: Sequelize.UUIDV4,
-        primaryKey: true,
-        allowNull: false
+        primaryKey: true
       },
       name: {
         type: Sequelize.STRING,
@@ -15,22 +14,18 @@ module.exports = {
       },
       price: {
         type: Sequelize.FLOAT,
-        allowNull: true,
-        comment: 'Null for dynamic services'
+        allowNull: true
       },
       duration: {
         type: Sequelize.INTEGER,
         allowNull: true,
-        comment: 'Duration in minutes, null for dynamic services'
+        comment: 'Duration in minutes'
       },
-      // Support for multiple images
       images: {
         type: Sequelize.JSON,
         allowNull: true,
-        defaultValue: [],
         comment: 'Array of image URLs (max 3 images)'
       },
-      // Keep for backward compatibility
       image_url: {
         type: Sequelize.STRING,
         allowNull: true,
@@ -70,7 +65,6 @@ module.exports = {
         allowNull: false,
         defaultValue: 'fixed'
       },
-      // Dynamic service fields
       pricing_factors: {
         type: Sequelize.JSON,
         allowNull: true,
@@ -86,11 +80,9 @@ module.exports = {
         defaultValue: false,
         comment: 'Whether consultation is required before service delivery'
       },
-      // NEW: Booking confirmation settings
       auto_confirm_bookings: {
         type: Sequelize.BOOLEAN,
         defaultValue: true,
-        allowNull: false,
         comment: 'Whether to automatically confirm bookings or require manual confirmation'
       },
       confirmation_message: {
@@ -101,7 +93,6 @@ module.exports = {
       require_prepayment: {
         type: Sequelize.BOOLEAN,
         defaultValue: false,
-        allowNull: false,
         comment: 'Whether prepayment is required before confirmation'
       },
       cancellation_policy: {
@@ -112,35 +103,28 @@ module.exports = {
       min_cancellation_hours: {
         type: Sequelize.INTEGER,
         defaultValue: 2,
-        allowNull: false,
         comment: 'Minimum hours before appointment that cancellation is allowed'
       },
-      // Check-in and service completion settings
       allow_early_checkin: {
         type: Sequelize.BOOLEAN,
         defaultValue: true,
-        allowNull: false,
         comment: 'Whether clients can check in before their scheduled time'
       },
       early_checkin_minutes: {
         type: Sequelize.INTEGER,
         defaultValue: 15,
-        allowNull: false,
         comment: 'How many minutes early a client can check in'
       },
       auto_complete_on_duration: {
         type: Sequelize.BOOLEAN,
         defaultValue: true,
-        allowNull: false,
         comment: 'Whether to automatically mark booking as complete after service duration'
       },
       grace_period_minutes: {
         type: Sequelize.INTEGER,
         defaultValue: 10,
-        allowNull: false,
         comment: 'Grace period after scheduled time before marking as no-show'
       },
-      // Booking capacity fields
       max_concurrent_bookings: {
         type: Sequelize.INTEGER,
         allowNull: false,
@@ -150,7 +134,6 @@ module.exports = {
       allow_overbooking: {
         type: Sequelize.BOOLEAN,
         defaultValue: false,
-        allowNull: false,
         comment: 'Whether to allow bookings beyond max_concurrent_bookings'
       },
       slot_interval: {
@@ -158,67 +141,45 @@ module.exports = {
         allowNull: true,
         comment: 'Time between slots in minutes'
       },
-      buffer_time: {
-        type: Sequelize.INTEGER,
-        defaultValue: 0,
-        allowNull: false,
-        comment: 'Buffer time in minutes between consecutive bookings'
+      blackout_dates: {
+        type: Sequelize.JSON,
+        allowNull: true,
+        comment: 'Array of blackout dates/periods for this service'
       },
-      // Advance booking settings
       min_advance_booking: {
         type: Sequelize.INTEGER,
         defaultValue: 30,
-        allowNull: false,
         comment: 'Minimum minutes in advance that booking can be made'
       },
       max_advance_booking: {
         type: Sequelize.INTEGER,
-        defaultValue: 10080, // 7 days in minutes
-        allowNull: false,
+        defaultValue: 10080,
         comment: 'Maximum minutes in advance that booking can be made'
       },
-      // Service status
+      buffer_time: {
+        type: Sequelize.INTEGER,
+        defaultValue: 0,
+        comment: 'Buffer time in minutes between consecutive bookings'
+      },
       status: {
-        type: Sequelize.ENUM('active', 'inactive', 'suspended', 'pending'),
-        defaultValue: 'active',
-        allowNull: false
+        type: Sequelize.ENUM('active', 'inactive', 'suspended'),
+        defaultValue: 'active'
       },
       booking_enabled: {
         type: Sequelize.BOOLEAN,
         defaultValue: true,
-        allowNull: false,
         comment: 'Whether booking is enabled for this service'
       },
-      // SEO and marketing fields
       tags: {
         type: Sequelize.JSON,
         allowNull: true,
-        defaultValue: [],
         comment: 'Tags for better searchability'
       },
       featured: {
         type: Sequelize.BOOLEAN,
         defaultValue: false,
-        allowNull: false,
         comment: 'Whether service should be featured'
       },
-      // Admin fields (for future use)
-      suspension_reason: {
-        type: Sequelize.TEXT,
-        allowNull: true,
-        comment: 'Reason for suspension (admin use)'
-      },
-      verified_at: {
-        type: Sequelize.DATE,
-        allowNull: true,
-        comment: 'When service was verified by admin'
-      },
-      verified_by: {
-        type: Sequelize.UUID,
-        allowNull: true,
-        comment: 'Admin who verified the service'
-      },
-      // Timestamps
       createdAt: {
         type: Sequelize.DATE,
         allowNull: false,
@@ -227,7 +188,7 @@ module.exports = {
       updatedAt: {
         type: Sequelize.DATE,
         allowNull: false,
-        defaultValue: Sequelize.literal('CURRENT_TIMESTAMP')
+        defaultValue: Sequelize.literal('CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP')
       },
       deletedAt: {
         type: Sequelize.DATE,
@@ -236,78 +197,29 @@ module.exports = {
       }
     });
 
-    // Add indexes for better query performance
+    // Add indexes
     await queryInterface.addIndex('services', ['store_id'], {
-      name: 'services_store_id_index'
+      name: 'idx_services_store_id'
     });
 
     await queryInterface.addIndex('services', ['branch_id'], {
-      name: 'services_branch_id_index'
+      name: 'idx_services_branch_id'
     });
 
-    await queryInterface.addIndex('services', ['auto_confirm_bookings'], {
-      name: 'services_auto_confirm_index'
+    await queryInterface.addIndex('services', ['status', 'booking_enabled'], {
+      name: 'idx_services_status_booking'
     });
 
-    await queryInterface.addIndex('services', ['category'], {
-      name: 'services_category_index'
+    await queryInterface.addIndex('services', ['store_id', 'category', 'status'], {
+      name: 'idx_services_store_category_status'
     });
 
-    await queryInterface.addIndex('services', ['type'], {
-      name: 'services_type_index'
-    });
-
-    await queryInterface.addIndex('services', ['status'], {
-      name: 'services_status_index'
-    });
-
-    await queryInterface.addIndex('services', ['booking_enabled'], {
-      name: 'services_booking_enabled_index'
-    });
-
-    await queryInterface.addIndex('services', ['featured'], {
-      name: 'services_featured_index'
-    });
-
-    await queryInterface.addIndex('services', ['createdAt'], {
-      name: 'services_created_at_index'
-    });
-
-    await queryInterface.addIndex('services', ['deletedAt'], {
-      name: 'services_deleted_at_index'
-    });
-
-    // Composite indexes for common queries
-    await queryInterface.addIndex('services', ['store_id', 'status'], {
-      name: 'services_store_status_index'
-    });
-
-    await queryInterface.addIndex('services', ['store_id', 'type'], {
-      name: 'services_store_type_index'
-    });
-
-    await queryInterface.addIndex('services', ['store_id', 'featured', 'status'], {
-      name: 'services_store_featured_status_index'
+    await queryInterface.addIndex('services', ['featured', 'status'], {
+      name: 'idx_services_featured_status'
     });
   },
 
   down: async (queryInterface, Sequelize) => {
-    // Drop indexes first
-    await queryInterface.removeIndex('services', 'services_store_id_index');
-    await queryInterface.removeIndex('services', 'services_branch_id_index');
-    await queryInterface.removeIndex('services', 'services_auto_confirm_index');
-    await queryInterface.removeIndex('services', 'services_category_index');
-    await queryInterface.removeIndex('services', 'services_type_index');
-    await queryInterface.removeIndex('services', 'services_status_index');
-    await queryInterface.removeIndex('services', 'services_booking_enabled_index');
-    await queryInterface.removeIndex('services', 'services_featured_index');
-    await queryInterface.removeIndex('services', 'services_created_at_index');
-    await queryInterface.removeIndex('services', 'services_deleted_at_index');
-    await queryInterface.removeIndex('services', 'services_store_status_index');
-    await queryInterface.removeIndex('services', 'services_store_type_index');
-    await queryInterface.removeIndex('services', 'services_store_featured_status_index');
-
-    // Drop the table
     await queryInterface.dropTable('services');
   }
 };

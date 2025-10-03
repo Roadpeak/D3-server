@@ -1,65 +1,58 @@
-// migrations/YYYYMMDDHHMMSS-create-favorites.js
 'use strict';
 
 module.exports = {
   up: async (queryInterface, Sequelize) => {
     await queryInterface.createTable('Favorites', {
       id: {
-        allowNull: false,
-        autoIncrement: true,
+        type: Sequelize.UUID,
         primaryKey: true,
-        type: Sequelize.INTEGER
+        defaultValue: Sequelize.UUIDV4,
+        allowNull: false
       },
       user_id: {
-        type: Sequelize.INTEGER,
+        type: Sequelize.UUID,
         allowNull: false,
         references: {
-          model: 'Users',
+          model: 'users',
           key: 'id'
         },
         onUpdate: 'CASCADE',
         onDelete: 'CASCADE'
       },
       offer_id: {
-        type: Sequelize.INTEGER,
+        type: Sequelize.UUID,
         allowNull: false,
         references: {
-          model: 'Offers',
+          model: 'offers',
           key: 'id'
         },
         onUpdate: 'CASCADE',
         onDelete: 'CASCADE'
       },
       created_at: {
-        allowNull: false,
         type: Sequelize.DATE,
+        allowNull: false,
         defaultValue: Sequelize.literal('CURRENT_TIMESTAMP')
       },
       updated_at: {
-        allowNull: false,
         type: Sequelize.DATE,
-        defaultValue: Sequelize.literal('CURRENT_TIMESTAMP')
+        allowNull: false,
+        defaultValue: Sequelize.literal('CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP')
       }
     });
 
-    // Add unique constraint to prevent duplicate favorites
-    await queryInterface.addConstraint('Favorites', {
-      fields: ['user_id', 'offer_id'],
-      type: 'unique',
-      name: 'unique_user_offer_favorite'
+    // Add indexes
+    await queryInterface.addIndex('Favorites', ['user_id', 'offer_id'], {
+      unique: true,
+      name: 'idx_favorites_user_offer_unique'
     });
 
-    // Add indexes for better performance
     await queryInterface.addIndex('Favorites', ['user_id'], {
-      name: 'favorites_user_id_index'
+      name: 'idx_favorites_user_id'
     });
 
     await queryInterface.addIndex('Favorites', ['offer_id'], {
-      name: 'favorites_offer_id_index'
-    });
-
-    await queryInterface.addIndex('Favorites', ['created_at'], {
-      name: 'favorites_created_at_index'
+      name: 'idx_favorites_offer_id'
     });
   },
 

@@ -1,4 +1,4 @@
-// models/ServiceRequest.js - FIXED CATEGORY ENUM
+// models/ServiceRequest.js - Optimized with reduced indexes
 module.exports = (sequelize, DataTypes) => {
   const ServiceRequest = sequelize.define('ServiceRequest', {
     id: {
@@ -24,7 +24,6 @@ module.exports = (sequelize, DataTypes) => {
     },
     category: {
       type: DataTypes.ENUM(
-        // ✅ FIXED: Updated to match frontend categories
         'Web Development',
         'Graphic Design', 
         'Writing & Translation',
@@ -159,7 +158,7 @@ module.exports = (sequelize, DataTypes) => {
     },
     expiresAt: {
       type: DataTypes.DATE,
-      defaultValue: () => new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days
+      defaultValue: () => new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
     },
     viewCount: {
       type: DataTypes.INTEGER,
@@ -169,7 +168,6 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.INTEGER,
       defaultValue: 0,
     },
-    // Store-related tracking
     offerCount: {
       type: DataTypes.INTEGER,
       defaultValue: 0,
@@ -200,7 +198,6 @@ module.exports = (sequelize, DataTypes) => {
       defaultValue: null,
       comment: 'Highest price offered'
     },
-    // Performance tracking
     firstOfferReceivedAt: {
       type: DataTypes.DATE,
       defaultValue: null,
@@ -220,53 +217,48 @@ module.exports = (sequelize, DataTypes) => {
     tableName: 'service_requests',
     timestamps: true,
     indexes: [
+      // Foreign key index
       {
-        fields: ['category', 'status'],
-        name: 'idx_service_requests_category_status'
+        fields: ['postedBy'],
+        name: 'idx_service_requests_posted_by'
       },
+      // Composite index for category-based browsing with status filter
+      {
+        fields: ['category', 'status', 'createdAt'],
+        name: 'idx_service_requests_category_status_created'
+      },
+      // Composite index for location-based search
       {
         fields: ['location', 'status'],
         name: 'idx_service_requests_location_status'
       },
+      // Composite index for priority sorting
       {
-        fields: ['budgetMin', 'budgetMax', 'status'],
-        name: 'idx_service_requests_budget_status'
-      },
-      {
-        fields: ['timeline', 'priority', 'status'],
-        name: 'idx_service_requests_timeline_priority_status'
-      },
-      {
-        fields: ['postedBy', 'status'],
-        name: 'idx_service_requests_user_status'
+        fields: ['status', 'priority', 'createdAt'],
+        name: 'idx_service_requests_status_priority_created'
       }
     ]
   });
 
-  // ASSOCIATIONS
   ServiceRequest.associate = (models) => {
-    // User who posted the request
     ServiceRequest.belongsTo(models.User, {
       foreignKey: 'postedBy',
       as: 'postedByUser',
       onDelete: 'CASCADE',
     });
 
-    // All offers for this request
     ServiceRequest.hasMany(models.ServiceOffer, {
       foreignKey: 'requestId',
       as: 'offers',
       onDelete: 'CASCADE',
     });
 
-    // Specific accepted offer
     ServiceRequest.belongsTo(models.ServiceOffer, {
       foreignKey: 'acceptedOfferId',
       as: 'acceptedOffer',
       onDelete: 'SET NULL',
     });
 
-    // Through offers, access stores that offered
     ServiceRequest.belongsToMany(models.Store, {
       through: models.ServiceOffer,
       foreignKey: 'requestId',
@@ -275,7 +267,6 @@ module.exports = (sequelize, DataTypes) => {
     });
   };
 
-  // INSTANCE METHODS
   ServiceRequest.prototype.incrementViewCount = async function() {
     await this.increment('viewCount');
     return this.viewCount + 1;
@@ -413,7 +404,6 @@ module.exports = (sequelize, DataTypes) => {
     return this.category === storeCategory;
   };
 
-  // CLASS METHODS
   ServiceRequest.getRequestsForStore = async function(storeCategory, filters = {}) {
     const whereClause = {
       status: 'open',

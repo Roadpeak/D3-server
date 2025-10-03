@@ -1,14 +1,33 @@
-// models/Payment.js - Updated with UUID ID for consistency
+// models/Payment.js - Optimized with reduced indexes
 const { Model, DataTypes } = require('sequelize');
 
 module.exports = (sequelize) => {
   class Payment extends Model {
     static associate(models) {
-      // Define associations here
       Payment.hasMany(models.Booking, {
         foreignKey: 'paymentId',
         as: 'Bookings'
       });
+    }
+
+    canRefund() {
+      return this.status === 'completed' && 
+             this.refund_amount < this.amount;
+    }
+    
+    canRetry() {
+      return this.status === 'failed' && 
+             this.retry_count < this.max_retries;
+    }
+    
+    getRefundableAmount() {
+      return this.amount - (this.refund_amount || 0);
+    }
+    
+    isPendingTooLong(hours = 24) {
+      if (this.status !== 'pending') return false;
+      const hoursDiff = (new Date() - this.createdAt) / (1000 * 60 * 60);
+      return hoursDiff > hours;
     }
   }
 
@@ -47,7 +66,7 @@ module.exports = (sequelize) => {
       unique_code: {
         type: DataTypes.STRING,
         allowNull: false,
-        unique: 'unique_code',
+        unique: true,
         defaultValue: () => 'PAY_' + Date.now() + '_' + Math.random().toString(36).substring(2, 8).toUpperCase(),
         comment: 'Unique payment identifier for tracking'
       },
@@ -200,18 +219,20 @@ module.exports = (sequelize) => {
       tableName: 'payments',
       timestamps: true,
       indexes: [
-        // Reduced indexes to essential ones only
+        // Composite index for filtering payments by status and date
         {
-          fields: ['status'],
-          name: 'payments_status_index'
+          fields: ['status', 'createdAt'],
+          name: 'idx_payments_status_created'
         },
+        // Composite index for payment method analytics
         {
-          fields: ['method'],
-          name: 'payments_method_index'
+          fields: ['method', 'status'],
+          name: 'idx_payments_method_status'
         },
+        // Index for transaction lookup
         {
-          fields: ['createdAt'],
-          name: 'payments_created_at_index'
+          fields: ['transaction_id'],
+          name: 'idx_payments_transaction_id'
         }
       ],
       hooks: {
@@ -254,27 +275,6 @@ module.exports = (sequelize) => {
       }
     }
   );
-
-  // Instance methods (same as before)
-  Payment.prototype.canRefund = function() {
-    return this.status === 'completed' && 
-           this.refund_amount < this.amount;
-  };
-  
-  Payment.prototype.canRetry = function() {
-    return this.status === 'failed' && 
-           this.retry_count < this.max_retries;
-  };
-  
-  Payment.prototype.getRefundableAmount = function() {
-    return this.amount - (this.refund_amount || 0);
-  };
-  
-  Payment.prototype.isPendingTooLong = function(hours = 24) {
-    if (this.status !== 'pending') return false;
-    const hoursDiff = (new Date() - this.createdAt) / (1000 * 60 * 60);
-    return hoursDiff > hours;
-  };
 
   return Payment;
 };

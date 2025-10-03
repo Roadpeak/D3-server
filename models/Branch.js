@@ -1,32 +1,28 @@
-// models/branch.js
+// models/branch.js - Optimized with reduced indexes
 'use strict';
 const { Model } = require('sequelize');
 
 module.exports = (sequelize, DataTypes) => {
   class Branch extends Model {
     static associate(models) {
-      // Branch belongs to Store
       Branch.belongsTo(models.Store, { 
         foreignKey: 'storeId',
         as: 'Store',
         onDelete: 'CASCADE'
       });
       
-      // Branch belongs to Merchant
       Branch.belongsTo(models.Merchant, { 
         foreignKey: 'merchantId',
         as: 'Merchant',
         onDelete: 'CASCADE'
       });
 
-      // Branch has a creator (Merchant)
       Branch.belongsTo(models.Merchant, { 
         foreignKey: 'createdBy',
         as: 'Creator',
         onDelete: 'SET NULL'
       });
 
-      // Branch has an updater (Merchant)
       Branch.belongsTo(models.Merchant, { 
         foreignKey: 'updatedBy',
         as: 'Updater',
@@ -177,20 +173,39 @@ module.exports = (sequelize, DataTypes) => {
     modelName: 'Branch',
     tableName: 'branches',
     timestamps: true,
-    paranoid: true, // Enables soft deletes
+    paranoid: true,
     createdAt: 'createdAt',
     updatedAt: 'updatedAt',
     deletedAt: 'deletedAt',
-    underscored: true, // Use snake_case for database fields
+    underscored: true,
+    indexes: [
+      // Foreign key indexes
+      {
+        fields: ['store_id'],
+        name: 'idx_branches_store_id'
+      },
+      {
+        fields: ['merchant_id'],
+        name: 'idx_branches_merchant_id'
+      },
+      // Composite index for filtering store's active branches
+      {
+        fields: ['store_id', 'status'],
+        name: 'idx_branches_store_status'
+      },
+      // Geographic search index
+      {
+        fields: ['latitude', 'longitude'],
+        name: 'idx_branches_location'
+      }
+    ],
     hooks: {
       beforeCreate(branch, options) {
-        // Ensure additional branches are never set as main
         if (branch.isMainBranch) {
           branch.isMainBranch = false;
         }
       },
       beforeUpdate(branch, options) {
-        // Ensure additional branches are never set as main
         if (branch.isMainBranch) {
           branch.isMainBranch = false;
         }

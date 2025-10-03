@@ -25,6 +25,13 @@ module.exports = (sequelize, DataTypes) => {
     {
       timestamps: true,
       tableName: 'StoreGallery',
+      indexes: [
+        // Foreign key index for store lookup
+        {
+          fields: ['store_id'],
+          name: 'idx_store_gallery_store_id'
+        }
+      ]
     }
   );
 

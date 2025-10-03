@@ -1,4 +1,4 @@
-// models/Store.js - Updated with Chat System integration and your existing structure
+// models/Store.js - Optimized with reduced indexes
 'use strict';
 module.exports = (sequelize, DataTypes) => {
   const Store = sequelize.define(
@@ -96,7 +96,6 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.BOOLEAN,
         defaultValue: true,
       },
-      // NEW FIELDS FOR CHAT SYSTEM
       isOnline: {
         type: DataTypes.BOOLEAN,
         defaultValue: false,
@@ -120,16 +119,32 @@ module.exports = (sequelize, DataTypes) => {
     },
     {
       timestamps: true,
-      tableName: 'stores', // Changed to lowercase for consistency
+      tableName: 'stores',
       indexes: [
-        { fields: ['category'] },
-        { fields: ['location'] },
-        { fields: ['rating'] },
-        { fields: ['category', 'location'] },
-        { fields: ['merchant_id'] }, // Added for chat system
-        { fields: ['isOnline'] }, // Added for chat system
+        // Foreign key index for merchant lookups
+        {
+          fields: ['merchant_id'],
+          name: 'idx_stores_merchant_id'
+        },
+        // Composite index for common filter queries (category + location)
+        {
+          fields: ['category', 'location', 'is_active'],
+          name: 'idx_stores_category_location_active'
+        },
+        // Composite index for online stores with chat
+        {
+          fields: ['isOnline', 'is_active'],
+          name: 'idx_stores_online_active'
+        },
+        // Rating index for sorting
+        {
+          fields: ['rating', 'is_active'],
+          name: 'idx_stores_rating_active'
+        },
+        // Partial index for cashback filtering (only non-null values)
         {
           fields: ['cashback'],
+          name: 'idx_stores_cashback',
           where: {
             cashback: {
               [sequelize.Sequelize.Op.not]: null,
@@ -140,9 +155,7 @@ module.exports = (sequelize, DataTypes) => {
     }
   );
 
-  // ENHANCED ASSOCIATIONS (keeping your existing ones + chat system)
   Store.associate = (models) => {
-    // Your existing Merchant associations
     Store.belongsTo(models.Merchant, {
       foreignKey: 'merchant_id',
       as: 'storeMerchant',
@@ -162,23 +175,20 @@ module.exports = (sequelize, DataTypes) => {
       onDelete: 'SET NULL',
     });
 
-    // ENHANCED: Additional associations for chat system compatibility
-    // If your Merchant model has a User association, this provides backward compatibility
     Store.belongsTo(models.Merchant, {
       foreignKey: 'merchant_id',
-      as: 'merchant', // Alternative alias for chat system
+      as: 'merchant',
       onDelete: 'CASCADE',
       onUpdate: 'CASCADE',
     });
 
     Store.belongsTo(models.Merchant, {
       foreignKey: 'merchant_id',
-      as: 'owner', // Alternative alias for chat system
+      as: 'owner',
       onDelete: 'CASCADE',
       onUpdate: 'CASCADE',
     });
 
-    // Your existing associations
     Store.hasMany(models.Service, {
       foreignKey: 'store_id',
       as: 'services',
@@ -227,14 +237,12 @@ module.exports = (sequelize, DataTypes) => {
       onDelete: 'CASCADE',
     });
 
-    // NEW: Chat system associations
     Store.hasMany(models.Chat, {
       foreignKey: 'storeId',
       as: 'chats',
       onDelete: 'CASCADE',
     });
 
-    // NEW: Branch/Outlet association for enhanced mapping
     if (models.Branch) {
       Store.hasMany(models.Branch, {
         foreignKey: 'store_id',
@@ -243,7 +251,6 @@ module.exports = (sequelize, DataTypes) => {
       });
     }
 
-    // NEW: Offer association if exists
     if (models.Offer) {
       Store.hasMany(models.Offer, {
         foreignKey: 'store_id',
@@ -253,7 +260,6 @@ module.exports = (sequelize, DataTypes) => {
     }
   };
 
-  // ENHANCED INSTANCE METHODS (keeping your existing + chat system)
   Store.prototype.toJSON = function () {
     const values = Object.assign({}, this.get());
     values.logo = values.logo_url;
@@ -261,7 +267,6 @@ module.exports = (sequelize, DataTypes) => {
     return values;
   };
 
-  // NEW: Chat system instance methods
   Store.prototype.updateOnlineStatus = function(isOnline) {
     this.isOnline = isOnline;
     this.lastSeen = isOnline ? null : new Date();
@@ -292,9 +297,9 @@ module.exports = (sequelize, DataTypes) => {
 
     return await Message.count({
       where: {
-        chat_id: { [sequelize.Op.in]: chatIds },
-        sender_type: 'user', // Messages from customers
-        status: { [sequelize.Op.ne]: 'read' }
+        chat_id: { [sequelize.Sequelize.Op.in]: chatIds },
+        sender_type: 'user',
+        status: { [sequelize.Sequelize.Op.ne]: 'read' }
       }
     });
   };
@@ -312,12 +317,9 @@ module.exports = (sequelize, DataTypes) => {
   };
 
   Store.prototype.getAverageResponseTime = async function() {
-    // This would require more complex logic to track response times
-    // For now, return a mock value - implement based on your needs
-    return Math.floor(Math.random() * 30) + 5; // 5-35 minutes
+    return Math.floor(Math.random() * 30) + 5;
   };
 
-  // ENHANCED CLASS METHODS (keeping your existing + new ones)
   Store.getCategories = async function () {
     const categories = await this.findAll({
       attributes: [[sequelize.fn('DISTINCT', sequelize.col('category')), 'category']],
@@ -398,7 +400,6 @@ module.exports = (sequelize, DataTypes) => {
     });
   };
 
-  // NEW: Chat system specific methods
   Store.getOnlineStores = async function() {
     return await this.findAll({
       where: {
@@ -432,15 +433,13 @@ module.exports = (sequelize, DataTypes) => {
       store.getUnreadMessagesCount(),
       store.getTotalCustomers(),
       
-      // New chats in period
       Chat.count({
         where: {
           storeId,
-          createdAt: { [sequelize.Op.gte]: startDate }
+          createdAt: { [sequelize.Sequelize.Op.gte]: startDate }
         }
       }),
 
-      // Total messages in period
       Message.count({
         include: [{
           model: Chat,
@@ -449,7 +448,7 @@ module.exports = (sequelize, DataTypes) => {
           attributes: []
         }],
         where: {
-          createdAt: { [sequelize.Op.gte]: startDate }
+          createdAt: { [sequelize.Sequelize.Op.gte]: startDate }
         }
       })
     ]);

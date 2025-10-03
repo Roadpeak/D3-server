@@ -1,4 +1,4 @@
-// models/Chat.js - Customer↔Store Conversation Model
+// models/Chat.js - Optimized with reduced indexes
 'use strict';
 
 module.exports = (sequelize, DataTypes) => {
@@ -12,7 +12,7 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.UUID,
       allowNull: false,
       references: {
-        model: 'Users', // Customer
+        model: 'Users',
         key: 'id'
       },
       comment: 'Customer who is chatting with the store'
@@ -21,7 +21,7 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.UUID,
       allowNull: false,
       references: {
-        model: 'Stores', // Store being contacted
+        model: 'Stores',
         key: 'id'
       },
       comment: 'Store that the customer is chatting with'
@@ -60,58 +60,53 @@ module.exports = (sequelize, DataTypes) => {
     tableName: 'chats',
     timestamps: true,
     indexes: [
+      // Unique constraint for one chat per customer-store pair
       {
         unique: true,
         fields: ['userId', 'storeId'],
-        name: 'unique_customer_store_chat'
+        name: 'idx_chats_user_store_unique'
       },
+      // Foreign key indexes
       {
         fields: ['userId'],
-        name: 'chats_customer_index'
+        name: 'idx_chats_user_id'
       },
       {
         fields: ['storeId'],
-        name: 'chats_store_index'
+        name: 'idx_chats_store_id'
       },
+      // Composite index for filtering store's active chats sorted by recency
       {
-        fields: ['status'],
-        name: 'chats_status_index'
+        fields: ['storeId', 'status', 'lastMessageAt'],
+        name: 'idx_chats_store_status_recent'
       },
+      // Composite index for priority filtering
       {
-        fields: ['lastMessageAt'],
-        name: 'chats_last_message_index'
-      },
-      {
-        fields: ['priority'],
-        name: 'chats_priority_index'
+        fields: ['storeId', 'priority'],
+        name: 'idx_chats_store_priority'
       }
     ]
   });
 
-  // Associations for Customer↔Store communication
   Chat.associate = (models) => {
-    // Chat belongs to a Customer (User)
     Chat.belongsTo(models.User, {
       foreignKey: 'userId',
-      as: 'chatUser', // The customer
+      as: 'chatUser',
       onDelete: 'CASCADE'
     });
 
-    // Chat belongs to a Store
     Chat.belongsTo(models.Store, {
       foreignKey: 'storeId',
-      as: 'store', // The store being contacted
+      as: 'store',
       onDelete: 'CASCADE'
     });
 
-    // Chat has many Messages
     Chat.hasMany(models.Message, {
       foreignKey: 'chat_id',
       as: 'messages',
       onDelete: 'CASCADE'
     });
 
-    // Additional associations for analytics
     if (models.ChatAnalytics) {
       Chat.hasOne(models.ChatAnalytics, {
         foreignKey: 'chatId',
@@ -121,60 +116,50 @@ module.exports = (sequelize, DataTypes) => {
     }
   };
 
-  // Instance Methods
   Chat.prototype.toJSON = function() {
     const values = Object.assign({}, this.get());
-    
-    // Add computed properties
     values.participantType = 'customer_store';
     values.conversationType = 'customer_to_store';
-    
     return values;
   };
 
-  // Archive this customer↔store conversation
   Chat.prototype.archive = async function() {
     this.status = 'archived';
     return await this.save();
   };
 
-  // Block this customer↔store conversation
   Chat.prototype.block = async function() {
     this.status = 'blocked';
     return await this.save();
   };
 
-  // Reactivate this customer↔store conversation
   Chat.prototype.reactivate = async function() {
     this.status = 'active';
     return await this.save();
   };
 
-  // Get unread message count for customer
   Chat.prototype.getUnreadCountForCustomer = async function() {
     const { Message } = sequelize.models;
     return await Message.count({
       where: {
         chat_id: this.id,
-        sender_type: 'store', // Messages from store to customer
+        sender_type: 'store',
         status: { [sequelize.Sequelize.Op.ne]: 'read' }
       }
     });
   };
 
-  // Get unread message count for merchant (store owner)
   Chat.prototype.getUnreadCountForMerchant = async function() {
     const { Message } = sequelize.models;
     return await Message.count({
       where: {
         chat_id: this.id,
-        sender_type: 'user', // Messages from customer to store
+        sender_type: 'user',
         status: { [sequelize.Sequelize.Op.ne]: 'read' }
       }
     });
   };
 
-  // Get total message count
   Chat.prototype.getMessageCount = async function() {
     const { Message } = sequelize.models;
     return await Message.count({
@@ -182,7 +167,6 @@ module.exports = (sequelize, DataTypes) => {
     });
   };
 
-  // Get merchant who owns the store in this conversation
   Chat.prototype.getMerchant = async function() {
     const { Store, Merchant } = sequelize.models;
     
@@ -199,9 +183,7 @@ module.exports = (sequelize, DataTypes) => {
     return store ? store.storeMerchant : null;
   };
 
-  // Update conversation priority (merchant only)
   Chat.prototype.updatePriority = async function(priority, merchantId) {
-    // Verify merchant owns the store
     const merchant = await this.getMerchant();
     if (!merchant || merchant.id !== merchantId) {
       throw new Error('Access denied: Merchant does not own this store');
@@ -211,9 +193,7 @@ module.exports = (sequelize, DataTypes) => {
     return await this.save();
   };
 
-  // Add tags to conversation (merchant only)
   Chat.prototype.addTags = async function(tags, merchantId) {
-    // Verify merchant owns the store
     const merchant = await this.getMerchant();
     if (!merchant || merchant.id !== merchantId) {
       throw new Error('Access denied: Merchant does not own this store');
@@ -226,9 +206,7 @@ module.exports = (sequelize, DataTypes) => {
     return await this.save();
   };
 
-  // Update notes for conversation (merchant only)
   Chat.prototype.updateNotes = async function(notes, merchantId) {
-    // Verify merchant owns the store
     const merchant = await this.getMerchant();
     if (!merchant || merchant.id !== merchantId) {
       throw new Error('Access denied: Merchant does not own this store');
@@ -238,13 +216,9 @@ module.exports = (sequelize, DataTypes) => {
     return await this.save();
   };
 
-  // Class Methods
-  
-  // Find or create customer↔store chat
   Chat.findOrCreateCustomerStoreChat = async function(customerId, storeId) {
     const { Store } = sequelize.models;
     
-    // Verify store exists and is active
     const store = await Store.findOne({
       where: { id: storeId, is_active: true }
     });
@@ -253,12 +227,10 @@ module.exports = (sequelize, DataTypes) => {
       throw new Error('Store not found or inactive');
     }
     
-    // Find existing chat
     let chat = await this.findOne({
       where: { userId: customerId, storeId: storeId }
     });
     
-    // Create if doesn't exist
     if (!chat) {
       chat = await this.create({
         userId: customerId,
@@ -270,7 +242,6 @@ module.exports = (sequelize, DataTypes) => {
     return chat;
   };
 
-  // Get customer conversations for a specific store
   Chat.getCustomerConversationsForStore = async function(storeId, options = {}) {
     const { limit = 50, offset = 0, status = 'active' } = options;
     
@@ -299,12 +270,10 @@ module.exports = (sequelize, DataTypes) => {
     });
   };
 
-  // Get customer conversations for merchant (across all their stores)
   Chat.getCustomerConversationsForMerchant = async function(merchantId, options = {}) {
     const { limit = 50, offset = 0, status = 'active' } = options;
     const { Store } = sequelize.models;
     
-    // Get merchant's stores
     const merchantStores = await Store.findAll({
       where: { merchant_id: merchantId, is_active: true },
       attributes: ['id']
@@ -346,7 +315,6 @@ module.exports = (sequelize, DataTypes) => {
     });
   };
 
-  // Get store conversations for customer
   Chat.getStoreConversationsForCustomer = async function(customerId, options = {}) {
     const { limit = 50, offset = 0, status = 'active' } = options;
     
@@ -376,20 +344,18 @@ module.exports = (sequelize, DataTypes) => {
     });
   };
 
-  // Search conversations
   Chat.searchConversations = async function(query, searchOptions = {}) {
     const { 
       merchantId, 
       customerId, 
       storeId,
-      searchType = 'all', // 'customer_name', 'store_name', 'all'
+      searchType = 'all',
       limit = 50 
     } = searchOptions;
 
     let whereCondition = {};
     let includeConditions = [];
 
-    // Build search conditions
     if (merchantId) {
       const { Store } = sequelize.models;
       const merchantStores = await Store.findAll({
@@ -408,7 +374,6 @@ module.exports = (sequelize, DataTypes) => {
       whereCondition.storeId = storeId;
     }
 
-    // Include models based on search type
     if (searchType === 'customer_name' || searchType === 'all') {
       includeConditions.push({
         model: sequelize.models.User,

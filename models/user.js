@@ -27,7 +27,7 @@ module.exports = (sequelize, DataTypes) => {
     email: {
       type: DataTypes.STRING,
       allowNull: false,
-      unique: true, // This already creates a unique index - no need to duplicate in indexes array
+      unique: true,
       validate: {
         isEmail: true,
         len: [5, 100]
@@ -38,12 +38,12 @@ module.exports = (sequelize, DataTypes) => {
       allowNull: false,
       validate: {
         len: [10, 15],
-        isNumeric: false // Allow for formatting characters like +, -, ()
+        isNumeric: false
       }
     },
     password: {
       type: DataTypes.STRING,
-      allowNull: true, // 
+      allowNull: true,
       validate: {
         len: [6, 255]
       }
@@ -76,7 +76,6 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.DATE,
       allowNull: true
     },
-    // NEW: Chat system related fields
     isOnline: {
       type: DataTypes.BOOLEAN,
       defaultValue: false,
@@ -87,7 +86,6 @@ module.exports = (sequelize, DataTypes) => {
       allowNull: true,
       comment: 'Last seen timestamp for chat system'
     },
-    // NEW: Notification preferences for customer↔store communication
     chatNotifications: {
       type: DataTypes.BOOLEAN,
       defaultValue: true,
@@ -108,13 +106,11 @@ module.exports = (sequelize, DataTypes) => {
       defaultValue: true,
       comment: 'Whether to receive push notifications'
     },
-    // NEW: Marketing preferences
     marketingEmails: {
       type: DataTypes.BOOLEAN,
       defaultValue: false,
       comment: 'Whether to receive marketing emails'
     },
-    // NEW: Additional customer fields for enhanced store communication
     dateOfBirth: {
       type: DataTypes.DATE,
       allowNull: true,
@@ -146,8 +142,6 @@ module.exports = (sequelize, DataTypes) => {
       allowNull: true,
       comment: 'Customer postal code'
     },
-
-    // Google Authentication fields
     googleId: {
       type: DataTypes.STRING(100),
       allowNull: true,
@@ -165,8 +159,6 @@ module.exports = (sequelize, DataTypes) => {
       allowNull: true,
       comment: 'When Google account was first linked'
     },
-
-    // NEW: Privacy settings
     profileVisibility: {
       type: DataTypes.ENUM('public', 'private', 'friends_only'),
       defaultValue: 'public',
@@ -197,70 +189,47 @@ module.exports = (sequelize, DataTypes) => {
       allowNull: true,
       comment: 'When this user was referred'
     },
-
-
-
   }, {
     tableName: 'users',
     timestamps: true,
     indexes: [
-      // Removed duplicate email index - it's already created by unique: true above
+      // Essential query indexes
       {
-        fields: ['phoneNumber']
+        fields: ['phoneNumber'],
+        name: 'idx_phone_number'
       },
-      {
-        fields: ['userType']
-      },
-      {
-        fields: ['isActive']
-      },
-      // Add composite indexes if you frequently query these combinations
       {
         fields: ['userType', 'isActive'],
         name: 'idx_user_type_active'
       },
       {
-        fields: ['createdAt'],
-        name: 'idx_created_at'
-      },
-      // NEW: Chat system indexes
-      {
-        fields: ['isOnline'],
-        name: 'idx_is_online'
-      },
-      {
         fields: ['userType', 'isOnline'],
         name: 'idx_user_type_online'
       },
+      // Useful for admin dashboards and analytics
       {
-        fields: ['city'],
-        name: 'idx_city'
+        fields: ['userType', 'createdAt'],
+        name: 'idx_user_type_created'
       },
+      // Location-based queries (composite instead of separate indexes)
       {
-        fields: ['country'],
-        name: 'idx_country'
+        fields: ['country', 'city'],
+        name: 'idx_location'
       },
-
-      {
-        fields: ['referralSlug'],
-        name: 'idx_referral_slug',
-        
-      },
+      // Foreign key index for referrals
       {
         fields: ['referredBy'],
         name: 'idx_referred_by'
-      },
-
-
+      }
     ],
     defaultScope: {
       attributes: {
-        exclude: ['password'] // Exclude password by default
+        exclude: ['password']
       }
     },
     scopes: {
       withPassword: {
-        attributes: {} // Include all attributes including password
+        attributes: {}
       },
       customersOnly: {
         where: {
@@ -315,7 +284,7 @@ module.exports = (sequelize, DataTypes) => {
 
   User.prototype.updateLastLogin = function () {
     this.lastLoginAt = new Date();
-    this.isOnline = true; // Set online when logging in
+    this.isOnline = true;
     return this.save();
   };
 
@@ -329,16 +298,12 @@ module.exports = (sequelize, DataTypes) => {
     return this.save();
   };
 
-  // NEW: Chat system methods
-
-  // Update online status for chat system
   User.prototype.updateOnlineStatus = async function (isOnline) {
     this.isOnline = isOnline;
     this.lastSeenAt = isOnline ? null : new Date();
     return await this.save();
   };
 
-  // Get customer's store conversations (for customers)
   User.prototype.getStoreConversations = async function (options = {}) {
     if (this.userType !== 'customer') return [];
 
@@ -361,13 +326,10 @@ module.exports = (sequelize, DataTypes) => {
     });
   };
 
-  // Get merchant's customer conversations (for merchants)
   User.prototype.getCustomerConversations = async function (options = {}) {
     if (this.userType !== 'merchant') return [];
 
     const { Chat, Store } = sequelize.models;
-
-    // Get merchant's stores
     const merchantStores = await Store.findAll({
       where: { merchant_id: this.id, is_active: true },
       attributes: ['id']
@@ -398,12 +360,10 @@ module.exports = (sequelize, DataTypes) => {
     });
   };
 
-  // Get unread messages count
   User.prototype.getUnreadMessagesCount = async function () {
     const { Message, Chat, Store } = sequelize.models;
 
     if (this.userType === 'customer') {
-      // Count unread messages from stores to this customer
       const customerChats = await Chat.findAll({
         where: { userId: this.id },
         attributes: ['id']
@@ -415,12 +375,11 @@ module.exports = (sequelize, DataTypes) => {
       return await Message.count({
         where: {
           chat_id: { [sequelize.Sequelize.Op.in]: chatIds },
-          sender_type: 'store', // Messages from stores
+          sender_type: 'store',
           status: { [sequelize.Sequelize.Op.ne]: 'read' }
         }
       });
     } else if (this.userType === 'merchant') {
-      // Count unread messages from customers to this merchant's stores
       const merchantStores = await Store.findAll({
         where: { merchant_id: this.id },
         attributes: ['id']
@@ -440,7 +399,7 @@ module.exports = (sequelize, DataTypes) => {
       return await Message.count({
         where: {
           chat_id: { [sequelize.Sequelize.Op.in]: chatIds },
-          sender_type: 'user', // Messages from customers
+          sender_type: 'user',
           status: { [sequelize.Sequelize.Op.ne]: 'read' }
         }
       });
@@ -449,7 +408,6 @@ module.exports = (sequelize, DataTypes) => {
     return 0;
   };
 
-  // Get total conversations count
   User.prototype.getConversationsCount = async function () {
     const { Chat, Store } = sequelize.models;
 
@@ -480,7 +438,6 @@ module.exports = (sequelize, DataTypes) => {
     return 0;
   };
 
-  // Update notification preferences
   User.prototype.updateNotificationPreferences = async function (preferences) {
     const allowedFields = [
       'chatNotifications',
@@ -499,7 +456,6 @@ module.exports = (sequelize, DataTypes) => {
     return await this.save();
   };
 
-  // Start conversation with store (customers only)
   User.prototype.startConversationWithStore = async function (storeId, initialMessage = '') {
     if (this.userType !== 'customer') {
       throw new Error('Only customers can start conversations with stores');
@@ -532,7 +488,6 @@ module.exports = (sequelize, DataTypes) => {
     });
   };
 
-  // NEW: Find by email or phone
   User.findByEmailOrPhone = async function (identifier) {
     return await this.findOne({
       where: {
@@ -544,7 +499,6 @@ module.exports = (sequelize, DataTypes) => {
     });
   };
 
-  // NEW: Get online users by type
   User.getOnlineUsers = async function (userType = null) {
     let whereCondition = {
       isOnline: true,
@@ -561,7 +515,6 @@ module.exports = (sequelize, DataTypes) => {
     });
   };
 
-  // NEW: Search users
   User.searchUsers = async function (query, options = {}) {
     const { limit = 50, userType = null, includeInactive = false } = options;
 
@@ -588,39 +541,32 @@ module.exports = (sequelize, DataTypes) => {
     });
   };
 
-  // Virtual attributes
   User.prototype.getIsVerified = function () {
     return this.isEmailVerified() && this.isPhoneVerified();
   };
 
-  // NEW: Get user's age
   User.prototype.getAge = function () {
     if (!this.dateOfBirth) return null;
     return Math.floor((new Date() - new Date(this.dateOfBirth)) / (365.25 * 24 * 60 * 60 * 1000));
   };
 
-  // NEW: Get display name
   User.prototype.getDisplayName = function () {
     return this.getFullName() || this.email.split('@')[0];
   };
 
-  // Enhanced Associations for Customer↔Store Communication
   User.associate = function (models) {
-    // User has many chats (customers chatting with stores)
     User.hasMany(models.Chat, {
       foreignKey: 'userId',
       as: 'chats',
       onDelete: 'CASCADE'
     });
 
-    // User has many sent messages
     User.hasMany(models.Message, {
       foreignKey: 'sender_id',
       as: 'sentMessages',
       onDelete: 'CASCADE'
     });
 
-    // Merchants have many stores
     User.hasMany(models.Store, {
       foreignKey: 'merchant_id',
       as: 'stores',
@@ -630,9 +576,6 @@ module.exports = (sequelize, DataTypes) => {
       onDelete: 'CASCADE'
     });
 
-    // If you have other models, add them here:
-
-    // User has many orders (if you have an Order model)
     if (models.Order) {
       User.hasMany(models.Order, {
         foreignKey: 'userId',
@@ -641,16 +584,14 @@ module.exports = (sequelize, DataTypes) => {
       });
     }
 
-    // User has many reviews (if you have a Review model)
     if (models.Follow) {
       User.hasMany(models.Follow, {
-        foreignKey: 'user_id',  // FIXED: Changed from 'userId' to 'user_id' to match Follow model
-        as: 'follows',          // FIXED: Changed from 'following' to 'follows' to avoid confusion
+        foreignKey: 'user_id',
+        as: 'follows',
         onDelete: 'CASCADE'
       });
     }
 
-    // User has many follows (if you have a Follow model)
     if (models.Follow) {
       User.hasMany(models.Follow, {
         foreignKey: 'userId',
@@ -659,25 +600,16 @@ module.exports = (sequelize, DataTypes) => {
       });
     }
 
-    // User has many referrals (users they referred)
     User.hasMany(models.User, {
       foreignKey: 'referredBy',
       as: 'referrals'
     });
 
-    // User belongs to referrer
     User.belongsTo(models.User, {
       foreignKey: 'referredBy',
       as: 'referrer'
     });
 
-    // Note: ReferralEarning associations will be added when that model is created
-    // User.hasMany(models.ReferralEarning, {
-    //   foreignKey: 'referrerId',
-    //   as: 'referralEarnings'
-    // });
-
-    // User has many favorites
     User.hasMany(models.Favorite, {
       foreignKey: 'user_id',
       as: 'favorites',
@@ -685,7 +617,6 @@ module.exports = (sequelize, DataTypes) => {
       onUpdate: 'CASCADE'
     });
 
-    // User has many favorite offers through Favorite model
     User.belongsToMany(models.Offer, {
       through: models.Favorite,
       foreignKey: 'user_id',
@@ -695,7 +626,6 @@ module.exports = (sequelize, DataTypes) => {
       onUpdate: 'CASCADE'
     });
 
-    // User has many wishlists (if you have a Wishlist model)
     if (models.Wishlist) {
       User.hasMany(models.Wishlist, {
         foreignKey: 'userId',
@@ -705,7 +635,6 @@ module.exports = (sequelize, DataTypes) => {
     }
   };
 
-  // Hook to normalize email before saving
   User.beforeSave(async (user) => {
     if (user.email) {
       user.email = user.email.toLowerCase().trim();

@@ -46,6 +46,24 @@ module.exports = (sequelize, DataTypes) => {
         {
             timestamps: true,
             tableName: 'StoreSubscriptions',
+            indexes: [
+                // Foreign key index for store lookup
+                {
+                    fields: ['store_id'],
+                    name: 'idx_store_subscriptions_store_id'
+                    // NOTE: Add 'unique: true' if stores can only have ONE subscription at a time
+                },
+                // Status index for filtering subscriptions
+                {
+                    fields: ['status'],
+                    name: 'idx_store_subscriptions_status'
+                },
+                // Billing date index for cron jobs
+                {
+                    fields: ['next_billing_date'],
+                    name: 'idx_store_subscriptions_next_billing'
+                }
+            ]
         }
     );
 

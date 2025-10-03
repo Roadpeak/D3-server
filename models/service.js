@@ -1,4 +1,4 @@
-// models/Service.js - Enhanced with booking confirmation settings
+// models/Service.js - Optimized with reduced indexes
 
 'use strict';
 
@@ -15,14 +15,13 @@ module.exports = (sequelize, DataTypes) => {
     },
     price: {
       type: DataTypes.FLOAT,
-      allowNull: true, // Null for dynamic services
+      allowNull: true,
     },
     duration: {
       type: DataTypes.INTEGER,
-      allowNull: true, // Null for dynamic services
+      allowNull: true,
       comment: 'Duration in minutes'
     },
-    // Support for multiple images
     images: {
       type: DataTypes.JSON,
       allowNull: true,
@@ -36,7 +35,6 @@ module.exports = (sequelize, DataTypes) => {
         }
       }
     },
-    // Keep for backward compatibility
     image_url: {
       type: DataTypes.STRING,
       allowNull: true,
@@ -73,7 +71,6 @@ module.exports = (sequelize, DataTypes) => {
       allowNull: false,
       defaultValue: 'fixed',
     },
-    // Dynamic service fields
     pricing_factors: {
       type: DataTypes.JSON,
       allowNull: true,
@@ -89,7 +86,6 @@ module.exports = (sequelize, DataTypes) => {
       defaultValue: false,
       comment: 'Whether consultation is required before service delivery'
     },
-    // NEW: Booking confirmation settings
     auto_confirm_bookings: {
       type: DataTypes.BOOLEAN,
       defaultValue: true,
@@ -115,7 +111,6 @@ module.exports = (sequelize, DataTypes) => {
       defaultValue: 2,
       comment: 'Minimum hours before appointment that cancellation is allowed'
     },
-    // Check-in and service completion settings
     allow_early_checkin: {
       type: DataTypes.BOOLEAN,
       defaultValue: true,
@@ -136,7 +131,6 @@ module.exports = (sequelize, DataTypes) => {
       defaultValue: 10,
       comment: 'Grace period after scheduled time before marking as no-show'
     },
-    // Booking capacity fields
     max_concurrent_bookings: {
       type: DataTypes.INTEGER,
       allowNull: false,
@@ -157,23 +151,12 @@ module.exports = (sequelize, DataTypes) => {
       allowNull: true,
       comment: 'Time between slots in minutes'
     },
-
-    require_prepayment: {
-      type: DataTypes.BOOLEAN,
-      defaultValue: false,
-      comment: 'Whether prepayment is required before confirmation'
-    },
     blackout_dates: {
       type: DataTypes.JSON,
       allowNull: true,
       defaultValue: [],
       comment: 'Array of blackout dates/periods for this service'
     },
-    allow_overbooking: {
-      type: DataTypes.BOOLEAN,
-      defaultValue: false,
-      comment: 'Whether to allow bookings beyond max_concurrent_bookings'
-    },
     min_advance_booking: {
       type: DataTypes.INTEGER,
       defaultValue: 30,
@@ -181,42 +164,23 @@ module.exports = (sequelize, DataTypes) => {
     },
     max_advance_booking: {
       type: DataTypes.INTEGER,
-      defaultValue: 10080, // 7 days in minutes
+      defaultValue: 10080,
       comment: 'Maximum minutes in advance that booking can be made'
     },
-
     buffer_time: {
       type: DataTypes.INTEGER,
       defaultValue: 0,
       comment: 'Buffer time in minutes between consecutive bookings'
     },
-    // Advance booking settings
-    min_advance_booking: {
-      type: DataTypes.INTEGER,
-      defaultValue: 30,
-      comment: 'Minimum minutes in advance that booking can be made'
-    },
-    max_advance_booking: {
-      type: DataTypes.INTEGER,
-      defaultValue: 10080, // 7 days in minutes
-      comment: 'Maximum minutes in advance that booking can be made'
-    },
-    // Service status
     status: {
       type: DataTypes.ENUM('active', 'inactive', 'suspended'),
       defaultValue: 'active',
-    },
-    grace_period_minutes: {
-      type: DataTypes.INTEGER,
-      defaultValue: 10,
-      comment: 'Grace period after scheduled time before marking as no-show'
     },
     booking_enabled: {
       type: DataTypes.BOOLEAN,
       defaultValue: true,
       comment: 'Whether booking is enabled for this service'
     },
-    // SEO and marketing fields
     tags: {
       type: DataTypes.JSON,
       allowNull: true,
@@ -226,16 +190,6 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.BOOLEAN,
       defaultValue: false,
       comment: 'Whether service should be featured'
-    },
-    buffer_time: {
-      type: DataTypes.INTEGER,
-      defaultValue: 0,
-      comment: 'Buffer time in minutes before auto-completion'
-    },
-    auto_complete_on_duration: {
-      type: DataTypes.BOOLEAN,
-      defaultValue: true,
-      comment: 'Whether to automatically complete after service duration'
     }
   }, {
     tableName: 'services',
@@ -243,42 +197,33 @@ module.exports = (sequelize, DataTypes) => {
     paranoid: true,
     underscored: false,
     indexes: [
+      // Foreign key indexes
       {
         fields: ['store_id'],
-        name: 'services_store_id_index'
+        name: 'idx_services_store_id'
       },
       {
         fields: ['branch_id'],
-        name: 'services_branch_id_index'
+        name: 'idx_services_branch_id'
       },
+      // Composite index for filtering available services
       {
-        fields: ['auto_confirm_bookings'],
-        name: 'services_auto_confirm_index'
+        fields: ['status', 'booking_enabled'],
+        name: 'idx_services_status_booking'
       },
+      // Composite index for store's active services by category
       {
-        fields: ['category'],
-        name: 'services_category_index'
+        fields: ['store_id', 'category', 'status'],
+        name: 'idx_services_store_category_status'
       },
+      // Featured services
       {
-        fields: ['type'],
-        name: 'services_type_index'
-      },
-      {
-        fields: ['status'],
-        name: 'services_status_index'
-      },
-      {
-        fields: ['booking_enabled'],
-        name: 'services_booking_enabled_index'
-      },
-      {
-        fields: ['featured'],
-        name: 'services_featured_index'
+        fields: ['featured', 'status'],
+        name: 'idx_services_featured_status'
       }
     ],
     hooks: {
       beforeValidate: (service) => {
-        // Set slot_interval to duration if not specified
         if (!service.slot_interval && service.duration && service.type === 'fixed') {
           service.slot_interval = service.duration;
         }
@@ -287,18 +232,15 @@ module.exports = (sequelize, DataTypes) => {
           service.slot_interval = 60;
         }
         
-        // Set primary image_url from images array
         if (service.images && service.images.length > 0 && !service.image_url) {
           service.image_url = service.images[0];
         }
         
-        // Set default confirmation message if auto-confirm is enabled
         if (service.auto_confirm_bookings && !service.confirmation_message) {
           service.confirmation_message = `Your booking for ${service.name} has been automatically confirmed. We look forward to serving you!`;
         }
       },
       beforeUpdate: (service) => {
-        // Update primary image_url if images changed
         if (service.changed('images') && service.images && service.images.length > 0) {
           service.image_url = service.images[0];
         }
@@ -306,7 +248,6 @@ module.exports = (sequelize, DataTypes) => {
     }
   });
 
-  // Associations
   Service.associate = (models) => {
     Service.belongsToMany(models.Staff, {
       through: models.StaffService,
@@ -342,7 +283,6 @@ module.exports = (sequelize, DataTypes) => {
     });
   };
 
-  // Instance methods
   Service.prototype.getSlotInterval = function() {
     return this.slot_interval || this.duration || 60;
   };
@@ -372,7 +312,7 @@ module.exports = (sequelize, DataTypes) => {
   };
 
   Service.prototype.getServiceDuration = function() {
-    return this.duration || 60; // Default 1 hour for dynamic services
+    return this.duration || 60;
   };
 
   Service.prototype.isDynamic = function() {

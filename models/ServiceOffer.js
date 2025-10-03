@@ -1,4 +1,4 @@
-// models/ServiceOffer.js - FIXED FOR MERCHANT-BASED OFFERS
+// models/ServiceOffer.js - Optimized with reduced indexes
 module.exports = (sequelize, DataTypes) => {
   const ServiceOffer = sequelize.define('ServiceOffer', {
     id: {
@@ -15,7 +15,6 @@ module.exports = (sequelize, DataTypes) => {
       },
       onDelete: 'CASCADE',
     },
-    // ✅ CRITICAL: Store that made the offer (primary association)
     storeId: {
       type: DataTypes.UUID,
       allowNull: false,
@@ -25,12 +24,11 @@ module.exports = (sequelize, DataTypes) => {
       },
       onDelete: 'CASCADE',
     },
-    // ✅ FIXED: Provider ID tracks the merchant who made the offer
     providerId: {
       type: DataTypes.UUID,
       allowNull: false,
       references: {
-        model: 'merchants', // ✅ FIXED: Correct table name (plural)
+        model: 'merchants',
         key: 'id',
       },
       onDelete: 'CASCADE',
@@ -97,7 +95,7 @@ module.exports = (sequelize, DataTypes) => {
     },
     expiresAt: {
       type: DataTypes.DATE,
-      defaultValue: () => new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
+      defaultValue: () => new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
     },
     responseTime: {
       type: DataTypes.DECIMAL(8, 2),
@@ -125,7 +123,6 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.JSON,
       defaultValue: [],
     },
-    // ✅ Store-specific fields
     storeRating: {
       type: DataTypes.DECIMAL(3, 2),
       defaultValue: null,
@@ -138,7 +135,6 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.INTEGER,
       defaultValue: 0
     },
-    // ✅ Performance tracking
     viewedByCustomer: {
       type: DataTypes.BOOLEAN,
       defaultValue: false
@@ -156,18 +152,25 @@ module.exports = (sequelize, DataTypes) => {
     tableName: 'service_offers',
     timestamps: true,
     indexes: [
+      // Foreign key indexes
       {
-        fields: ['storeId', 'status'],
-        name: 'idx_service_offers_store_status'
+        fields: ['requestId'],
+        name: 'idx_service_offers_request_id'
       },
       {
-        fields: ['requestId', 'status'],
-        name: 'idx_service_offers_request_status'
+        fields: ['storeId'],
+        name: 'idx_service_offers_store_id'
       },
       {
-        fields: ['providerId', 'createdAt'],
-        name: 'idx_service_offers_provider_created'
+        fields: ['providerId'],
+        name: 'idx_service_offers_provider_id'
       },
+      // Composite index for store's offers filtered by status and sorted by date
+      {
+        fields: ['storeId', 'status', 'createdAt'],
+        name: 'idx_service_offers_store_status_created'
+      },
+      // Composite index for cleaning up expired offers
       {
         fields: ['status', 'expiresAt'],
         name: 'idx_service_offers_status_expires'
@@ -175,37 +178,31 @@ module.exports = (sequelize, DataTypes) => {
     ]
   });
 
-  // ✅ ASSOCIATIONS - FIXED FOR MERCHANT-BASED OFFERS
   ServiceOffer.associate = (models) => {
-    // Service request this offer belongs to
     ServiceOffer.belongsTo(models.ServiceRequest, {
       foreignKey: 'requestId',
       as: 'request',
       onDelete: 'CASCADE',
     });
 
-    // Store that made the offer (primary relationship)
     ServiceOffer.belongsTo(models.Store, {
       foreignKey: 'storeId',
       as: 'store',
       onDelete: 'CASCADE',
     });
 
-    // ✅ FIXED: Merchant who made the offer (was models.User, now models.Merchant)
     ServiceOffer.belongsTo(models.Merchant, {
       foreignKey: 'providerId',
       as: 'provider',
       onDelete: 'CASCADE',
     });
 
-    // Original offer (for revisions)
     ServiceOffer.belongsTo(models.ServiceOffer, {
       foreignKey: 'originalOfferId',
       as: 'originalOffer',
       onDelete: 'SET NULL',
     });
 
-    // Revisions of this offer
     ServiceOffer.hasMany(models.ServiceOffer, {
       foreignKey: 'originalOfferId',
       as: 'revisions',
@@ -213,7 +210,6 @@ module.exports = (sequelize, DataTypes) => {
     });
   };
 
-  // ✅ INSTANCE METHODS (unchanged)
   ServiceOffer.prototype.calculateResponseTime = function() {
     if (this.request && this.request.createdAt) {
       const requestTime = new Date(this.request.createdAt);
@@ -262,14 +258,12 @@ module.exports = (sequelize, DataTypes) => {
     const transaction = await sequelize.transaction();
 
     try {
-      // Accept this offer
       await this.update({
         status: 'accepted',
         acceptedAt: new Date(),
         customerResponseTime: this.calculateCustomerResponseTime()
       }, { transaction });
 
-      // Update the service request
       if (this.request) {
         await this.request.update({
           status: 'in_progress',
@@ -277,7 +271,6 @@ module.exports = (sequelize, DataTypes) => {
         }, { transaction });
       }
 
-      // Reject all other pending offers for this request
       await ServiceOffer.update({
         status: 'rejected',
         rejectedAt: new Date(),
@@ -331,8 +324,6 @@ module.exports = (sequelize, DataTypes) => {
     return this;
   };
 
-  // ✅ CLASS METHODS (mostly unchanged, but provider queries now work with merchants)
-
   ServiceOffer.getOffersByStore = async function(storeId, options = {}) {
     const { status, page = 1, limit = 10 } = options;
     const whereClause = { storeId };
@@ -371,7 +362,6 @@ module.exports = (sequelize, DataTypes) => {
   ServiceOffer.getOffersByMerchant = async function(merchantId, options = {}) {
     const { status, page = 1, limit = 10 } = options;
     
-    // First get merchant's store IDs
     const stores = await sequelize.models.Store.findAll({
       where: { merchant_id: merchantId },
       attributes: ['id']
@@ -426,10 +416,9 @@ module.exports = (sequelize, DataTypes) => {
           attributes: ['id', 'name', 'category', 'rating', 'logo_url', 'location', 'description']
         },
         {
-          // ✅ FIXED: Now includes merchant data instead of user data
           model: sequelize.models.Merchant,
           as: 'provider',
-          attributes: ['id', 'firstName', 'lastName', 'avatar', 'emailVerifiedAt', 'phoneVerifiedAt']
+          attributes: ['id', 'firstName', 'lastName', 'avatar', 'emailVerified', 'phoneVerified']
         }
       ],
       order: [['createdAt', 'ASC']]

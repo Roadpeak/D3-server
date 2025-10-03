@@ -1,4 +1,4 @@
-// models/notification.js - Enhanced with clear User-Store-Merchant logic
+// models/notification.js - Enhanced with optimized indexes
 module.exports = (sequelize, DataTypes) => {
   const Notification = sequelize.define('Notification', {
     id: {
@@ -12,7 +12,7 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.UUID,
       allowNull: false,
       references: {
-        model: 'users', // Updated to match your User model tableName
+        model: 'users',
         key: 'id',
       },
       onDelete: 'CASCADE',
@@ -224,28 +224,51 @@ module.exports = (sequelize, DataTypes) => {
     tableName: 'notifications',
     timestamps: true,
     indexes: [
-      // Core queries
-      { fields: ['userId', 'read'] },
-      { fields: ['userId', 'createdAt'] },
-      { fields: ['type'] },
-      { fields: ['priority'] },
+      // OPTIMIZED: Core composite indexes for main queries
+      {
+        fields: ['userId', 'read', 'createdAt'],
+        name: 'idx_notifications_user_read_created'
+      },
+      {
+        fields: ['userId', 'type', 'createdAt'],
+        name: 'idx_notifications_user_type_created'
+      },
+      {
+        fields: ['userId', 'storeId'],
+        name: 'idx_notifications_user_store'
+      },
       
-      // Context queries
-      { fields: ['storeId'] },
-      { fields: ['senderId'] },
-      { fields: ['relatedEntityType', 'relatedEntityId'] },
+      // Foreign key indexes
+      {
+        fields: ['senderId'],
+        name: 'idx_notifications_sender_id'
+      },
+      {
+        fields: ['storeId'],
+        name: 'idx_notifications_store_id'
+      },
       
-      // Cleanup queries
-      { fields: ['expiresAt'] },
-      { fields: ['scheduledFor'] },
+      // Entity reference lookup
+      {
+        fields: ['relatedEntityType', 'relatedEntityId'],
+        name: 'idx_notifications_entity_type_id'
+      },
       
-      // Grouping queries
-      { fields: ['groupKey'] },
+      // Lifecycle and cleanup
+      {
+        fields: ['expiresAt'],
+        name: 'idx_notifications_expires_at'
+      },
+      {
+        fields: ['scheduledFor'],
+        name: 'idx_notifications_scheduled_for'
+      },
       
-      // Composite indexes for common queries
-      { fields: ['userId', 'storeId', 'read'] },
-      { fields: ['type', 'scheduledFor'] },
-      { fields: ['userId', 'type', 'createdAt'] }
+      // Grouping
+      {
+        fields: ['groupKey'],
+        name: 'idx_notifications_group_key'
+      }
     ],
     scopes: {
       unread: {
@@ -297,9 +320,6 @@ module.exports = (sequelize, DataTypes) => {
       as: 'store',
       onDelete: 'CASCADE'
     });
-
-    // Dynamic associations based on relatedEntityType
-    // These would be used programmatically, not as direct Sequelize associations
   };
 
   // VIRTUAL FIELDS

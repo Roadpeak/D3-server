@@ -1,4 +1,4 @@
-// models/Merchant.js - Enhanced for Customer↔Store Communication
+// models/Merchant.js - Optimized with reduced indexes
 const { Sequelize, DataTypes } = require('sequelize');
 const bcrypt = require('bcryptjs');
 const { v4: uuidv4 } = require('uuid');
@@ -13,7 +13,7 @@ module.exports = (sequelize) => {
     firstName: {
       type: DataTypes.STRING,
       allowNull: false,
-      field: 'first_name' // Map to snake_case if your DB uses it
+      field: 'first_name'
     },
     lastName: {
       type: DataTypes.STRING,
@@ -27,7 +27,7 @@ module.exports = (sequelize) => {
         isEmail: true,
       },
       unique: true,
-      field: 'email_address' // Map to your actual DB field name
+      field: 'email_address'
     },
     phoneNumber: {
       type: DataTypes.STRING,
@@ -39,7 +39,6 @@ module.exports = (sequelize) => {
       type: DataTypes.STRING,
       allowNull: false,
     },
-    // Additional fields for enhanced merchant functionality
     avatar: {
       type: DataTypes.STRING,
       allowNull: true,
@@ -99,7 +98,6 @@ module.exports = (sequelize) => {
       field: 'phone_verified',
       comment: 'Whether phone is verified'
     },
-    // Chat system related fields
     isOnline: {
       type: DataTypes.BOOLEAN,
       defaultValue: false,
@@ -134,36 +132,24 @@ module.exports = (sequelize) => {
     tableName: 'merchants',
     timestamps: true,
     indexes: [
+      // Composite index for filtering verified active merchants
       {
-        unique: true,
-        fields: ['email_address'],
-        name: 'merchants_email_unique'
+        fields: ['verification_status', 'is_active'],
+        name: 'idx_merchants_verification_active'
       },
+      // Composite index for online active merchants (chat system)
       {
-        unique: true,
-        fields: ['phone_number'],
-        name: 'merchants_phone_unique'
+        fields: ['is_online', 'is_active'],
+        name: 'idx_merchants_online_active'
       },
-      {
-        fields: ['verification_status'],
-        name: 'merchants_verification_status_index'
-      },
-      {
-        fields: ['is_active'],
-        name: 'merchants_is_active_index'
-      },
-      {
-        fields: ['is_online'],
-        name: 'merchants_is_online_index'
-      },
+      // Business type filtering
       {
         fields: ['business_type'],
-        name: 'merchants_business_type_index'
+        name: 'idx_merchants_business_type'
       }
     ]
   });
 
-  // Pre-hooks for validation and password hashing
   Merchant.beforeCreate(async (merchant) => {
     const existingMerchant = await Merchant.findOne({ 
       where: { email: merchant.email } 
@@ -192,16 +178,13 @@ module.exports = (sequelize) => {
     }
   });
 
-  // Enhanced Associations for Customer↔Store Communication
   Merchant.associate = (models) => {
-    // Merchant owns multiple stores
     Merchant.hasMany(models.Store, {
       foreignKey: 'merchant_id',
       as: 'stores',
       onDelete: 'CASCADE',
     });
 
-    // Alternative association names for backward compatibility
     Merchant.hasMany(models.Store, {
       foreignKey: 'merchant_id',
       as: 'ownedStores',
@@ -220,7 +203,6 @@ module.exports = (sequelize) => {
       onDelete: 'SET NULL',
     });
 
-    // If you have other merchant-related models
     if (models.MerchantProfile) {
       Merchant.hasOne(models.MerchantProfile, {
         foreignKey: 'merchantId',
@@ -245,7 +227,6 @@ module.exports = (sequelize) => {
       });
     }
 
-    // Analytics associations
     if (models.MerchantAnalytics) {
       Merchant.hasOne(models.MerchantAnalytics, {
         foreignKey: 'merchantId',
@@ -255,32 +236,23 @@ module.exports = (sequelize) => {
     }
   };
 
-  // Instance Methods
   Merchant.prototype.toJSON = function () {
     const values = Object.assign({}, this.get());
-    
-    // Remove sensitive information
     delete values.password;
-    
-    // Add computed properties
     values.fullName = `${values.firstName || ''} ${values.lastName || ''}`.trim();
     values.displayName = values.businessName || values.fullName;
     values.isVerified = values.verificationStatus === 'verified';
-    
     return values;
   };
 
-  // Password validation
   Merchant.prototype.validPassword = async function (password) {
     return bcrypt.compare(password, this.password);
   };
 
-  // Update online status for chat system
   Merchant.prototype.updateOnlineStatus = async function(isOnline) {
     this.isOnline = isOnline;
     this.lastSeenAt = isOnline ? null : new Date();
     
-    // Update all store online statuses
     if (this.stores) {
       await Promise.all(
         this.stores.map(store => 
@@ -292,19 +264,16 @@ module.exports = (sequelize) => {
     return await this.save();
   };
 
-  // Get merchant's customer conversations across all stores
   Merchant.prototype.getCustomerConversations = async function(options = {}) {
     const { Chat } = sequelize.models;
     return await Chat.getCustomerConversationsForMerchant(this.id, options);
   };
 
-  // Get unread customer messages count across all stores
   Merchant.prototype.getUnreadCustomerMessagesCount = async function() {
     const { Message } = sequelize.models;
     return await Message.getUnreadCountForMerchant(this.id);
   };
 
-  // Get total stores count
   Merchant.prototype.getStoresCount = async function() {
     const { Store } = sequelize.models;
     return await Store.count({
@@ -315,7 +284,6 @@ module.exports = (sequelize) => {
     });
   };
 
-  // Get active conversations count across all stores
   Merchant.prototype.getActiveConversationsCount = async function() {
     const { Chat, Store } = sequelize.models;
     
@@ -334,7 +302,6 @@ module.exports = (sequelize) => {
     });
   };
 
-  // Get merchant dashboard stats for customer↔store communication
   Merchant.prototype.getChatDashboardStats = async function() {
     const [
       storesCount,
@@ -358,7 +325,6 @@ module.exports = (sequelize) => {
     };
   };
 
-  // Get total unique customers across all stores
   Merchant.prototype.getTotalCustomersCount = async function() {
     const { Chat, Store } = sequelize.models;
     
@@ -384,7 +350,6 @@ module.exports = (sequelize) => {
     return result[0]?.count || 0;
   };
 
-  // Get stores with their chat statistics
   Merchant.prototype.getStoresWithChatStats = async function() {
     const { Store, Chat, Message } = sequelize.models;
     
@@ -402,7 +367,7 @@ module.exports = (sequelize) => {
               model: Message,
               as: 'messages',
               where: {
-                sender_type: 'user', // Customer messages
+                sender_type: 'user',
                 status: { [sequelize.Sequelize.Op.ne]: 'read' }
               },
               required: false
@@ -422,7 +387,6 @@ module.exports = (sequelize) => {
     }));
   };
 
-  // Update notification preferences
   Merchant.prototype.updateNotificationPreferences = async function(preferences) {
     const allowedFields = ['chatNotifications', 'emailNotifications', 'smsNotifications'];
     
@@ -435,9 +399,6 @@ module.exports = (sequelize) => {
     return await this.save();
   };
 
-  // Class Methods
-  
-  // Find merchant by email or phone
   Merchant.findByEmailOrPhone = async function(identifier) {
     return await this.findOne({
       where: {
@@ -449,7 +410,6 @@ module.exports = (sequelize) => {
     });
   };
 
-  // Get online merchants
   Merchant.getOnlineMerchants = async function() {
     return await this.findAll({
       where: {
@@ -469,7 +429,6 @@ module.exports = (sequelize) => {
     });
   };
 
-  // Search merchants
   Merchant.searchMerchants = async function(query, options = {}) {
     const { limit = 50, includeInactive = false } = options;
     
@@ -493,7 +452,6 @@ module.exports = (sequelize) => {
     });
   };
 
-  // Get merchants with most customer conversations
   Merchant.getTopMerchantsByConversations = async function(limit = 10) {
     const { Store, Chat } = sequelize.models;
     
@@ -527,25 +485,21 @@ module.exports = (sequelize) => {
     });
   };
 
-  // Verify merchant account
   Merchant.prototype.verify = async function() {
     this.verificationStatus = 'verified';
     this.emailVerified = true;
     return await this.save();
   };
 
-  // Reject merchant verification
   Merchant.prototype.reject = async function() {
     this.verificationStatus = 'rejected';
     return await this.save();
   };
 
-  // Deactivate merchant account
   Merchant.prototype.deactivate = async function() {
     this.isActive = false;
     this.isOnline = false;
     
-    // Update all stores to offline
     const { Store } = sequelize.models;
     await Store.update(
       { isOnline: false },
@@ -555,7 +509,6 @@ module.exports = (sequelize) => {
     return await this.save();
   };
 
-  // Reactivate merchant account
   Merchant.prototype.reactivate = async function() {
     this.isActive = true;
     return await this.save();

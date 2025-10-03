@@ -1,11 +1,10 @@
-// models/Favorite.js - FIXED with correct UUID data types
+// models/Favorite.js - Optimized with reduced indexes
 'use strict';
 const { Model } = require('sequelize');
 
 module.exports = (sequelize, DataTypes) => {
   class Favorite extends Model {
     static associate(models) {
-      // Favorite belongs to User
       Favorite.belongsTo(models.User, {
         foreignKey: 'user_id',
         as: 'user',
@@ -13,7 +12,6 @@ module.exports = (sequelize, DataTypes) => {
         onUpdate: 'CASCADE'
       });
 
-      // Favorite belongs to Offer
       Favorite.belongsTo(models.Offer, {
         foreignKey: 'offer_id',
         as: 'offer',
@@ -22,11 +20,9 @@ module.exports = (sequelize, DataTypes) => {
       });
     }
 
-    // Instance methods
     toJSON() {
       const values = { ...this.get() };
       
-      // Format dates
       if (values.created_at) {
         values.created_at = values.created_at.toISOString();
       }
@@ -40,19 +36,19 @@ module.exports = (sequelize, DataTypes) => {
 
   Favorite.init({
     id: {
-      type: DataTypes.UUID,  // ✅ FIXED: Changed from INTEGER to UUID
+      type: DataTypes.UUID,
       primaryKey: true,
-      defaultValue: DataTypes.UUIDV4,  // ✅ FIXED: Auto-generate UUID
+      defaultValue: DataTypes.UUIDV4,
       allowNull: false
     },
     user_id: {
-      type: DataTypes.UUID,  // ✅ FIXED: Changed from INTEGER to UUID to match User model
+      type: DataTypes.UUID,
       allowNull: false,
       validate: {
         notNull: {
           msg: 'User ID is required'
         },
-        isUUID: {  // ✅ FIXED: Changed from isInt to isUUID
+        isUUID: {
           args: 4,
           msg: 'User ID must be a valid UUID'
         }
@@ -63,13 +59,13 @@ module.exports = (sequelize, DataTypes) => {
       }
     },
     offer_id: {
-      type: DataTypes.UUID,  // ✅ FIXED: Changed from INTEGER to UUID to match Offer model
+      type: DataTypes.UUID,
       allowNull: false,
       validate: {
         notNull: {
           msg: 'Offer ID is required'
         },
-        isUUID: {  // ✅ FIXED: Changed from isInt to isUUID
+        isUUID: {
           args: 4,
           msg: 'Offer ID must be a valid UUID'
         }
@@ -92,27 +88,25 @@ module.exports = (sequelize, DataTypes) => {
   }, {
     sequelize,
     modelName: 'Favorite',
-    tableName: 'Favorites',  // Keep your existing table name
+    tableName: 'Favorites',
     timestamps: true,
     createdAt: 'created_at',
     updatedAt: 'updated_at',
     indexes: [
+      // Unique constraint for one favorite per user-offer pair
       {
         unique: true,
         fields: ['user_id', 'offer_id'],
-        name: 'unique_user_offer_favorite'
+        name: 'idx_favorites_user_offer_unique'
       },
+      // Foreign key indexes
       {
         fields: ['user_id'],
-        name: 'favorites_user_id_index'
+        name: 'idx_favorites_user_id'
       },
       {
         fields: ['offer_id'],
-        name: 'favorites_offer_id_index'
-      },
-      {
-        fields: ['created_at'],
-        name: 'favorites_created_at_index'
+        name: 'idx_favorites_offer_id'
       }
     ],
     hooks: {

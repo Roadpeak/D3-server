@@ -1,4 +1,4 @@
-// models/Staff.js - Updated to match your current database structure
+// models/Staff.js - Optimized with reduced indexes
 'use strict';
 
 module.exports = (sequelize, DataTypes) => {
@@ -17,13 +17,12 @@ module.exports = (sequelize, DataTypes) => {
       },
     },
     branchId: {
-      type: DataTypes.STRING, // Changed from UUID to STRING to accommodate longer IDs
+      type: DataTypes.UUID,
       allowNull: true,
-      // Temporarily removed foreign key reference to avoid sync issues
-      // references: {
-      //   model: 'branches',
-      //   key: 'id',
-      // },
+      references: {
+        model: 'branches',
+        key: 'id',
+      },
     },
     name: {
       type: DataTypes.STRING,
@@ -56,33 +55,30 @@ module.exports = (sequelize, DataTypes) => {
     timestamps: true,
     paranoid: false,
     indexes: [
+      // Unique constraint for email per store
       {
         unique: true,
         fields: ['email', 'storeId'],
-        name: 'staff_email_store_unique'
+        name: 'idx_staff_email_store_unique'
       },
+      // Foreign key indexes
       {
         fields: ['storeId'],
-        name: 'staff_store_id_index'
+        name: 'idx_staff_store_id'
       },
       {
         fields: ['branchId'],
         name: 'idx_staff_branch_id'
       },
+      // Composite index for filtering active staff by role
       {
-        fields: ['status'],
-        name: 'staff_status_index'
-      },
-      {
-        fields: ['role'],
-        name: 'idx_staff_role'
+        fields: ['storeId', 'status', 'role'],
+        name: 'idx_staff_store_status_role'
       }
     ],
   });
 
-  // Define associations
   Staff.associate = (models) => {
-    // Many-to-Many relationship with Service through StaffService
     Staff.belongsToMany(models.Service, {
       through: models.StaffService,
       foreignKey: 'staffId',
@@ -90,26 +86,21 @@ module.exports = (sequelize, DataTypes) => {
       as: 'services',
     });
 
-    // Staff belongs to a Store (many-to-one)
     Staff.belongsTo(models.Store, {
       foreignKey: 'storeId',
       as: 'store',
       onDelete: 'CASCADE',
     });
 
-    // Temporarily removed Branch association to avoid sync issues
-    // Staff belongs to a Branch (many-to-one)
-    // Staff.belongsTo(models.Branch, {
-    //   foreignKey: 'branchId',
-    //   as: 'branch',
-    //   onDelete: 'SET NULL',
-    // });
+    Staff.belongsTo(models.Branch, {
+      foreignKey: 'branchId',
+      as: 'branch',
+      onDelete: 'SET NULL',
+    });
   };
 
-  // Instance methods
   Staff.prototype.toJSON = function() {
     const values = Object.assign({}, this.get());
-    // Remove sensitive data
     delete values.password;
     return values;
   };
