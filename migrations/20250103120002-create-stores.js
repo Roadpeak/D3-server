@@ -137,7 +137,7 @@ module.exports = {
       }
     });
 
-    // Add indexes
+    // Add indexes (removed partial index that caused SQL syntax error)
     await queryInterface.addIndex('stores', ['merchant_id'], {
       name: 'idx_stores_merchant_id'
     });
@@ -154,11 +154,10 @@ module.exports = {
       name: 'idx_stores_rating_active'
     });
 
-    // Partial index for cashback (only non-null values)
-    await queryInterface.sequelize.query(`
-      CREATE INDEX idx_stores_cashback ON stores (cashback) 
-      WHERE cashback IS NOT NULL
-    `);
+    // Simple cashback index (no WHERE clause - MySQL doesn't support partial indexes the same way)
+    await queryInterface.addIndex('stores', ['cashback'], {
+      name: 'idx_stores_cashback'
+    });
   },
 
   down: async (queryInterface, Sequelize) => {
