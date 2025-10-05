@@ -892,7 +892,6 @@ exports.toggleFollowStore = async (req, res) => {
     const store = await Store.findOne({
       where: { 
         id,
-        is_active: true
       }
     });
     
@@ -1952,3 +1951,4 @@ exports.updateMerchantProfile = async (req, res) => {
     });
   }
 };
+
