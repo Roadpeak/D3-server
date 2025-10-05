@@ -123,8 +123,8 @@ Merchant.hasMany(Store, { foreignKey: 'merchant_id', as: 'stores', onDelete: 'CA
 Store.belongsTo(Merchant, { foreignKey: 'merchant_id', as: 'merchant', onDelete: 'CASCADE' });
 
 // Staff-Store
-Staff.belongsTo(Store, { foreignKey: 'store_id', as: 'store', onDelete: 'CASCADE' });
-Store.hasMany(Staff, { foreignKey: 'store_id', as: 'staff' });
+Staff.belongsTo(Store, { foreignKey: 'storeId', as: 'store', onDelete: 'CASCADE' });
+Store.hasMany(Staff, { foreignKey: 'storeId', as: 'staff' });
 
 // Staff-Service (Many-to-Many)
 Staff.belongsToMany(Service, {
