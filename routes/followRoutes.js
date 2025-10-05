@@ -5,6 +5,7 @@ const { authenticateUser } = require('../middleware/auth');           // For CUS
 const { authenticateMerchant } = require('../middleware/Merchantauth'); // For MERCHANTS
 
 // CUSTOMER/USER routes (customers following stores)
+router.post('/:storeId/toggle-follow', authenticateUser, followController.toggleFollow);
 router.post('/follow/:storeId', authenticateUser, followController.followStore);        // Customer follows store
 router.post('/unfollow', authenticateUser, followController.unfollowStore);             // Customer unfollows store  
 router.get('/user/:userId/stores', authenticateUser, followController.getFollowedStores); // Customer's followed stores
