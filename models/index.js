@@ -106,9 +106,6 @@ Staff.hasMany(Booking, {
   as: 'bookings' 
 });
 
-// Offer-Store
-Offer.belongsTo(Store, { foreignKey: 'storeId', as: 'store', onDelete: 'CASCADE' });
-Store.hasMany(Offer, { foreignKey: 'storeId', as: 'offers' });
 
 // Review-Store
 Review.belongsTo(Store, { foreignKey: 'store_id', as: 'store', onDelete: 'CASCADE' });
