@@ -522,3 +522,94 @@ exports.getFollowedStores = async (req, res) => {
         });
     }
 };
+// Toggle follow status (follow if not following, unfollow if following)
+exports.toggleFollow = async (req, res) => {
+    try {
+        const { storeId } = req.params;
+        
+        if (!req.user || !req.user.id) {
+            return res.status(401).json({
+                success: false,
+                message: 'Authentication required. Please log in as a customer.'
+            });
+        }
+        
+        const userId = req.user.id;
+
+        console.log('🔄 Customer/User', userId, 'toggling follow for store', storeId);
+
+        if (!storeId) {
+            return res.status(400).json({
+                success: false,
+                message: 'Store ID is required'
+            });
+        }
+
+        // Check if store exists
+        const store = await Store.findByPk(storeId);
+        if (!store) {
+            return res.status(404).json({
+                success: false,
+                message: 'Store not found'
+            });
+        }
+
+        // Check if already following
+        const existingFollow = await Follow.findOne({
+            where: {
+                user_id: userId,
+                store_id: storeId
+            }
+        });
+
+        if (existingFollow) {
+            // Unfollow
+            await existingFollow.destroy();
+            console.log('✅ Customer/User', userId, 'unfollowed store', storeId);
+
+            return res.status(200).json({
+                success: true,
+                message: 'Successfully unfollowed store',
+                isFollowing: false,
+                store: {
+                    id: store.id,
+                    name: store.name,
+                    location: store.location
+                }
+            });
+        } else {
+            // Follow
+            const follow = await Follow.create({
+                user_id: userId,
+                store_id: storeId
+            });
+
+            console.log('✅ Customer/User', userId, 'now following store', storeId);
+
+            return res.status(200).json({
+                success: true,
+                message: 'Successfully followed store',
+                isFollowing: true,
+                follow: {
+                    id: follow.id,
+                    userId: follow.user_id,
+                    storeId: follow.store_id,
+                    createdAt: follow.createdAt
+                },
+                store: {
+                    id: store.id,
+                    name: store.name,
+                    location: store.location
+                }
+            });
+        }
+
+    } catch (error) {
+        console.error('💥 Error toggling follow:', error);
+        return res.status(500).json({
+            success: false,
+            message: 'Error toggling follow status',
+            error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+        });
+    }
+};
