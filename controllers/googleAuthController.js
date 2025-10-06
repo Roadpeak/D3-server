@@ -109,7 +109,7 @@ exports.googleSignInUser = async (req, res) => {
           firstName || 'User',
           lastName || '',
           email,
-          '', // No phone number from Google
+          null, // No phone number from Google
           null, // No password needed for Google users
           'customer',
           {
