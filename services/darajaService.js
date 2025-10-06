@@ -18,11 +18,11 @@ async function initiatePayment(amount, phoneNumber, accessToken) {
 
   try {
     const response = await axios.post(
-      'https://sandbox.safaricom.co.ke/mpesa/stkpush/v1/processrequest', 
-      paymentData, 
+      'https://api.safaricom.co.ke/mpesa/stkpush/v1/processrequest',
+      paymentData,
       { headers }
     );
-    
+
     return response.data;
   } catch (error) {
     console.error('Error making payment request', error);

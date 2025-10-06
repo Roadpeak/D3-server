@@ -8,7 +8,7 @@ class PaymentService {
     this.mpesaConfig = {
       consumerKey: process.env.MPESA_CONSUMER_KEY,
       consumerSecret: process.env.MPESA_CONSUMER_SECRET,
-      baseURL: process.env.MPESA_BASE_URL || 'https://sandbox.safaricom.co.ke',
+      baseURL: process.env.MPESA_BASE_URL || 'https://api.safaricom.co.ke',
       shortCode: process.env.MPESA_SHORTCODE,
       passKey: process.env.MPESA_PASSKEY,
       callbackURL: process.env.MPESA_CALLBACK_URL

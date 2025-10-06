@@ -8,7 +8,7 @@ class RealMpesaService {
     this.mpesaConfig = {
       consumerKey: process.env.MPESA_CONSUMER_KEY,
       consumerSecret: process.env.MPESA_CONSUMER_SECRET,
-      baseURL: process.env.MPESA_BASE_URL || 'https://sandbox.safaricom.co.ke',
+      baseURL: process.env.MPESA_BASE_URL || 'https://api.safaricom.co.ke',
       shortCode: process.env.MPESA_SHORTCODE || '4137125',
       passKey: process.env.MPESA_PASSKEY || 'bfb279f9aa9bdbcf158e97dd71a467cd2e0c893059b10f78e6b72ada1ed2c919',
       callbackURL: process.env.MPESA_CALLBACK_URL || 'http://localhost:4000/api/v1/payments'
@@ -27,13 +27,13 @@ class RealMpesaService {
   async getMpesaAccessToken() {
     try {
       console.log('🔑 Getting M-Pesa access token...');
-      
+
       if (!this.mpesaConfig.consumerKey || !this.mpesaConfig.consumerSecret) {
         throw new Error('M-Pesa consumer key and secret are required');
       }
 
       const auth = Buffer.from(`${this.mpesaConfig.consumerKey}:${this.mpesaConfig.consumerSecret}`).toString('base64');
-      
+
       const response = await axios.get(
         `${this.mpesaConfig.baseURL}/oauth/v1/generate?grant_type=client_credentials`,
         {
@@ -68,7 +68,7 @@ class RealMpesaService {
   formatPhoneNumber(phoneNumber) {
     // Remove all non-digits
     let formattedPhone = phoneNumber.replace(/\D/g, '');
-    
+
     // Convert to Kenya format (254...)
     if (formattedPhone.startsWith('0')) {
       formattedPhone = '254' + formattedPhone.substring(1);
@@ -82,16 +82,16 @@ class RealMpesaService {
   // Initiate real STK Push
   async initiateSTKPush(phoneNumber, amount, bookingId, description = 'Booking Payment') {
     try {
-      console.log('📱 Initiating REAL M-Pesa STK Push:', { 
-        phoneNumber, 
-        amount, 
-        bookingId, 
-        description 
+      console.log('📱 Initiating REAL M-Pesa STK Push:', {
+        phoneNumber,
+        amount,
+        bookingId,
+        description
       });
 
       // Get access token
       const accessToken = await this.getMpesaAccessToken();
-      
+
       // Generate timestamp and password
       const timestamp = new Date().toISOString().replace(/[^0-9]/g, '').slice(0, -3);
       const password = this.generateMpesaPassword(timestamp);
@@ -240,9 +240,9 @@ class RealMpesaService {
 
     } catch (error) {
       console.error('❌ Error processing M-Pesa callback:', error);
-      return { 
-        success: false, 
-        message: 'Error processing callback: ' + error.message 
+      return {
+        success: false,
+        message: 'Error processing callback: ' + error.message
       };
     }
   }
@@ -284,9 +284,9 @@ class RealMpesaService {
 
     } catch (error) {
       console.error('❌ Error querying STK Push status:', error);
-      return { 
-        success: false, 
-        message: 'Error querying payment status: ' + error.message 
+      return {
+        success: false,
+        message: 'Error querying payment status: ' + error.message
       };
     }
   }
@@ -304,7 +304,7 @@ class RealMpesaService {
 
       // Test access token
       const token = await this.getMpesaAccessToken();
-      
+
       return {
         success: true,
         message: 'M-Pesa configuration is working correctly',
@@ -319,7 +319,7 @@ class RealMpesaService {
 
     } catch (error) {
       console.error('❌ M-Pesa configuration test failed:', error);
-      
+
       return {
         success: false,
         message: 'M-Pesa configuration test failed: ' + error.message,
