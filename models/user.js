@@ -35,7 +35,7 @@ module.exports = (sequelize, DataTypes) => {
     },
     phoneNumber: {
       type: DataTypes.STRING,
-      allowNull: false,
+      allowNull: true,
       validate: {
         len: [10, 15],
         isNumeric: false
@@ -279,6 +279,8 @@ module.exports = (sequelize, DataTypes) => {
   };
 
   User.prototype.isPhoneVerified = function () {
+    // If no phone number, consider it as "not applicable" rather than "not verified"
+    if (!this.phoneNumber) return null; // or return false, depending on your logic
     return this.phoneVerifiedAt !== null;
   };
 
@@ -542,6 +544,10 @@ module.exports = (sequelize, DataTypes) => {
   };
 
   User.prototype.getIsVerified = function () {
+    // For Google sign-in users without phone, only check email verification
+    if (!this.phoneNumber) {
+      return this.isEmailVerified();
+    }
     return this.isEmailVerified() && this.isPhoneVerified();
   };
 
