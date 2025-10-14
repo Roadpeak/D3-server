@@ -181,12 +181,30 @@ User.hasMany(Message, { foreignKey: 'sender_id', as: 'sentMessages' });
 Message.belongsTo(Message, { foreignKey: 'replyTo', as: 'replyToMessage' });
 Message.hasMany(Message, { foreignKey: 'replyTo', as: 'replies' });
 
-// Follow-User
-Follow.belongsTo(User, { foreignKey: 'follower_id', as: 'follower', onDelete: 'CASCADE' });
-Follow.belongsTo(User, { foreignKey: 'following_id', as: 'following', onDelete: 'CASCADE' });
+// Follow-User (FIXED)
+Follow.belongsTo(User, { 
+  foreignKey: 'user_id', 
+  as: 'user', 
+  onDelete: 'CASCADE' 
+});
 
-User.hasMany(Follow, { foreignKey: 'follower_id', as: 'following' });
-User.hasMany(Follow, { foreignKey: 'following_id', as: 'followers' });
+User.hasMany(Follow, { 
+  foreignKey: 'user_id', 
+  as: 'follows' 
+});
+
+// Follow-Store (ADD THIS - it's missing!)
+Follow.belongsTo(Store, { 
+  foreignKey: 'store_id', 
+  as: 'store', 
+  onDelete: 'CASCADE' 
+});
+
+Store.hasMany(Follow, { 
+  foreignKey: 'store_id', 
+  as: 'followers' 
+});
+
 
 // Category-Service
 Category.hasMany(Service, {
