@@ -400,6 +400,8 @@ class ServiceBookingController {
         bookingType: 'service'
       };
 
+      const finalBookingData = bookingData;
+      
       const booking = await Booking.create(finalBookingData, {
         ...(transaction && { transaction })
       });
@@ -972,6 +974,7 @@ class ServiceBookingController {
 
       // Create the service booking with auto-confirmation data
       const finalBookingData = {
+        ...bookingData,
         ...enhancedBookingData,
         endTime,
         notes: notes || '',
@@ -979,7 +982,7 @@ class ServiceBookingController {
         bookingType: 'service',
         clientInfo: clientInfo || null
       };
-      await booking.update(updateData);
+      await booking.update(finalBookingData);
 
       // Send check-in confirmation (optional)
       try {
