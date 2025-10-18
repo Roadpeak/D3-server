@@ -10,12 +10,12 @@ const { authenticateUser } = require('../middleware/auth');
 // ========================================
 
 const MPESA_CONFIG = {
-  consumerKey: process.env.MPESA_CONSUMER_KEY,
-  consumerSecret: process.env.MPESA_CONSUMER_SECRET,
+  consumerKey: process.env.MPESA_CONSUMER_KEY || 'GZ0tcfvPrA9e4U6MMpL2NyZ6SzkvRtgGMKr1kwcAioUy0AuX',
+  consumerSecret: process.env.MPESA_CONSUMER_SECRET || 'dZG0LSrSqGRpbWVD2Hi5SJDFIXnlcPtfTSiGtsDKw2Bz5SfbxpnJCLlsbnJwtRmd',
   baseURL: process.env.MPESA_BASE_URL || 'https://api.safaricom.co.ke',
   shortCode: process.env.MPESA_SHORTCODE || '4137125',
   passKey: process.env.MPESA_PASSKEY || 'bfb279f9aa9bdbcf158e97dd71a467cd2e0c893059b10f78e6b72ada1ed2c919',
-   callbackURL: 'https://api.discoun3ree.com/api/v1/payments'
+  callbackURL: 'https://api.discoun3ree.com/api/v1/payments'
 };
 
 // ========================================
@@ -37,7 +37,8 @@ async function getMpesaAccessToken() {
       {
         headers: {
           'Authorization': `Basic ${auth}`,
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          'x-api-key': process.env.API_KEY || 'API_KEY_12345ABCDEF!@#67890-xyZQvTPOl'
         },
         timeout: 10000
       }
@@ -51,7 +52,6 @@ async function getMpesaAccessToken() {
     throw new Error('Failed to authenticate with M-Pesa. Check your credentials.');
   }
 }
-
 function formatPhoneNumber(phoneNumber) {
   let formattedPhone = phoneNumber.replace(/\D/g, '');
 
@@ -160,7 +160,8 @@ router.post('/mpesa', authenticateUser, async (req, res) => {
         {
           headers: {
             'Authorization': `Bearer ${accessToken}`,
-            'Content-Type': 'application/json'
+            'Content-Type': 'application/json',
+            'x-api-key': process.env.API_KEY || 'API_KEY_12345ABCDEF!@#67890-xyZQvTPOl'
           },
           timeout: 30000
         }
