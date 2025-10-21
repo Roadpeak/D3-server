@@ -27,12 +27,14 @@ const {
 const SlotGenerationService = require('../services/slotGenerationService');
 const slotService = new SlotGenerationService(models);
 const AutoConfirmationService = require('../services/autoConfirmationService');
+const NotificationService = require('../services/notificationService');
 
 class ServiceBookingController {
 
   constructor() {
     this.slotService = new SlotGenerationService(models);
     this.autoConfirmationService = new AutoConfirmationService(models);
+    this.notificationService = new NotificationService();
   }
 
   normalizeDateTime(dateTimeStr) {
@@ -401,7 +403,7 @@ class ServiceBookingController {
       };
 
       const finalBookingData = bookingData;
-      
+
       const booking = await Booking.create(finalBookingData, {
         ...(transaction && { transaction })
       });
@@ -416,6 +418,14 @@ class ServiceBookingController {
         }
       } catch (qrError) {
         console.warn('QR code generation failed:', qrError.message);
+      }
+
+      // Send booking notifications to both user and merchant
+      try {
+        await this.sendBookingNotifications(booking, service, user, bookingStore, bookingStaff);
+      } catch (notificationError) {
+        console.warn('Booking notification failed:', notificationError.message);
+        // Don't fail the transaction if notifications fail
       }
 
       // Commit transaction
@@ -493,19 +503,46 @@ class ServiceBookingController {
     }
   }
 
-  async sendBookingPendingEmail(booking, service, user, store, staff) {
+  // New method to handle both merchant and user notifications
+  async sendBookingNotifications(booking, service, user, store, staff) {
     try {
-      const emailSubject = `Service Booking Pending Review - ${service.name}`;
-      const message = `Your booking is pending merchant confirmation. You'll receive another email once confirmed.`;
+      // Get the QR code URL for the customer notification
+      const qrCodeUrl = booking.qrCode;
 
-      // Your email service implementation would go here
-      console.log(`Pending email would be sent with subject: ${emailSubject}`);
-      console.log(`Message: ${message}`);
-      console.log(`Reason: ${booking.confirmation_notes}`);
+      // Send notification to merchant
+      await this.notificationService.sendBookingNotificationToMerchant(
+        booking,
+        service,
+        store,
+        staff
+      );
 
+      // Send confirmation to customer
+      await this.notificationService.sendBookingConfirmationToCustomer(
+        booking,
+        service,
+        user,
+        store,
+        qrCodeUrl
+      );
+
+      console.log(`Booking notifications sent for booking ID: ${booking.id}`);
+      return true;
     } catch (error) {
-      console.error('Pending email sending failed:', error);
+      console.error('Error sending booking notifications:', error);
+      throw new Error('Failed to send booking notifications');
     }
+  }
+
+  async sendBookingPendingEmail(booking, service, user, store, staff) {
+    // We can use the same method but the status will be 'pending'
+    return this.notificationService.sendBookingConfirmationToCustomer(
+      booking,
+      service,
+      user,
+      store,
+      booking.qrCode
+    );
   }
 
   // ==========================================
@@ -1760,35 +1797,109 @@ class ServiceBookingController {
   // ==========================================
 
   async sendCheckInNotification(booking, checkInData) {
-    // Implement your notification logic here
-    console.log(`Check-in notification for booking ${booking.id}:`, checkInData);
-    // Example: send SMS, email, push notification, etc.
+    const service = await Service.findByPk(booking.serviceId);
+    const user = await User.findByPk(booking.userId);
+    const store = booking.storeId ? await Store.findByPk(booking.storeId) : null;
+
+    // Customize for check-in notification
+    const templateData = {
+      userName: user.firstName || user.name || 'Valued Customer',
+      serviceName: service.name,
+      bookingStartTime: this.notificationService.formatDateTime(booking.startTime),
+      bookingEndTime: this.notificationService.formatDateTime(booking.endTime),
+      status: 'Checked In',
+      // Other check-in specific data
+    };
+
+    // You could either create a specific check-in template or reuse the confirmation template
+    const htmlContent = await this.notificationService.renderTemplate(
+      'customerBookingConfirmation',
+      templateData
+    );
+
+    // Send the notification
+    if (user.email) {
+      await this.notificationService.sendEmail(
+        user.email,
+        `Check-in Confirmed: ${service.name}`,
+        htmlContent
+      );
+    }
   }
 
   async sendCompletionNotification(booking, completionData) {
-    // Implement your notification logic here
-    console.log(`Completion notification for booking ${booking.id}:`, completionData);
-    // Example: send review request, receipt, etc.
+    const service = await Service.findByPk(booking.serviceId);
+    const user = await User.findByPk(booking.userId);
+    const store = booking.storeId ? await Store.findByPk(booking.storeId) : null;
+
+    // Customize for completion notification
+    const templateData = {
+      userName: user.firstName || user.name || 'Valued Customer',
+      serviceName: service.name,
+      bookingStartTime: this.notificationService.formatDateTime(booking.startTime),
+      bookingEndTime: this.notificationService.formatDateTime(booking.endTime),
+      status: 'Completed',
+      // Other completion specific data
+    };
+
+    // You could either create a specific completion template or reuse the confirmation template
+    const htmlContent = await this.notificationService.renderTemplate(
+      'customerBookingConfirmation',
+      templateData
+    );
+
+    // Send the notification
+    if (user.email) {
+      await this.notificationService.sendEmail(
+        user.email,
+        `Service Completed: ${service.name} - We hope you enjoyed it!`,
+        htmlContent
+      );
+    }
   }
 
   async sendCancellationNotification(booking, reason, refundRequested) {
-    // Implement your notification logic here
-    console.log(`Cancellation notification for booking ${booking.id}:`, { reason, refundRequested });
-    // Example: send cancellation email, process refund, etc.
+    const service = await Service.findByPk(booking.serviceId);
+    const user = await User.findByPk(booking.userId);
+    const store = booking.storeId ? await Store.findByPk(booking.storeId) : null;
+
+    // Customize for cancellation notification
+    const templateData = {
+      userName: user.firstName || user.name || 'Valued Customer',
+      serviceName: service.name,
+      bookingStartTime: this.notificationService.formatDateTime(booking.startTime),
+      bookingEndTime: this.notificationService.formatDateTime(booking.endTime),
+      status: 'Cancelled',
+      reason: reason || 'No reason provided',
+      refundRequested: refundRequested,
+      // Other cancellation specific data
+    };
+
+    // You could either create a specific cancellation template or reuse the confirmation template
+    const htmlContent = await this.notificationService.renderTemplate(
+      'customerBookingConfirmation',
+      templateData
+    );
+
+    // Send the notification
+    if (user.email) {
+      await this.notificationService.sendEmail(
+        user.email,
+        `Booking Cancelled: ${service.name}`,
+        htmlContent
+      );
+    }
   }
 
+
   async sendBookingConfirmationEmail(booking, service, user, store, staff) {
-    try {
-      const emailSubject = `Service Booking Confirmed - ${service.name}`;
-      const paymentInfo = `Pay the full service price (KES ${service.price}) at the venue.`;
-
-      // Email service implementation would go here
-      console.log(`Email would be sent with subject: ${emailSubject}`);
-      console.log(`Payment info: ${paymentInfo}`);
-
-    } catch (error) {
-      console.error('Email sending failed:', error);
-    }
+    return this.notificationService.sendBookingConfirmationToCustomer(
+      booking,
+      service,
+      user,
+      store,
+      booking.qrCode
+    );
   }
 
   // ==========================================
