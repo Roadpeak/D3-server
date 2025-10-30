@@ -1508,13 +1508,13 @@ class ServiceBookingController {
           },
           {
             model: Service,
-            as: 'Service', // If this fails, try 'service'
+            as: 'service', // If this fails, try 'service'
             required: false,
             attributes: ['id', 'name', 'price', 'duration']
           },
           {
             model: Staff,
-            as: 'Staff', // If this fails, try 'staff'
+            as: 'staff', // If this fails, try 'staff'
             required: false,
             attributes: [
               'id',
