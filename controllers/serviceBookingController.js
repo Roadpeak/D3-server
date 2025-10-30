@@ -1497,7 +1497,7 @@ class ServiceBookingController {
         include: [
           {
             model: User,
-            as: 'User', // If this fails, try 'user' or 'bookingUser'
+            as: 'bookingUser', // If this fails, try 'user' or 'bookingUser'
             attributes: [
               'id',
               'firstName',
