@@ -494,6 +494,43 @@ router.get('/test', (req, res) => {
   });
 });
 
+/**
+ * DEBUG: Get merchant info and their stores
+ */
+router.get('/debug/merchant-info', authenticateMerchant, async (req, res) => {
+  try {
+    const merchantId = req.user?.id;
+    
+    console.log('🔍 Debug - Merchant ID from token:', merchantId);
+    console.log('🔍 Debug - Full req.user:', req.user);
+    
+    // Get merchant's stores
+    const { Store } = require('../models');
+    const stores = await Store.findAll({
+      where: { merchant_id: merchantId },
+      attributes: ['id', 'name', 'merchant_id', 'location']
+    });
+    
+    console.log('🔍 Debug - Found stores:', stores);
+    
+    res.json({
+      success: true,
+      debug: {
+        merchantId,
+        merchantFromToken: req.user,
+        stores: stores.map(s => s.toJSON()),
+        storeCount: stores.length
+      }
+    });
+  } catch (error) {
+    console.error('Debug error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
 // ==========================================
 // ROUTE VALIDATION MIDDLEWARE
 // ==========================================
