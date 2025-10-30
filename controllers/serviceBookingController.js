@@ -1460,97 +1460,121 @@ class ServiceBookingController {
   // MERCHANT LISTING METHODS
   // ==========================================
 
-  async getMerchantStoreBookings(req, res) {
-    try {
-      const { storeId } = req.params;
-      const { status, limit = 50, offset = 0, startDate, endDate } = req.query;
+ async getMerchantStoreBookings(req, res) {
+  try {
+    const { storeId } = req.params;
+    const { status, limit = 50, offset = 0, startDate, endDate } = req.query;
+    const merchantId = req.user?.id; // Get logged-in merchant ID
 
-      if (!storeId) {
-        return res.status(400).json({
-          success: false,
-          message: 'Store ID is required'
-        });
-      }
-
-      const whereConditions = {
-        storeId: storeId, // Keep as string (char(36) in DB)
-        serviceId: { [Op.ne]: null }
-      };
-
-      if (status) {
-        whereConditions.status = status;
-      }
-
-      if (startDate) {
-        whereConditions.startTime = { [Op.gte]: new Date(startDate) };
-      }
-
-      if (endDate) {
-        whereConditions.startTime = {
-          ...whereConditions.startTime,
-          [Op.lte]: new Date(endDate)
-        };
-      }
-
-      const bookings = await Booking.findAndCountAll({
-        where: whereConditions,
-        include: [
-          {
-            model: User,
-            as: 'User', // If this fails, try 'user' or 'bookingUser'
-            attributes: [
-              'id',
-              'firstName',
-              'lastName',
-              'email',
-              'phoneNumber' // CORRECT: matches actual DB column
-            ]
-          },
-          {
-            model: Service,
-            as: 'Service', // If this fails, try 'service'
-            required: false,
-            attributes: ['id', 'name', 'price', 'duration']
-          },
-          {
-            model: Staff,
-            as: 'Staff', // If this fails, try 'staff'
-            required: false,
-            attributes: [
-              'id',
-              'name',
-              'email',
-              'phoneNumber', // CORRECT: matches actual DB column
-              'role',
-              'status'
-            ]
-          }
-        ],
-        order: [['createdAt', 'DESC']],
-        limit: parseInt(limit),
-        offset: parseInt(offset)
-      });
-
-      return res.json({
-        success: true,
-        bookings: bookings.rows,
-        pagination: {
-          total: bookings.count,
-          limit: parseInt(limit),
-          offset: parseInt(offset)
-        },
-        storeId: storeId
-      });
-
-    } catch (error) {
-      console.error('Error getting merchant store service bookings:', error);
-      return res.status(500).json({
+    if (!storeId) {
+      return res.status(400).json({
         success: false,
-        message: 'Failed to fetch store service bookings',
-        error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+        message: 'Store ID is required'
       });
     }
+
+    // SECURITY FIX: Verify the store belongs to the logged-in merchant
+    if (!merchantId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Authentication required'
+      });
+    }
+
+    const store = await Store.findOne({
+      where: {
+        id: storeId,
+        merchant_id: merchantId // Ensure store belongs to this merchant
+      }
+    });
+
+    if (!store) {
+      return res.status(403).json({
+        success: false,
+        message: 'Store not found or you do not have permission to access this store'
+      });
+    }
+
+    const whereConditions = {
+      storeId: storeId,
+      serviceId: { [Op.ne]: null }
+    };
+
+    if (status) {
+      whereConditions.status = status;
+    }
+
+    if (startDate) {
+      whereConditions.startTime = { [Op.gte]: new Date(startDate) };
+    }
+
+    if (endDate) {
+      whereConditions.startTime = {
+        ...whereConditions.startTime,
+        [Op.lte]: new Date(endDate)
+      };
+    }
+
+    const bookings = await Booking.findAndCountAll({
+      where: whereConditions,
+      include: [
+        {
+          model: User,
+          as: 'User',
+          attributes: [
+            'id',
+            'firstName',
+            'lastName',
+            'email',
+            'phoneNumber'
+          ]
+        },
+        {
+          model: Service,
+          as: 'Service',
+          required: false,
+          attributes: ['id', 'name', 'price', 'duration']
+        },
+        {
+          model: Staff,
+          as: 'Staff',
+          required: false,
+          attributes: [
+            'id',
+            'name',
+            'email',
+            'phoneNumber',
+            'role',
+            'status'
+          ]
+        }
+      ],
+      order: [['createdAt', 'DESC']],
+      limit: parseInt(limit),
+      offset: parseInt(offset)
+    });
+
+    return res.json({
+      success: true,
+      bookings: bookings.rows,
+      pagination: {
+        total: bookings.count,
+        limit: parseInt(limit),
+        offset: parseInt(offset)
+      },
+      storeId: storeId,
+      storeName: store.name // Optional: include store name for confirmation
+    });
+
+  } catch (error) {
+    console.error('Error getting merchant store service bookings:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to fetch store service bookings',
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+    });
   }
+}
 
   // ==========================================
   // STORE/STAFF/BRANCH METHODS
