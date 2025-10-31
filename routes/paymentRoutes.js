@@ -1,5 +1,4 @@
-// routes/paymentRoutes.js - FIXED VERSION
-// Resolves "Wrong credentials" error by properly handling environments
+// routes/paymentRoutes.js - UPDATED: Replace simulation with REAL M-Pesa
 
 const express = require('express');
 const router = express.Router();
@@ -7,61 +6,31 @@ const axios = require('axios');
 const { authenticateUser } = require('../middleware/auth');
 
 // ========================================
-// CRITICAL FIX: PROPER M-PESA CONFIGURATION
+// REAL M-PESA CONFIGURATION
 // ========================================
-
-// IMPORTANT: Determine if we're in sandbox or production mode
-const IS_PRODUCTION = process.env.MPESA_ENVIRONMENT === 'production';
 
 const MPESA_CONFIG = {
-  // Credentials
   consumerKey: process.env.MPESA_CONSUMER_KEY,
   consumerSecret: process.env.MPESA_CONSUMER_SECRET,
-  
-  // CRITICAL: Use correct URL based on environment
-  baseURL: IS_PRODUCTION 
-    ? 'https://api.safaricom.co.ke' 
-    : 'https://sandbox.safaricom.co.ke',
-  
-  // CRITICAL: Use correct shortcode based on environment
-  shortCode: IS_PRODUCTION 
-    ? (process.env.MPESA_SHORTCODE || '4137125')  // Your production shortcode
-    : '174379',  // MUST use this for sandbox
-  
-  // CRITICAL: Use correct passkey based on environment  
-  passKey: IS_PRODUCTION
-    ? (process.env.MPESA_PASSKEY || 'd51c992e104a03143dae7295b30ef658e2a6cdba52d41d05c46206eae75ba801')  // Your production passkey
-    : 'bfb279f9aa9bdbcf158e97dd71a467cd2e0c893059b10f78e6b72ada1ed2c919',  // Standard sandbox passkey
-    
-  callbackURL: process.env.MPESA_CALLBACK_URL || 'https://api.discoun3ree.com/api/v1/payments'
+  baseURL: process.env.MPESA_BASE_URL || 'https://api.safaricom.co.ke',
+  shortCode: process.env.MPESA_SHORTCODE || '4137125',
+  passKey: process.env.MPESA_PASSKEY || 'd51c992e104a03143dae7295b30ef658e2a6cdba52d41d05c46206eae75ba801',
+   callbackURL: 'https://api.discoun3ree.com/api/v1/payments'
 };
 
-// Log configuration on startup (helps debugging)
-console.log('🔧 M-PESA CONFIGURATION LOADED:');
-console.log('  Mode:', IS_PRODUCTION ? 'PRODUCTION' : 'SANDBOX');
-console.log('  Base URL:', MPESA_CONFIG.baseURL);
-console.log('  ShortCode:', MPESA_CONFIG.shortCode);
-console.log('  Callback URL:', MPESA_CONFIG.callbackURL);
-console.log('  Has Credentials:', !!(MPESA_CONFIG.consumerKey && MPESA_CONFIG.consumerSecret));
-
 // ========================================
-// HELPER FUNCTIONS WITH BETTER ERROR HANDLING
+// REAL M-PESA HELPER FUNCTIONS
 // ========================================
 
 async function getMpesaAccessToken() {
   try {
     console.log('🔑 Getting M-Pesa access token...');
-    console.log('  Environment:', IS_PRODUCTION ? 'Production' : 'Sandbox');
 
     if (!MPESA_CONFIG.consumerKey || !MPESA_CONFIG.consumerSecret) {
       throw new Error('M-Pesa credentials not configured. Check your .env file.');
     }
 
-    // Clean credentials (remove any accidental spaces or newlines)
-    const cleanKey = MPESA_CONFIG.consumerKey.trim();
-    const cleanSecret = MPESA_CONFIG.consumerSecret.trim();
-    
-    const auth = Buffer.from(`${cleanKey}:${cleanSecret}`).toString('base64');
+    const auth = Buffer.from(`${MPESA_CONFIG.consumerKey}:${MPESA_CONFIG.consumerSecret}`).toString('base64');
 
     const response = await axios.get(
       `${MPESA_CONFIG.baseURL}/oauth/v1/generate?grant_type=client_credentials`,
@@ -74,36 +43,20 @@ async function getMpesaAccessToken() {
       }
     );
 
-    if (response.data.access_token) {
-      console.log('✅ M-Pesa access token obtained');
-      return response.data.access_token;
-    } else {
-      throw new Error('No access token received');
-    }
+    console.log('✅ M-Pesa access token obtained');
+    return response.data.access_token;
 
   } catch (error) {
     console.error('❌ Error getting M-Pesa access token:', error.response?.data || error.message);
-    
-    // Provide helpful error messages
-    if (error.response?.status === 400) {
-      throw new Error('Invalid M-Pesa credentials. Please check your Consumer Key and Secret.');
-    } else if (error.code === 'ENOTFOUND') {
-      throw new Error('Cannot reach M-Pesa servers. Check your internet connection.');
-    } else {
-      throw new Error('Failed to authenticate with M-Pesa: ' + (error.response?.data?.errorMessage || error.message));
-    }
+    throw new Error('Failed to authenticate with M-Pesa. Check your credentials.');
   }
 }
 
 function formatPhoneNumber(phoneNumber) {
-  // Remove all non-numeric characters
   let formattedPhone = phoneNumber.replace(/\D/g, '');
 
-  // Convert to 254 format
   if (formattedPhone.startsWith('0')) {
     formattedPhone = '254' + formattedPhone.substring(1);
-  } else if (formattedPhone.startsWith('7') || formattedPhone.startsWith('1')) {
-    formattedPhone = '254' + formattedPhone;
   } else if (!formattedPhone.startsWith('254')) {
     formattedPhone = '254' + formattedPhone;
   }
@@ -116,17 +69,16 @@ function generateMpesaPassword(timestamp) {
 }
 
 // ========================================
-// MAIN STK PUSH ROUTE WITH FIXES
+// REAL M-PESA STK PUSH ROUTE
 // ========================================
 
 router.post('/mpesa', authenticateUser, async (req, res) => {
   try {
     const { phoneNumber, amount, bookingId, type = 'booking_access_fee' } = req.body;
 
-    console.log('💳 M-Pesa STK Push request:', { phoneNumber, amount, bookingId, type });
-    console.log('🔧 Using environment:', IS_PRODUCTION ? 'PRODUCTION' : 'SANDBOX');
+    console.log('💳 REAL M-Pesa STK Push request:', { phoneNumber, amount, bookingId, type });
 
-    // Validate inputs
+    // Validate required fields
     if (!phoneNumber || !amount) {
       return res.status(400).json({
         success: false,
@@ -145,10 +97,10 @@ router.post('/mpesa', authenticateUser, async (req, res) => {
 
     // Validate amount
     const paymentAmount = parseFloat(amount);
-    if (isNaN(paymentAmount) || paymentAmount <= 0 || paymentAmount > 150000) {
+    if (isNaN(paymentAmount) || paymentAmount <= 0 || paymentAmount > 70000) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid amount. Must be between 1 and 150,000 KES'
+        message: 'Invalid amount. Must be between 1 and 70,000 KES'
       });
     }
 
@@ -166,8 +118,7 @@ router.post('/mpesa', authenticateUser, async (req, res) => {
       metadata: {
         bookingId,
         type,
-        phoneNumber,
-        environment: IS_PRODUCTION ? 'production' : 'sandbox'
+        phoneNumber
       }
     });
 
@@ -178,10 +129,7 @@ router.post('/mpesa', authenticateUser, async (req, res) => {
       const accessToken = await getMpesaAccessToken();
 
       // Generate timestamp and password
-      const timestamp = new Date().toISOString()
-        .replace(/[^0-9]/g, '')
-        .slice(0, -3); // Format: YYYYMMDDHHmmss
-
+      const timestamp = new Date().toISOString().replace(/[^0-9]/g, '').slice(0, -3);
       const password = generateMpesaPassword(timestamp);
 
       // Format phone number
@@ -194,20 +142,16 @@ router.post('/mpesa', authenticateUser, async (req, res) => {
         Password: password,
         Timestamp: timestamp,
         TransactionType: 'CustomerPayBillOnline',
-        Amount: Math.round(paymentAmount), // Must be an integer
+        Amount: Math.round(paymentAmount),
         PartyA: formattedPhone,
         PartyB: MPESA_CONFIG.shortCode,
         PhoneNumber: formattedPhone,
         CallBackURL: `${MPESA_CONFIG.callbackURL}/mpesa/callback`,
-        AccountReference: `BOOK${bookingId || payment.id}`.substring(0, 12), // Max 12 chars
-        TransactionDesc: type === 'booking_access_fee' ? 'Booking Fee' : 'Payment' // Max 13 chars
+        AccountReference: `BOOKING_${bookingId || payment.id}`,
+        TransactionDesc: type === 'booking_access_fee' ? 'Booking Access Fee' : 'Service Payment'
       };
 
-      console.log('📤 Sending STK Push to:', `${MPESA_CONFIG.baseURL}/mpesa/stkpush/v1/processrequest`);
-      console.log('📦 STK Push data:', {
-        ...stkPushData,
-        Password: '[HIDDEN]' // Hide password in logs
-      });
+      console.log('📤 Sending STK Push request...');
 
       // Send STK Push request
       const response = await axios.post(
@@ -225,7 +169,7 @@ router.post('/mpesa', authenticateUser, async (req, res) => {
       console.log('📱 STK Push response:', response.data);
 
       if (response.data.ResponseCode === '0') {
-        // Success - STK Push sent
+        // STK Push successful
         await payment.update({
           transaction_id: response.data.CheckoutRequestID,
           metadata: {
@@ -236,7 +180,7 @@ router.post('/mpesa', authenticateUser, async (req, res) => {
           }
         });
 
-        // Link to booking if provided
+        // Link payment to booking if provided
         if (bookingId && Booking) {
           try {
             const booking = await Booking.findByPk(bookingId);
@@ -254,7 +198,7 @@ router.post('/mpesa', authenticateUser, async (req, res) => {
 
         return res.status(200).json({
           success: true,
-          message: 'Payment initiated! Check your phone for the M-Pesa prompt.',
+          message: 'STK Push sent successfully! Check your phone for the M-Pesa prompt.',
           payment: {
             id: payment.id,
             unique_code: payment.unique_code,
@@ -262,12 +206,12 @@ router.post('/mpesa', authenticateUser, async (req, res) => {
             status: payment.status
           },
           checkoutRequestId: response.data.CheckoutRequestID,
-          customerMessage: response.data.CustomerMessage || 'Please check your phone and enter your M-Pesa PIN.'
+          customerMessage: response.data.CustomerMessage,
+          instructions: 'Please check your phone for the M-Pesa payment prompt and enter your PIN to complete the payment.'
         });
 
       } else {
-        // STK Push rejected
-        throw new Error(response.data.ResponseDescription || 'STK Push was not successful');
+        throw new Error(response.data.ResponseDescription || 'STK Push failed');
       }
 
     } catch (mpesaError) {
@@ -284,38 +228,16 @@ router.post('/mpesa', authenticateUser, async (req, res) => {
         }
       });
 
-      // Specific error handling
-      if (mpesaError.response?.data?.errorCode === '500.001.1001') {
-        // Wrong credentials error
+      // Check if it's a credentials error
+      if (mpesaError.message.includes('credentials') || mpesaError.message.includes('authenticate')) {
         return res.status(400).json({
           success: false,
-          message: 'M-Pesa configuration error. The app is not properly configured for ' + 
-                   (IS_PRODUCTION ? 'production' : 'sandbox') + ' mode.',
+          message: 'M-Pesa configuration error. Please check your credentials.',
           payment: { id: payment.id, status: 'failed' },
-          error: 'CREDENTIAL_MISMATCH',
-          details: IS_PRODUCTION 
-            ? 'Using production mode. Ensure you have production credentials and shortcode.'
-            : 'Using sandbox mode. Ensure you have sandbox test credentials.',
-          troubleshooting: [
-            'Check that MPESA_ENVIRONMENT in .env matches your credentials',
-            'For sandbox: Use test credentials from sandbox.safaricom.co.ke',
-            'For production: Use live credentials from developer.safaricom.co.ke',
-            'Sandbox must use shortcode 174379',
-            'Production must use your registered business shortcode'
-          ]
+          error: 'MPESA_CONFIG_ERROR'
         });
       }
 
-      if (mpesaError.response?.data?.errorCode === '404.001.03') {
-        return res.status(400).json({
-          success: false,
-          message: 'Invalid M-Pesa configuration. Check your shortcode and passkey.',
-          payment: { id: payment.id, status: 'failed' },
-          error: 'INVALID_CONFIG'
-        });
-      }
-
-      // Generic error response
       return res.status(400).json({
         success: false,
         message: mpesaError.response?.data?.errorMessage || mpesaError.message || 'Failed to initiate M-Pesa payment',
@@ -325,11 +247,11 @@ router.post('/mpesa', authenticateUser, async (req, res) => {
     }
 
   } catch (error) {
-    console.error('❌ General payment error:', error);
+    console.error('❌ General M-Pesa payment error:', error);
 
     return res.status(500).json({
       success: false,
-      message: 'Failed to process payment request',
+      message: 'Failed to process M-Pesa payment',
       error: process.env.NODE_ENV === 'development' ? error.message : 'Payment service temporarily unavailable'
     });
   }
@@ -344,12 +266,6 @@ router.post('/mpesa/callback', async (req, res) => {
     console.log('📨 M-Pesa callback received:', JSON.stringify(req.body, null, 2));
 
     const { Body } = req.body;
-    
-    if (!Body || !Body.stkCallback) {
-      console.log('⚠️ Invalid callback structure');
-      return res.status(200).json({ ResultCode: 0, ResultDesc: "Accepted" });
-    }
-
     const { stkCallback } = Body;
     const { Payment, Booking } = require('../models');
 
@@ -357,99 +273,55 @@ router.post('/mpesa/callback', async (req, res) => {
     const resultCode = stkCallback.ResultCode;
     const resultDesc = stkCallback.ResultDesc;
 
-    // Find payment
+    // Find payment by checkout request ID
     const payment = await Payment.findOne({
       where: { transaction_id: checkoutRequestID }
     });
 
     if (!payment) {
       console.error('❌ Payment not found for CheckoutRequestID:', checkoutRequestID);
-      return res.status(200).json({ ResultCode: 0, ResultDesc: "Accepted" });
+      return res.status(200).json({ ResultCode: 0, ResultDesc: "Payment not found but callback acknowledged" });
     }
 
     if (resultCode === 0) {
       // Payment successful
-      const callbackMetadata = stkCallback.CallbackMetadata?.Item || [];
+      const callbackMetadata = stkCallback.CallbackMetadata.Item;
       let mpesaReceiptNumber = '';
       let transactionDate = '';
       let amount = 0;
-      let phoneNumber = '';
 
       callbackMetadata.forEach(item => {
-        switch (item.Name) {
-          case 'MpesaReceiptNumber':
-            mpesaReceiptNumber = item.Value;
-            break;
-          case 'TransactionDate':
-            transactionDate = String(item.Value);
-            break;
-          case 'Amount':
-            amount = item.Value;
-            break;
-          case 'PhoneNumber':
-            phoneNumber = item.Value;
-            break;
-        }
+        if (item.Name === 'MpesaReceiptNumber') mpesaReceiptNumber = item.Value;
+        if (item.Name === 'TransactionDate') transactionDate = item.Value;
+        if (item.Name === 'Amount') amount = item.Value;
       });
 
-      // Update payment
       await payment.update({
         status: 'completed',
         mpesa_receipt_number: mpesaReceiptNumber,
-        transaction_date: transactionDate ? new Date(
-          transactionDate.slice(0, 4) + '-' +
-          transactionDate.slice(4, 6) + '-' +
-          transactionDate.slice(6, 8) + 'T' +
-          transactionDate.slice(8, 10) + ':' +
-          transactionDate.slice(10, 12) + ':' +
-          transactionDate.slice(12, 14)
-        ) : new Date(),
+        transaction_date: new Date(transactionDate),
         processed_at: new Date(),
         metadata: {
           ...payment.metadata,
           mpesaReceiptNumber,
           transactionDate,
-          callbackAmount: amount,
-          phoneNumber
+          callbackAmount: amount
         }
       });
 
-      // Update linked booking
+      // Update booking status if linked
       if (payment.metadata?.bookingId) {
-        const booking = await Booking.findByPk(payment.metadata.bookingId);
+        const booking = await Booking.findOne({ where: { paymentId: payment.id } });
         if (booking) {
-          await booking.update({ 
-            status: 'confirmed',
-            payment_status: 'paid'
-          });
-          console.log('✅ Booking confirmed:', booking.id);
+          await booking.update({ status: 'confirmed' });
+          console.log('✅ Booking confirmed after payment:', booking.id);
         }
       }
 
-      console.log('✅ Payment completed:', mpesaReceiptNumber);
+      console.log('✅ Payment completed successfully:', mpesaReceiptNumber);
 
     } else {
       // Payment failed
-      let failureReason = 'Payment failed';
-      
-      // Decode result codes
-      switch (resultCode) {
-        case 1:
-          failureReason = 'Insufficient balance';
-          break;
-        case 1001:
-          failureReason = 'Unable to lock subscriber account';
-          break;
-        case 1032:
-          failureReason = 'Transaction cancelled by user';
-          break;
-        case 1037:
-          failureReason = 'Timeout - User did not enter PIN';
-          break;
-        default:
-          failureReason = resultDesc || 'Payment failed';
-      }
-
       await payment.update({
         status: 'failed',
         failed_at: new Date(),
@@ -457,36 +329,34 @@ router.post('/mpesa/callback', async (req, res) => {
           ...payment.metadata,
           resultCode,
           resultDesc,
-          failureReason
+          failureReason: resultDesc
         }
       });
 
-      console.log('❌ Payment failed:', failureReason);
+      console.log('❌ Payment failed:', resultDesc);
     }
 
-    // Always return success to M-Pesa
-    return res.status(200).json({ 
-      ResultCode: 0, 
-      ResultDesc: "Callback processed successfully" 
-    });
+    return res.status(200).json({ ResultCode: 0, ResultDesc: "Callback processed successfully" });
 
   } catch (error) {
     console.error('❌ Callback processing error:', error);
-    // Still return success to avoid M-Pesa retries
-    return res.status(200).json({ 
-      ResultCode: 0, 
-      ResultDesc: "Accepted" 
-    });
+    return res.status(200).json({ ResultCode: 0, ResultDesc: "Callback received" });
   }
 });
 
 // ========================================
-// CHECK PAYMENT STATUS
+// M-PESA STATUS CHECK
 // ========================================
 
+/**
+ * Check M-Pesa payment status by payment ID
+ */
 router.get('/:paymentId/status', authenticateUser, async (req, res) => {
   try {
     const { paymentId } = req.params;
+
+    console.log('🔍 Checking payment status for:', paymentId);
+
     const { Payment } = require('../models');
 
     const payment = await Payment.findByPk(paymentId);
@@ -498,7 +368,6 @@ router.get('/:paymentId/status', authenticateUser, async (req, res) => {
       });
     }
 
-    // Return payment status
     return res.status(200).json({
       success: true,
       payment: {
@@ -510,13 +379,12 @@ router.get('/:paymentId/status', authenticateUser, async (req, res) => {
         mpesa_receipt_number: payment.mpesa_receipt_number,
         transaction_date: payment.transaction_date,
         created_at: payment.createdAt,
-        updated_at: payment.updatedAt,
-        failure_reason: payment.metadata?.failureReason
+        updated_at: payment.updatedAt
       }
     });
 
   } catch (error) {
-    console.error('Error checking payment status:', error);
+    console.error('❌ Error checking payment status:', error);
     return res.status(500).json({
       success: false,
       message: 'Failed to check payment status'
@@ -525,79 +393,93 @@ router.get('/:paymentId/status', authenticateUser, async (req, res) => {
 });
 
 // ========================================
-// CONFIGURATION TEST ENDPOINT
+// M-PESA CONFIGURATION TEST
 // ========================================
 
-router.get('/test/config', async (req, res) => {
+router.get('/test/mpesa', async (req, res) => {
   try {
     console.log('🧪 Testing M-Pesa configuration...');
 
-    // Test getting access token
-    let tokenSuccess = false;
-    let tokenError = null;
-    
-    try {
-      const token = await getMpesaAccessToken();
-      tokenSuccess = !!token;
-    } catch (error) {
-      tokenError = error.message;
-    }
+    const token = await getMpesaAccessToken();
 
     res.status(200).json({
-      success: tokenSuccess,
-      message: tokenSuccess ? 'Configuration is valid!' : 'Configuration has issues',
+      success: true,
+      message: 'M-Pesa configuration is working!',
       config: {
-        environment: IS_PRODUCTION ? 'production' : 'sandbox',
+        baseURL: MPESA_CONFIG.baseURL,
+        shortCode: MPESA_CONFIG.shortCode,
+        callbackURL: MPESA_CONFIG.callbackURL,
+        hasCredentials: !!(MPESA_CONFIG.consumerKey && MPESA_CONFIG.consumerSecret),
+        tokenReceived: !!token
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ M-Pesa config test failed:', error);
+
+    res.status(500).json({
+      success: false,
+      message: 'M-Pesa configuration test failed: ' + error.message,
+      config: {
         baseURL: MPESA_CONFIG.baseURL,
         shortCode: MPESA_CONFIG.shortCode,
         callbackURL: MPESA_CONFIG.callbackURL,
         hasConsumerKey: !!MPESA_CONFIG.consumerKey,
-        hasConsumerSecret: !!MPESA_CONFIG.consumerSecret,
-        hasPassKey: !!MPESA_CONFIG.passKey,
-        tokenTest: {
-          success: tokenSuccess,
-          error: tokenError
-        }
-      },
-      instructions: !tokenSuccess ? {
-        sandbox: [
-          '1. Set MPESA_ENVIRONMENT=sandbox in .env',
-          '2. Get test credentials from https://sandbox.safaricom.co.ke',
-          '3. Create a test app and get Consumer Key & Secret',
-          '4. Use shortcode 174379 for sandbox',
-          '5. Restart your server'
-        ],
-        production: [
-          '1. Set MPESA_ENVIRONMENT=production in .env',
-          '2. Get live credentials from https://developer.safaricom.co.ke',
-          '3. Use your registered business shortcode',
-          '4. Add your production passkey',
-          '5. Ensure callback URL is publicly accessible'
-        ]
-      } : null
-    });
-
-  } catch (error) {
-    console.error('Config test error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Configuration test failed',
-      error: error.message
+        hasConsumerSecret: !!MPESA_CONFIG.consumerSecret
+      }
     });
   }
 });
 
 // ========================================
-// SIMPLE TEST ENDPOINT
+// OTHER ROUTES (KEEP AS BEFORE)
 // ========================================
+
+router.post('/payments', authenticateUser, async (req, res) => {
+  try {
+    const { Payment } = require('../models');
+    const payment = await Payment.create(req.body);
+    res.status(201).json({ success: true, payment });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Failed to create payment' });
+  }
+});
 
 router.get('/test', (req, res) => {
   res.status(200).json({
     success: true,
-    message: 'Payment routes are working!',
-    environment: IS_PRODUCTION ? 'production' : 'sandbox',
+    message: 'Payment routes working with REAL M-Pesa!',
     timestamp: new Date().toISOString()
   });
 });
+
+router.get('/test/mpesa-debug', async (req, res) => {
+  try {
+    // Use the enhanced debug function from the artifact above
+    const result = await debugMpesaToken();
+    res.json({
+      timestamp: new Date().toISOString(),
+      environment: process.env.NODE_ENV,
+      result
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: error.message,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
+  }
+});
+
+router.post('/mpesa/callback', async (req, res) => {
+  console.log('🎯 M-PESA CALLBACK RECEIVED!');
+  console.log('Timestamp:', new Date().toISOString());
+  console.log('Headers:', req.headers);
+  console.log('Body:', JSON.stringify(req.body, null, 2));
+
+  // Your existing callback processing code...
+});
+
+
+
 
 module.exports = router;
