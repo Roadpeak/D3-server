@@ -30,7 +30,7 @@ const MPESA_CONFIG = {
   
   // CRITICAL: Use correct passkey based on environment  
   passKey: IS_PRODUCTION
-    ? (process.env.MPESA_PASSKEY || 'your_production_passkey_here')  // Your production passkey
+    ? (process.env.MPESA_PASSKEY || 'd51c992e104a03143dae7295b30ef658e2a6cdba52d41d05c46206eae75ba801')  // Your production passkey
     : 'bfb279f9aa9bdbcf158e97dd71a467cd2e0c893059b10f78e6b72ada1ed2c919',  // Standard sandbox passkey
     
   callbackURL: process.env.MPESA_CALLBACK_URL || 'https://api.discoun3ree.com/api/v1/payments'
