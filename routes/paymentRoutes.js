@@ -377,14 +377,18 @@ router.post('/mpesa/callback', async (req, res) => {
               status: 'confirmed',
               payment_status: 'paid',
               paymentId: payment.id,
-              paymentUniqueCode: payment.unique_code
+              paymentUniqueCode: payment.unique_code,
+              mpesa_receipt_number: mpesaReceiptNumber,
+              confirmed_at: new Date()
             });
             
             console.log('✅ BOOKING CONFIRMED! Booking ID:', booking.id);
             console.log('📊 New booking status:', booking.status);
             console.log('💳 Payment status:', booking.payment_status);
+            console.log('📝 M-Pesa Receipt:', mpesaReceiptNumber);
           } else {
             console.error('❌ Booking not found with ID:', bookingId);
+            console.log('📦 Available payment metadata:', payment.metadata);
           }
         } catch (bookingError) {
           console.error('❌ Error updating booking:', bookingError.message);
@@ -392,6 +396,7 @@ router.post('/mpesa/callback', async (req, res) => {
         }
       } else {
         console.warn('⚠️ No bookingId found in payment metadata');
+        console.log('📦 Payment metadata:', JSON.stringify(payment.metadata, null, 2));
       }
 
       console.log('✅ Payment processing completed successfully');
