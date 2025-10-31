@@ -1,4 +1,4 @@
-// routes/paymentRoutes.js - UPDATED: Replace simulation with REAL M-Pesa
+// routes/paymentRoutes.js - FIXED: Properly completes booking after payment
 
 const express = require('express');
 const router = express.Router();
@@ -15,7 +15,7 @@ const MPESA_CONFIG = {
   baseURL: process.env.MPESA_BASE_URL || 'https://api.safaricom.co.ke',
   shortCode: process.env.MPESA_SHORTCODE || '4137125',
   passKey: process.env.MPESA_PASSKEY || 'd51c992e104a03143dae7295b30ef658e2a6cdba52d41d05c46206eae75ba801',
-   callbackURL: 'https://api.discoun3ree.com/api/v1/payments'
+  callbackURL: 'https://api.discoun3ree.com/api/v1/payments'
 };
 
 // ========================================
@@ -258,7 +258,7 @@ router.post('/mpesa', authenticateUser, async (req, res) => {
 });
 
 // ========================================
-// M-PESA CALLBACK HANDLER
+// M-PESA CALLBACK HANDLER - FIXED
 // ========================================
 
 router.post('/mpesa/callback', async (req, res) => {
@@ -266,12 +266,21 @@ router.post('/mpesa/callback', async (req, res) => {
     console.log('📨 M-Pesa callback received:', JSON.stringify(req.body, null, 2));
 
     const { Body } = req.body;
+    
+    if (!Body || !Body.stkCallback) {
+      console.log('⚠️ Invalid callback structure');
+      return res.status(200).json({ ResultCode: 0, ResultDesc: "Accepted" });
+    }
+
     const { stkCallback } = Body;
     const { Payment, Booking } = require('../models');
 
     const checkoutRequestID = stkCallback.CheckoutRequestID;
     const resultCode = stkCallback.ResultCode;
     const resultDesc = stkCallback.ResultDesc;
+
+    console.log('🔍 Processing callback for CheckoutRequestID:', checkoutRequestID);
+    console.log('📊 Result Code:', resultCode, '| Result Desc:', resultDesc);
 
     // Find payment by checkout request ID
     const payment = await Payment.findOne({
@@ -280,48 +289,137 @@ router.post('/mpesa/callback', async (req, res) => {
 
     if (!payment) {
       console.error('❌ Payment not found for CheckoutRequestID:', checkoutRequestID);
-      return res.status(200).json({ ResultCode: 0, ResultDesc: "Payment not found but callback acknowledged" });
+      return res.status(200).json({ 
+        ResultCode: 0, 
+        ResultDesc: "Payment not found but callback acknowledged" 
+      });
     }
+
+    console.log('✅ Payment found:', payment.id);
+    console.log('📦 Payment metadata:', payment.metadata);
 
     if (resultCode === 0) {
       // Payment successful
-      const callbackMetadata = stkCallback.CallbackMetadata.Item;
+      const callbackMetadata = stkCallback.CallbackMetadata?.Item || [];
       let mpesaReceiptNumber = '';
       let transactionDate = '';
       let amount = 0;
+      let phoneNumber = '';
 
       callbackMetadata.forEach(item => {
-        if (item.Name === 'MpesaReceiptNumber') mpesaReceiptNumber = item.Value;
-        if (item.Name === 'TransactionDate') transactionDate = item.Value;
-        if (item.Name === 'Amount') amount = item.Value;
+        switch (item.Name) {
+          case 'MpesaReceiptNumber':
+            mpesaReceiptNumber = item.Value;
+            break;
+          case 'TransactionDate':
+            transactionDate = String(item.Value);
+            break;
+          case 'Amount':
+            amount = item.Value;
+            break;
+          case 'PhoneNumber':
+            phoneNumber = item.Value;
+            break;
+        }
       });
 
+      console.log('💰 M-Pesa Receipt:', mpesaReceiptNumber);
+      console.log('📅 Transaction Date:', transactionDate);
+      console.log('💵 Amount:', amount);
+
+      // Parse transaction date
+      let parsedDate = new Date();
+      if (transactionDate) {
+        try {
+          parsedDate = new Date(
+            transactionDate.slice(0, 4) + '-' +
+            transactionDate.slice(4, 6) + '-' +
+            transactionDate.slice(6, 8) + 'T' +
+            transactionDate.slice(8, 10) + ':' +
+            transactionDate.slice(10, 12) + ':' +
+            transactionDate.slice(12, 14)
+          );
+        } catch (e) {
+          console.warn('⚠️ Could not parse transaction date:', transactionDate);
+        }
+      }
+
+      // Update payment status
       await payment.update({
         status: 'completed',
         mpesa_receipt_number: mpesaReceiptNumber,
-        transaction_date: new Date(transactionDate),
+        transaction_date: parsedDate,
         processed_at: new Date(),
         metadata: {
           ...payment.metadata,
           mpesaReceiptNumber,
           transactionDate,
-          callbackAmount: amount
+          callbackAmount: amount,
+          phoneNumber
         }
       });
 
-      // Update booking status if linked
+      console.log('✅ Payment marked as completed');
+
+      // CRITICAL FIX: Find and update booking using bookingId from metadata
       if (payment.metadata?.bookingId) {
-        const booking = await Booking.findOne({ where: { paymentId: payment.id } });
-        if (booking) {
-          await booking.update({ status: 'confirmed' });
-          console.log('✅ Booking confirmed after payment:', booking.id);
+        const bookingId = payment.metadata.bookingId;
+        console.log('🔍 Looking for booking with ID:', bookingId);
+
+        try {
+          const booking = await Booking.findByPk(bookingId);
+          
+          if (booking) {
+            console.log('📋 Booking found:', booking.id, '| Current status:', booking.status);
+            
+            // Update booking to confirmed
+            await booking.update({ 
+              status: 'confirmed',
+              payment_status: 'paid',
+              paymentId: payment.id,
+              paymentUniqueCode: payment.unique_code
+            });
+            
+            console.log('✅ BOOKING CONFIRMED! Booking ID:', booking.id);
+            console.log('📊 New booking status:', booking.status);
+            console.log('💳 Payment status:', booking.payment_status);
+          } else {
+            console.error('❌ Booking not found with ID:', bookingId);
+          }
+        } catch (bookingError) {
+          console.error('❌ Error updating booking:', bookingError.message);
+          console.error('Stack:', bookingError.stack);
         }
+      } else {
+        console.warn('⚠️ No bookingId found in payment metadata');
       }
 
-      console.log('✅ Payment completed successfully:', mpesaReceiptNumber);
+      console.log('✅ Payment processing completed successfully');
 
     } else {
       // Payment failed
+      console.log('❌ Payment failed with code:', resultCode);
+
+      let failureReason = 'Payment failed';
+      
+      // Decode result codes
+      switch (resultCode) {
+        case 1:
+          failureReason = 'Insufficient balance';
+          break;
+        case 1001:
+          failureReason = 'Unable to lock subscriber account';
+          break;
+        case 1032:
+          failureReason = 'Transaction cancelled by user';
+          break;
+        case 1037:
+          failureReason = 'Timeout - User did not enter PIN';
+          break;
+        default:
+          failureReason = resultDesc || 'Payment failed';
+      }
+
       await payment.update({
         status: 'failed',
         failed_at: new Date(),
@@ -329,18 +427,28 @@ router.post('/mpesa/callback', async (req, res) => {
           ...payment.metadata,
           resultCode,
           resultDesc,
-          failureReason: resultDesc
+          failureReason
         }
       });
 
-      console.log('❌ Payment failed:', resultDesc);
+      console.log('❌ Payment marked as failed:', failureReason);
     }
 
-    return res.status(200).json({ ResultCode: 0, ResultDesc: "Callback processed successfully" });
+    // Always return success to M-Pesa
+    return res.status(200).json({ 
+      ResultCode: 0, 
+      ResultDesc: "Callback processed successfully" 
+    });
 
   } catch (error) {
     console.error('❌ Callback processing error:', error);
-    return res.status(200).json({ ResultCode: 0, ResultDesc: "Callback received" });
+    console.error('Stack:', error.stack);
+    
+    // Still return success to avoid M-Pesa retries
+    return res.status(200).json({ 
+      ResultCode: 0, 
+      ResultDesc: "Callback received with errors" 
+    });
   }
 });
 
@@ -348,9 +456,6 @@ router.post('/mpesa/callback', async (req, res) => {
 // M-PESA STATUS CHECK
 // ========================================
 
-/**
- * Check M-Pesa payment status by payment ID
- */
 router.get('/:paymentId/status', authenticateUser, async (req, res) => {
   try {
     const { paymentId } = req.params;
@@ -379,7 +484,8 @@ router.get('/:paymentId/status', authenticateUser, async (req, res) => {
         mpesa_receipt_number: payment.mpesa_receipt_number,
         transaction_date: payment.transaction_date,
         created_at: payment.createdAt,
-        updated_at: payment.updatedAt
+        updated_at: payment.updatedAt,
+        failure_reason: payment.metadata?.failureReason
       }
     });
 
@@ -432,7 +538,7 @@ router.get('/test/mpesa', async (req, res) => {
 });
 
 // ========================================
-// OTHER ROUTES (KEEP AS BEFORE)
+// OTHER ROUTES
 // ========================================
 
 router.post('/payments', authenticateUser, async (req, res) => {
@@ -452,34 +558,5 @@ router.get('/test', (req, res) => {
     timestamp: new Date().toISOString()
   });
 });
-
-router.get('/test/mpesa-debug', async (req, res) => {
-  try {
-    // Use the enhanced debug function from the artifact above
-    const result = await debugMpesaToken();
-    res.json({
-      timestamp: new Date().toISOString(),
-      environment: process.env.NODE_ENV,
-      result
-    });
-  } catch (error) {
-    res.status(500).json({
-      error: error.message,
-      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
-    });
-  }
-});
-
-router.post('/mpesa/callback', async (req, res) => {
-  console.log('🎯 M-PESA CALLBACK RECEIVED!');
-  console.log('Timestamp:', new Date().toISOString());
-  console.log('Headers:', req.headers);
-  console.log('Body:', JSON.stringify(req.body, null, 2));
-
-  // Your existing callback processing code...
-});
-
-
-
 
 module.exports = router;
