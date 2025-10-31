@@ -45,21 +45,21 @@ class OfferBookingController {
       console.log('Service price:', offer?.service?.price);
       console.log('Raw offer object:', JSON.stringify(offer, null, 2));
       console.log('=== END DEBUG ===');
-  
+
       if (!offer) {
         console.warn('No offer provided for fee calculation, using default');
         return 5.99;
       }
-  
+
       // Try multiple ways to get the service price
       const servicePrice = parseFloat(
-        offer.service?.price || 
-        offer.price || 
+        offer.service?.price ||
+        offer.price ||
         0
       );
-      
+
       const discountPercentage = parseFloat(offer.discount || 0);
-  
+
       console.log('Extracted values:', {
         servicePrice,
         discountPercentage,
@@ -67,31 +67,31 @@ class OfferBookingController {
         servicePriceRaw: offer.service?.price,
         discountRaw: offer.discount
       });
-  
+
       // Validate data
       if (servicePrice <= 0) {
         console.warn('Invalid service price:', servicePrice, 'for offer', offer.id);
         return 5.99;
       }
-  
+
       if (discountPercentage <= 0) {
         console.warn('Invalid discount percentage:', discountPercentage, 'for offer', offer.id);
         return 5.99;
       }
-  
+
       if (discountPercentage >= 100) {
         console.warn('Discount percentage >= 100%:', discountPercentage, 'for offer', offer.id);
         return 5.99;
       }
-  
+
       // Calculate the actual discount amount in KSH
       const discountAmount = (servicePrice * discountPercentage) / 100;
-      
+
       // Platform fee is 20% of the discount amount
       const platformFee = discountAmount * 0.20;
-      
+
       const finalFee = Math.max(1.00, parseFloat(platformFee.toFixed(2)));
-  
+
       console.log('Platform fee calculated:', {
         servicePrice,
         discountPercentage,
@@ -99,9 +99,9 @@ class OfferBookingController {
         platformFee,
         finalFee
       });
-  
+
       return finalFee;
-      
+
     } catch (error) {
       console.error('Error calculating platform fee:', error);
       return 5.99;
@@ -179,20 +179,20 @@ class OfferBookingController {
     if (!dateTimeStr) {
       throw new Error('DateTime string is required');
     }
-  
+
     // If it's already a moment object, return it
     if (moment.isMoment(dateTimeStr)) {
       return dateTimeStr;
     }
-  
+
     // If it's a Date object, convert to moment
     if (dateTimeStr instanceof Date) {
       return moment(dateTimeStr);
     }
-  
+
     if (typeof dateTimeStr === 'string') {
       let fixedDateTime = dateTimeStr.trim();
-  
+
       // Handle the common format from frontend: YYYY-MM-DDTHH:mm:ss
       if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/.test(fixedDateTime)) {
         const parsed = moment(fixedDateTime, 'YYYY-MM-DDTHH:mm:ss', true);
@@ -200,7 +200,7 @@ class OfferBookingController {
           return parsed;
         }
       }
-  
+
       // Handle format without seconds: YYYY-MM-DDTHH:mm
       if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(fixedDateTime)) {
         fixedDateTime += ':00';
@@ -209,7 +209,7 @@ class OfferBookingController {
           return parsed;
         }
       }
-  
+
       // Try other common formats
       const formats = [
         'YYYY-MM-DDTHH:mm:ss',
@@ -218,21 +218,21 @@ class OfferBookingController {
         'YYYY-MM-DD HH:mm',
         moment.ISO_8601
       ];
-  
+
       for (const format of formats) {
         const parsed = moment(fixedDateTime, format, true);
         if (parsed.isValid()) {
           return parsed;
         }
       }
-  
+
       // Final fallback - let moment try to parse it automatically
       const fallbackParsed = moment(fixedDateTime);
       if (fallbackParsed.isValid()) {
         return fallbackParsed;
       }
     }
-  
+
     throw new Error(`Invalid datetime format: ${dateTimeStr}. Expected format: YYYY-MM-DDTHH:mm:ss`);
   }
 
@@ -240,20 +240,20 @@ class OfferBookingController {
     try {
       console.log('=== GET AVAILABLE SLOTS DEBUG ===');
       console.log('Query params:', req.query);
-      
+
       const { date, offerId } = req.query;
-  
+
       // ... existing validation code ...
-  
+
       const result = await slotService.generateAvailableSlots(offerId, 'offer', date);
-  
+
       console.log('Slot service result:', result);
-  
+
       if (result.success) {
         result.bookingType = 'offer';
         result.requiresPayment = true;
         result.needsFeeCalculation = true;
-        
+
         // Add fee calculation here for now
         try {
           const offer = await Offer.findByPk(offerId, {
@@ -262,7 +262,7 @@ class OfferBookingController {
               as: 'service'
             }]
           });
-          
+
           console.log('Offer found for fee calc:', !!offer);
           console.log('Offer data:', offer ? {
             id: offer.id,
@@ -270,7 +270,7 @@ class OfferBookingController {
             hasService: !!offer.service,
             servicePrice: offer.service?.price
           } : null);
-          
+
           if (offer) {
             result.accessFee = this.calculatePlatformFee(offer);
             console.log('Calculated access fee:', result.accessFee);
@@ -283,13 +283,13 @@ class OfferBookingController {
           result.accessFee = 5.99;
         }
       }
-  
+
       console.log('Final result access fee:', result.accessFee);
       console.log('=== END SLOTS DEBUG ===');
-  
+
       const statusCode = result.success ? 200 : (result.message.includes('not found') ? 404 : 400);
       return res.status(statusCode).json(result);
-  
+
     } catch (error) {
       console.error('Error getting offer slots:', error);
       res.status(500).json({
@@ -520,7 +520,8 @@ class OfferBookingController {
         userId,
         startTime: bookingDateTime.toDate(),
         endTime,
-        status: paymentRecord ? 'confirmed' : 'pending',
+        status: 'pending', 
+        payment_status: 'pending', 
         storeId: bookingStore?.id,
         branchId: bookingBranch?.id,
         staffId: bookingStaff?.id,
@@ -532,7 +533,15 @@ class OfferBookingController {
       if (paymentRecord) {
         bookingData.paymentId = paymentRecord.id;
         bookingData.paymentUniqueCode = paymentRecord.unique_code;
+        console.log('⚠️ Payment record exists before booking creation - using legacy flow');
       }
+      console.log('Creating booking with data:', {
+        offerId: bookingData.offerId,
+        userId: bookingData.userId,
+        status: bookingData.status,
+        payment_status: bookingData.payment_status,
+        accessFee: bookingData.accessFee
+      });
 
       const booking = await Booking.create(bookingData, {
         ...(transaction && { transaction })
@@ -625,7 +634,7 @@ class OfferBookingController {
           console.error('Failed to rollback transaction:', rollbackError.message);
         }
       }
-      
+
       console.error('Offer booking creation error:', error);
       res.status(500).json({
         success: false,
@@ -948,16 +957,16 @@ class OfferBookingController {
     try {
       const userId = req.user?.id;
       const { page = 1, limit = 10, status, bookingType } = req.query;
-      
+
       if (!userId) {
         return res.status(401).json({
           success: false,
           message: 'User not authenticated'
         });
       }
-  
+
       const offset = (parseInt(page) - 1) * parseInt(limit);
-      
+
       // Build where clause
       const whereClause = { userId };
       if (status && status !== 'all') {
@@ -966,7 +975,7 @@ class OfferBookingController {
       if (bookingType && bookingType !== 'all') {
         whereClause.bookingType = bookingType;
       }
-  
+
       const { count, rows: bookings } = await Booking.findAndCountAll({
         where: whereClause,
         include: [
@@ -985,7 +994,7 @@ class OfferBookingController {
           },
           {
             model: Service,
-            as: 'service', 
+            as: 'service',
             required: false,
             include: [{
               model: Store,
@@ -1007,7 +1016,7 @@ class OfferBookingController {
         limit: parseInt(limit),
         offset: offset
       });
-  
+
       // FIXED: Add the isOfferBooking property to each booking
       const processedBookings = bookings.map(booking => {
         const bookingData = booking.toJSON();
@@ -1015,9 +1024,9 @@ class OfferBookingController {
         bookingData.accessFeePaid = !!booking.paymentId;
         return bookingData;
       });
-  
+
       const totalPages = Math.ceil(count / limit);
-  
+
       return res.status(200).json({
         success: true,
         bookings: processedBookings, // Use processed bookings
@@ -1028,7 +1037,7 @@ class OfferBookingController {
           itemsPerPage: parseInt(limit)
         }
       });
-  
+
     } catch (error) {
       console.error('Error fetching user bookings:', error);
       return res.status(500).json({
@@ -1041,20 +1050,20 @@ class OfferBookingController {
 
   async rescheduleBooking(req, res) {
     let transaction;
-    
+
     try {
       if (sequelize) {
         transaction = await sequelize.transaction();
       }
-  
+
       const { bookingId } = req.params;
       const { newStartTime, newStaffId, reason } = req.body;
-  
+
       // Find existing booking
       const existingBooking = await Booking.findByPk(bookingId, {
         ...(transaction && { transaction })
       });
-  
+
       if (!existingBooking) {
         if (transaction) await transaction.rollback();
         return res.status(404).json({
@@ -1062,17 +1071,17 @@ class OfferBookingController {
           message: 'Booking not found'
         });
       }
-  
+
       // Validate new time slot availability
       const newDateTime = this.normalizeDateTime(newStartTime);
       const date = newDateTime.format('YYYY-MM-DD');
       const time = newDateTime.format('h:mm A');
-  
+
       const entityId = existingBooking.offerId || existingBooking.serviceId;
       const entityType = existingBooking.offerId ? 'offer' : 'service';
-  
+
       const availabilityCheck = await slotService.isSlotAvailable(entityId, entityType, date, time);
-      
+
       if (!availabilityCheck.available) {
         if (transaction) await transaction.rollback();
         return res.status(400).json({
@@ -1080,15 +1089,15 @@ class OfferBookingController {
           message: 'Selected new time slot is not available'
         });
       }
-  
+
       // Calculate new end time
-      const service = existingBooking.offerId 
+      const service = existingBooking.offerId
         ? await Offer.findByPk(existingBooking.offerId, { include: [{ model: Service, as: 'service' }] }).then(o => o.service)
         : await Service.findByPk(existingBooking.serviceId);
-      
+
       const duration = service?.duration || 60;
       const newEndTime = newDateTime.clone().add(duration, 'minutes').toDate();
-  
+
       // Update booking
       await existingBooking.update({
         startTime: newDateTime.toDate(),
@@ -1096,15 +1105,15 @@ class OfferBookingController {
         staffId: newStaffId || existingBooking.staffId,
         notes: existingBooking.notes + `\n\nRescheduled on ${new Date().toISOString()}. Reason: ${reason || 'No reason provided'}`
       }, { ...(transaction && { transaction }) });
-  
+
       if (transaction) await transaction.commit();
-  
+
       return res.status(200).json({
         success: true,
         message: 'Booking rescheduled successfully',
         booking: existingBooking
       });
-  
+
     } catch (error) {
       if (transaction) await transaction.rollback();
       console.error('Error rescheduling booking:', error);
@@ -1118,14 +1127,14 @@ class OfferBookingController {
   async getBookingById(req, res) {
     try {
       const { bookingId } = req.params;
-  
+
       if (!bookingId) {
         return res.status(400).json({
           success: false,
           message: 'Booking ID is required'
         });
       }
-  
+
       const booking = await Booking.findByPk(bookingId, {
         include: [
           {
@@ -1165,24 +1174,24 @@ class OfferBookingController {
           }
         ]
       });
-  
+
       if (!booking) {
         return res.status(404).json({
           success: false,
           message: 'Booking not found'
         });
       }
-  
+
       // FIXED: Add helper properties
       const bookingData = booking.toJSON();
       bookingData.isOfferBooking = !!booking.offerId;
       bookingData.accessFeePaid = !!booking.paymentId;
-  
+
       return res.status(200).json({
         success: true,
         booking: bookingData // Use processed booking data
       });
-  
+
     } catch (error) {
       console.error('Error fetching booking by ID:', error);
       return res.status(500).json({
