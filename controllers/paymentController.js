@@ -1,4 +1,4 @@
-// controllers/paymentController.js - Complete Updated Version
+// controllers/paymentController.js - COMPLETE FIXED VERSION
 
 const paymentService = require('../services/paymentService');
 const { Payment, Booking, sequelize } = require('../models');
@@ -277,7 +277,13 @@ class PaymentController {
           });
         }
 
-        // Check if booking already has a payment
+        console.log('📋 Found booking:', {
+          id: booking.id,
+          status: booking.status,
+          payment_status: booking.payment_status
+        });
+
+        // Check if booking already has a completed payment
         if (booking.paymentId) {
           const existingPayment = await Payment.findByPk(booking.paymentId);
           if (existingPayment && existingPayment.status === 'completed') {
@@ -296,7 +302,8 @@ class PaymentController {
       console.log('🚀 Proceeding with STK Push:', {
         merchantInfo,
         amount: paymentAmount,
-        description
+        description,
+        bookingId
       });
 
       // Initiate STK Push
@@ -310,15 +317,18 @@ class PaymentController {
       if (result.success) {
         console.log('✅ STK Push successful');
         
-        // Update payment record with merchant info
+        // Update payment record with merchant info and bookingId
         if (result.payment) {
           await result.payment.update({
             metadata: {
               ...result.payment.metadata,
+              bookingId: bookingId, // CRITICAL: Store bookingId here!
               merchantInfo: merchantInfo,
               debugInfo: debugInfo
             }
           });
+          
+          console.log('💾 Payment metadata updated with bookingId:', bookingId);
         }
 
         // Update booking with payment ID if booking exists
@@ -327,6 +337,8 @@ class PaymentController {
             paymentId: result.payment.id,
             paymentUniqueCode: result.payment.unique_code
           });
+          
+          console.log('✅ Booking updated with payment info');
         }
 
         return res.status(200).json({
@@ -364,48 +376,87 @@ class PaymentController {
 
   /**
    * Handle M-Pesa callback from Safaricom
+   * FIXED: Updates existing booking instead of creating new one
    */
   async handleMpesaCallback(req, res) {
     try {
       console.log('📨 Received M-Pesa callback:', JSON.stringify(req.body, null, 2));
-  
+
       const result = await paymentService.processMpesaCallback(req.body);
-  
+
       if (result.success) {
         console.log('✅ M-Pesa callback processed successfully');
         
-        // If payment was successful and has booking data, create the booking
-        if (result.payment && result.payment.status === 'completed' && result.payment.metadata?.bookingData) {
+        // CRITICAL FIX: Update existing booking when payment completes
+        if (result.payment && result.payment.status === 'completed') {
           try {
-            const bookingData = result.payment.metadata.bookingData;
+            // Extract bookingId from payment metadata
+            const bookingId = result.payment.metadata?.bookingId;
             
-            // Add payment info to booking data
-            bookingData.paymentId = result.payment.id;
-            bookingData.paymentUniqueCode = result.payment.unique_code;
-            bookingData.accessFee = result.payment.amount;
-            bookingData.status = 'confirmed';
-            bookingData.bookingType = 'offer';
+            console.log('🔍 Looking for booking to update:', bookingId);
+            console.log('📦 Payment metadata:', result.payment.metadata);
             
-            // Import booking controller and create the booking
-            const offerBookingController = require('../controllers/offerBookingController');
-            
-            // Create mock req/res objects for the controller
-            const mockReq = { body: bookingData };
-            const mockRes = {
-              status: () => mockRes,
-              json: (data) => {
-                console.log('Booking created after payment:', data.success ? 'SUCCESS' : 'FAILED');
-                return data;
+            if (bookingId) {
+              const booking = await Booking.findByPk(bookingId);
+              
+              if (booking) {
+                console.log('📋 Found booking:', {
+                  id: booking.id,
+                  currentStatus: booking.status,
+                  currentPaymentStatus: booking.payment_status
+                });
+                
+                // Update booking to confirmed
+                await booking.update({
+                  status: 'confirmed',
+                  payment_status: 'paid',
+                  paymentId: result.payment.id,
+                  paymentUniqueCode: result.payment.unique_code,
+                  mpesa_receipt_number: result.payment.mpesa_receipt_number,
+                  confirmed_at: new Date()
+                });
+                
+                console.log('✅ BOOKING CONFIRMED!', {
+                  bookingId: booking.id,
+                  newStatus: booking.status,
+                  paymentStatus: booking.payment_status,
+                  mpesaReceipt: booking.mpesa_receipt_number,
+                  confirmedAt: booking.confirmed_at
+                });
+                
+              } else {
+                console.error('❌ Booking not found with ID:', bookingId);
+                console.log('💡 Possible issue: Booking may have been deleted or ID is incorrect');
               }
-            };
-            
-            await offerBookingController.createBooking(mockReq, mockRes);
+            } else {
+              console.warn('⚠️ No bookingId found in payment metadata');
+              console.log('Available metadata keys:', Object.keys(result.payment.metadata || {}));
+            }
             
           } catch (bookingError) {
-            console.error('⚠️ Error creating booking after payment:', bookingError);
+            console.error('❌ Error updating booking:', bookingError);
+            console.error('Stack:', bookingError.stack);
+          }
+        } else if (result.payment && result.payment.status === 'failed') {
+          console.log('❌ Payment failed, not updating booking');
+          
+          // Optionally update booking to show payment failed
+          const bookingId = result.payment.metadata?.bookingId;
+          if (bookingId) {
+            try {
+              const booking = await Booking.findByPk(bookingId);
+              if (booking) {
+                await booking.update({
+                  payment_status: 'failed'
+                });
+                console.log('📝 Booking payment status updated to failed');
+              }
+            } catch (error) {
+              console.error('Error updating booking payment status:', error);
+            }
           }
         }
-  
+
         return res.status(200).json({
           ResultCode: 0,
           ResultDesc: "Callback processed successfully"
@@ -418,10 +469,12 @@ class PaymentController {
           ResultDesc: "Callback received"
         });
       }
-  
+
     } catch (error) {
       console.error('❌ M-Pesa callback processing error:', error);
+      console.error('Stack:', error.stack);
       
+      // Always return success to M-Pesa to avoid retries
       return res.status(200).json({
         ResultCode: 0,
         ResultDesc: "Callback received"
@@ -468,7 +521,8 @@ class PaymentController {
             mpesa_receipt_number: payment.mpesa_receipt_number,
             transaction_date: payment.transaction_date,
             created_at: payment.createdAt,
-            updated_at: payment.updatedAt
+            updated_at: payment.updatedAt,
+            metadata: payment.metadata
           }
         });
       } else {
