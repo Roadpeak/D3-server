@@ -953,7 +953,7 @@ class OfferBookingController {
     }
   }
 
-  /**
+ /**
  * Get all offer bookings for a merchant
  * @route GET /api/v1/bookings/merchant/offers
  */
@@ -974,7 +974,8 @@ async getAllMerchantBookings(req, res) {
     // Get merchant's stores
     const merchantStores = await this.models.Store.findAll({
       where: { merchant_id: merchantId },
-      attributes: ['id']
+      attributes: ['id'],
+      raw: true
     });
 
     if (!merchantStores || merchantStores.length === 0) {
@@ -982,7 +983,7 @@ async getAllMerchantBookings(req, res) {
       return res.status(200).json({
         success: true,
         bookings: [],
-        pagination: { total: 0, limit, offset },
+        pagination: { total: 0, limit: parseInt(limit), offset: parseInt(offset) },
         summary: {
           total: 0,
           pending: 0,
@@ -1000,7 +1001,7 @@ async getAllMerchantBookings(req, res) {
 
     // Build where clause
     const whereClause = {
-      bookingType: 'offer', // ✅ Only offer bookings
+      bookingType: 'offer',
       storeId: storeIds
     };
 
@@ -1008,73 +1009,146 @@ async getAllMerchantBookings(req, res) {
       whereClause.status = status;
     }
 
-    console.log('🔍 Query where clause:', whereClause);
+    console.log('🔍 Query where clause:', JSON.stringify(whereClause, null, 2));
 
-    // Fetch bookings
-    const { count, rows: bookings } = await this.models.Booking.findAndCountAll({
+    // ✅ Fetch bookings with NO INCLUDES (raw query)
+    const bookings = await this.models.Booking.findAll({
       where: whereClause,
-      include: [
-        {
-          model: this.models.Offer,
-          as: 'offer',
-          required: false,
-          include: [{
-            model: this.models.Service,
-            as: 'service',
-            required: false,
-            include: [{
-              model: this.models.Store,
-              as: 'store',
-              required: false
-            }]
-          }]
-        },
-        {
-          model: this.models.User,
-          as: 'bookingUser', // ✅ Correct alias from your Booking model
-          required: false,
-          attributes: ['id', 'firstName', 'lastName', 'email', 'phoneNumber']
-        },
-        {
-          model: this.models.Payment,
-          as: 'payment',
-          required: false
-        },
-        {
-          model: this.models.Store,
-          as: 'store',
-          required: false
-        }
-      ],
       limit: parseInt(limit),
       offset: parseInt(offset),
-      order: [['createdAt', 'DESC']]
+      order: [['createdAt', 'DESC']],
+      raw: false // We need the Sequelize instance for toJSON()
     });
 
-    console.log(`✅ Found ${count} offer bookings for merchant`);
+    const count = await this.models.Booking.count({
+      where: whereClause
+    });
 
-    // Add helper properties and format for frontend
-    const processedBookings = bookings.map(booking => {
+    console.log(`✅ Found ${count} offer bookings (total)`);
+    console.log(`📦 Returning ${bookings.length} bookings in this batch`);
+
+    // Process each booking and manually fetch related data
+    const processedBookings = await Promise.all(bookings.map(async (booking) => {
       const bookingData = booking.toJSON();
       
-      // ✅ Map bookingUser to User for frontend compatibility
-      if (bookingData.bookingUser) {
-        bookingData.User = bookingData.bookingUser;
+      // Manually fetch User
+      if (bookingData.userId) {
+        try {
+          const user = await this.models.User.findByPk(bookingData.userId, {
+            attributes: ['id', 'firstName', 'lastName', 'email', 'phoneNumber'],
+            raw: true
+          });
+          if (user) {
+            bookingData.User = user;
+            bookingData.bookingUser = user;
+          }
+        } catch (userError) {
+          console.error(`Error fetching user ${bookingData.userId}:`, userError.message);
+        }
       }
       
-      // ✅ Add offer details at root level for frontend
-      if (bookingData.offer) {
-        bookingData.Offer = bookingData.offer;
+      // Manually fetch Offer with Service
+      if (bookingData.offerId) {
+        try {
+          const offer = await this.models.Offer.findByPk(bookingData.offerId, {
+            raw: false
+          });
+          
+          if (offer) {
+            const offerData = offer.toJSON();
+            
+            // Fetch Service for this offer
+            if (offerData.service_id) {
+              try {
+                const service = await this.models.Service.findByPk(offerData.service_id, {
+                  raw: false
+                });
+                if (service) {
+                  const serviceData = service.toJSON();
+                  
+                  // Fetch Store for this service
+                  if (serviceData.store_id) {
+                    try {
+                      const store = await this.models.Store.findByPk(serviceData.store_id, {
+                        raw: true
+                      });
+                      if (store) {
+                        serviceData.store = store;
+                      }
+                    } catch (storeError) {
+                      console.error('Error fetching store:', storeError.message);
+                    }
+                  }
+                  
+                  offerData.service = serviceData;
+                  offerData.Service = serviceData;
+                }
+              } catch (serviceError) {
+                console.error('Error fetching service:', serviceError.message);
+              }
+            }
+            
+            bookingData.Offer = offerData;
+            bookingData.offer = offerData;
+          }
+        } catch (offerError) {
+          console.error(`Error fetching offer ${bookingData.offerId}:`, offerError.message);
+        }
       }
       
-      // ✅ Add helper properties
+      // Manually fetch Payment
+      if (bookingData.paymentId) {
+        try {
+          const payment = await this.models.Payment.findByPk(bookingData.paymentId, {
+            raw: true
+          });
+          if (payment) {
+            bookingData.Payment = payment;
+            bookingData.payment = payment;
+          }
+        } catch (paymentError) {
+          console.error(`Error fetching payment ${bookingData.paymentId}:`, paymentError.message);
+        }
+      }
+      
+      // Manually fetch Store
+      if (bookingData.storeId) {
+        try {
+          const store = await this.models.Store.findByPk(bookingData.storeId, {
+            raw: true
+          });
+          if (store) {
+            bookingData.Store = store;
+            bookingData.store = store;
+          }
+        } catch (storeError) {
+          console.error(`Error fetching store ${bookingData.storeId}:`, storeError.message);
+        }
+      }
+      
+      // Manually fetch Staff if staffId exists
+      if (bookingData.staffId) {
+        try {
+          const staff = await this.models.Staff.findByPk(bookingData.staffId, {
+            raw: true
+          });
+          if (staff) {
+            bookingData.Staff = staff;
+            bookingData.staff = staff;
+          }
+        } catch (staffError) {
+          console.error(`Error fetching staff ${bookingData.staffId}:`, staffError.message);
+        }
+      }
+      
+      // Add helper properties
       bookingData.isOfferBooking = true;
-      bookingData.accessFeePaid = !!booking.paymentId;
+      bookingData.accessFeePaid = !!bookingData.paymentId;
       bookingData.customerName = `${bookingData.User?.firstName || ''} ${bookingData.User?.lastName || ''}`.trim();
-      bookingData.offerTitle = bookingData.Offer?.service?.name || bookingData.Offer?.title || 'Special Offer';
+      bookingData.offerTitle = bookingData.Offer?.Service?.name || bookingData.Offer?.service?.name || bookingData.Offer?.title || 'Special Offer';
       
       return bookingData;
-    });
+    }));
 
     // Calculate summary
     const summary = {
@@ -1087,7 +1161,9 @@ async getAllMerchantBookings(req, res) {
     };
 
     console.log('📊 Summary:', summary);
-    console.log('📋 Sample booking (first):', processedBookings[0]);
+    if (processedBookings.length > 0) {
+      console.log('📋 Sample booking keys:', Object.keys(processedBookings[0]));
+    }
 
     return res.status(200).json({
       success: true,
@@ -1111,7 +1187,6 @@ async getAllMerchantBookings(req, res) {
     });
   }
 }
-
   async getUserBookings(req, res) {
     try {
       const userId = req.user?.id;
