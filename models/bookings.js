@@ -375,11 +375,6 @@ module.exports = (sequelize) => {
         allowNull: true,
         comment: 'Who confirmed the booking (system/merchant name)'
       },
-      confirmed_at: {
-        type: DataTypes.DATE,
-        allowNull: true,
-        comment: 'When the booking was confirmed'
-      },
       no_show_marked_at: {
         type: DataTypes.DATE,
         allowNull: true,
