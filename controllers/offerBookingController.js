@@ -27,9 +27,16 @@ const {
 } = models;
 
 const SlotGenerationService = require('../services/slotGenerationService');
+const NotificationService = require('../services/notificationService');
 const slotService = new SlotGenerationService(models);
 
+
 class OfferBookingController {
+
+  constructor() {
+    this.slotService = new SlotGenerationService(models);
+    this.notificationService = new NotificationService(); // ✅ ADD THIS
+  }
 
   /**
    * Calculate platform access fee for an offer
@@ -520,8 +527,8 @@ class OfferBookingController {
         userId,
         startTime: bookingDateTime.toDate(),
         endTime,
-        status: 'pending', 
-        payment_status: 'pending', 
+        status: 'pending',
+        payment_status: 'pending',
         storeId: bookingStore?.id,
         branchId: bookingBranch?.id,
         staffId: bookingStaff?.id,
@@ -563,6 +570,25 @@ class OfferBookingController {
       if (transaction && !transactionCommitted) {
         await transaction.commit();
         transactionCommitted = true;
+      }
+
+      // Send booking notifications to both user and merchant
+      try {
+        await this.sendBookingNotifications(booking, offer, service, user, store, staff);
+      } catch (notificationError) {
+        console.warn('Booking notification failed:', notificationError.message);
+        // Don't fail the booking if notifications fail
+      }
+
+      // Send appropriate confirmation email based on status
+      try {
+        if (booking.status === 'confirmed') {
+          await this.sendBookingConfirmationEmail(booking, offer, service, user, store, staff);
+        } else {
+          await this.sendBookingPendingEmail(booking, offer, service, user, store, staff);
+        }
+      } catch (emailError) {
+        console.warn('Email sending failed:', emailError.message);
       }
 
       // Send confirmation email
@@ -953,240 +979,240 @@ class OfferBookingController {
     }
   }
 
- /**
- * Get all offer bookings for a merchant
- * @route GET /api/v1/bookings/merchant/offers
- */
-async getAllMerchantBookings(req, res) {
-  try {
-    console.log('📊 Getting all merchant offer bookings');
-    const merchantId = req.user?.id || req.merchant?.id;
+  /**
+  * Get all offer bookings for a merchant
+  * @route GET /api/v1/bookings/merchant/offers
+  */
+  async getAllMerchantBookings(req, res) {
+    try {
+      console.log('📊 Getting all merchant offer bookings');
+      const merchantId = req.user?.id || req.merchant?.id;
 
-    if (!merchantId) {
-      return res.status(401).json({
-        success: false,
-        message: 'Merchant authentication required'
+      if (!merchantId) {
+        return res.status(401).json({
+          success: false,
+          message: 'Merchant authentication required'
+        });
+      }
+
+      const { limit = 100, offset = 0, status } = req.query;
+
+      // Get merchant's stores
+      const merchantStores = await this.models.Store.findAll({
+        where: { merchant_id: merchantId },
+        attributes: ['id'],
+        raw: true
       });
-    }
 
-    const { limit = 100, offset = 0, status } = req.query;
-
-    // Get merchant's stores
-    const merchantStores = await this.models.Store.findAll({
-      where: { merchant_id: merchantId },
-      attributes: ['id'],
-      raw: true
-    });
-
-    if (!merchantStores || merchantStores.length === 0) {
-      console.log('⚠️ No stores found for merchant:', merchantId);
-      return res.status(200).json({
-        success: true,
-        bookings: [],
-        pagination: { total: 0, limit: parseInt(limit), offset: parseInt(offset) },
-        summary: {
-          total: 0,
-          pending: 0,
-          confirmed: 0,
-          completed: 0,
-          cancelled: 0,
-          in_progress: 0
-        },
-        message: 'No stores found for this merchant'
-      });
-    }
-
-    const storeIds = merchantStores.map(store => store.id);
-    console.log('📍 Merchant store IDs:', storeIds);
-
-    // Build where clause
-    const whereClause = {
-      bookingType: 'offer',
-      storeId: storeIds
-    };
-
-    if (status && status !== 'all' && status !== '') {
-      whereClause.status = status;
-    }
-
-    console.log('🔍 Query where clause:', JSON.stringify(whereClause, null, 2));
-
-    // ✅ Fetch bookings with NO INCLUDES (raw query)
-    const bookings = await this.models.Booking.findAll({
-      where: whereClause,
-      limit: parseInt(limit),
-      offset: parseInt(offset),
-      order: [['createdAt', 'DESC']],
-      raw: false // We need the Sequelize instance for toJSON()
-    });
-
-    const count = await this.models.Booking.count({
-      where: whereClause
-    });
-
-    console.log(`✅ Found ${count} offer bookings (total)`);
-    console.log(`📦 Returning ${bookings.length} bookings in this batch`);
-
-    // Process each booking and manually fetch related data
-    const processedBookings = await Promise.all(bookings.map(async (booking) => {
-      const bookingData = booking.toJSON();
-      
-      // Manually fetch User
-      if (bookingData.userId) {
-        try {
-          const user = await this.models.User.findByPk(bookingData.userId, {
-            attributes: ['id', 'firstName', 'lastName', 'email', 'phoneNumber'],
-            raw: true
-          });
-          if (user) {
-            bookingData.User = user;
-            bookingData.bookingUser = user;
-          }
-        } catch (userError) {
-          console.error(`Error fetching user ${bookingData.userId}:`, userError.message);
-        }
+      if (!merchantStores || merchantStores.length === 0) {
+        console.log('⚠️ No stores found for merchant:', merchantId);
+        return res.status(200).json({
+          success: true,
+          bookings: [],
+          pagination: { total: 0, limit: parseInt(limit), offset: parseInt(offset) },
+          summary: {
+            total: 0,
+            pending: 0,
+            confirmed: 0,
+            completed: 0,
+            cancelled: 0,
+            in_progress: 0
+          },
+          message: 'No stores found for this merchant'
+        });
       }
-      
-      // Manually fetch Offer with Service
-      if (bookingData.offerId) {
-        try {
-          const offer = await this.models.Offer.findByPk(bookingData.offerId, {
-            raw: false
-          });
-          
-          if (offer) {
-            const offerData = offer.toJSON();
-            
-            // Fetch Service for this offer
-            if (offerData.service_id) {
-              try {
-                const service = await this.models.Service.findByPk(offerData.service_id, {
-                  raw: false
-                });
-                if (service) {
-                  const serviceData = service.toJSON();
-                  
-                  // Fetch Store for this service
-                  if (serviceData.store_id) {
-                    try {
-                      const store = await this.models.Store.findByPk(serviceData.store_id, {
-                        raw: true
-                      });
-                      if (store) {
-                        serviceData.store = store;
-                      }
-                    } catch (storeError) {
-                      console.error('Error fetching store:', storeError.message);
-                    }
-                  }
-                  
-                  offerData.service = serviceData;
-                  offerData.Service = serviceData;
-                }
-              } catch (serviceError) {
-                console.error('Error fetching service:', serviceError.message);
-              }
-            }
-            
-            bookingData.Offer = offerData;
-            bookingData.offer = offerData;
-          }
-        } catch (offerError) {
-          console.error(`Error fetching offer ${bookingData.offerId}:`, offerError.message);
-        }
-      }
-      
-      // Manually fetch Payment
-      if (bookingData.paymentId) {
-        try {
-          const payment = await this.models.Payment.findByPk(bookingData.paymentId, {
-            raw: true
-          });
-          if (payment) {
-            bookingData.Payment = payment;
-            bookingData.payment = payment;
-          }
-        } catch (paymentError) {
-          console.error(`Error fetching payment ${bookingData.paymentId}:`, paymentError.message);
-        }
-      }
-      
-      // Manually fetch Store
-      if (bookingData.storeId) {
-        try {
-          const store = await this.models.Store.findByPk(bookingData.storeId, {
-            raw: true
-          });
-          if (store) {
-            bookingData.Store = store;
-            bookingData.store = store;
-          }
-        } catch (storeError) {
-          console.error(`Error fetching store ${bookingData.storeId}:`, storeError.message);
-        }
-      }
-      
-      // Manually fetch Staff if staffId exists
-      if (bookingData.staffId) {
-        try {
-          const staff = await this.models.Staff.findByPk(bookingData.staffId, {
-            raw: true
-          });
-          if (staff) {
-            bookingData.Staff = staff;
-            bookingData.staff = staff;
-          }
-        } catch (staffError) {
-          console.error(`Error fetching staff ${bookingData.staffId}:`, staffError.message);
-        }
-      }
-      
-      // Add helper properties
-      bookingData.isOfferBooking = true;
-      bookingData.accessFeePaid = !!bookingData.paymentId;
-      bookingData.customerName = `${bookingData.User?.firstName || ''} ${bookingData.User?.lastName || ''}`.trim();
-      bookingData.offerTitle = bookingData.Offer?.Service?.name || bookingData.Offer?.service?.name || bookingData.Offer?.title || 'Special Offer';
-      
-      return bookingData;
-    }));
 
-    // Calculate summary
-    const summary = {
-      total: count,
-      pending: bookings.filter(b => b.status === 'pending').length,
-      confirmed: bookings.filter(b => b.status === 'confirmed').length,
-      completed: bookings.filter(b => b.status === 'completed').length,
-      cancelled: bookings.filter(b => b.status === 'cancelled').length,
-      in_progress: bookings.filter(b => b.status === 'in_progress').length
-    };
+      const storeIds = merchantStores.map(store => store.id);
+      console.log('📍 Merchant store IDs:', storeIds);
 
-    console.log('📊 Summary:', summary);
-    if (processedBookings.length > 0) {
-      console.log('📋 Sample booking keys:', Object.keys(processedBookings[0]));
-    }
+      // Build where clause
+      const whereClause = {
+        bookingType: 'offer',
+        storeId: storeIds
+      };
 
-    return res.status(200).json({
-      success: true,
-      bookings: processedBookings,
-      pagination: {
-        total: count,
+      if (status && status !== 'all' && status !== '') {
+        whereClause.status = status;
+      }
+
+      console.log('🔍 Query where clause:', JSON.stringify(whereClause, null, 2));
+
+      // ✅ Fetch bookings with NO INCLUDES (raw query)
+      const bookings = await this.models.Booking.findAll({
+        where: whereClause,
         limit: parseInt(limit),
         offset: parseInt(offset),
-        totalPages: Math.ceil(count / limit)
-      },
-      summary
-    });
+        order: [['createdAt', 'DESC']],
+        raw: false // We need the Sequelize instance for toJSON()
+      });
 
-  } catch (error) {
-    console.error('❌ Error getting merchant offer bookings:', error);
-    console.error('Error stack:', error.stack);
-    return res.status(500).json({
-      success: false,
-      message: 'Failed to fetch merchant offer bookings',
-      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
-    });
+      const count = await this.models.Booking.count({
+        where: whereClause
+      });
+
+      console.log(`✅ Found ${count} offer bookings (total)`);
+      console.log(`📦 Returning ${bookings.length} bookings in this batch`);
+
+      // Process each booking and manually fetch related data
+      const processedBookings = await Promise.all(bookings.map(async (booking) => {
+        const bookingData = booking.toJSON();
+
+        // Manually fetch User
+        if (bookingData.userId) {
+          try {
+            const user = await this.models.User.findByPk(bookingData.userId, {
+              attributes: ['id', 'firstName', 'lastName', 'email', 'phoneNumber'],
+              raw: true
+            });
+            if (user) {
+              bookingData.User = user;
+              bookingData.bookingUser = user;
+            }
+          } catch (userError) {
+            console.error(`Error fetching user ${bookingData.userId}:`, userError.message);
+          }
+        }
+
+        // Manually fetch Offer with Service
+        if (bookingData.offerId) {
+          try {
+            const offer = await this.models.Offer.findByPk(bookingData.offerId, {
+              raw: false
+            });
+
+            if (offer) {
+              const offerData = offer.toJSON();
+
+              // Fetch Service for this offer
+              if (offerData.service_id) {
+                try {
+                  const service = await this.models.Service.findByPk(offerData.service_id, {
+                    raw: false
+                  });
+                  if (service) {
+                    const serviceData = service.toJSON();
+
+                    // Fetch Store for this service
+                    if (serviceData.store_id) {
+                      try {
+                        const store = await this.models.Store.findByPk(serviceData.store_id, {
+                          raw: true
+                        });
+                        if (store) {
+                          serviceData.store = store;
+                        }
+                      } catch (storeError) {
+                        console.error('Error fetching store:', storeError.message);
+                      }
+                    }
+
+                    offerData.service = serviceData;
+                    offerData.Service = serviceData;
+                  }
+                } catch (serviceError) {
+                  console.error('Error fetching service:', serviceError.message);
+                }
+              }
+
+              bookingData.Offer = offerData;
+              bookingData.offer = offerData;
+            }
+          } catch (offerError) {
+            console.error(`Error fetching offer ${bookingData.offerId}:`, offerError.message);
+          }
+        }
+
+        // Manually fetch Payment
+        if (bookingData.paymentId) {
+          try {
+            const payment = await this.models.Payment.findByPk(bookingData.paymentId, {
+              raw: true
+            });
+            if (payment) {
+              bookingData.Payment = payment;
+              bookingData.payment = payment;
+            }
+          } catch (paymentError) {
+            console.error(`Error fetching payment ${bookingData.paymentId}:`, paymentError.message);
+          }
+        }
+
+        // Manually fetch Store
+        if (bookingData.storeId) {
+          try {
+            const store = await this.models.Store.findByPk(bookingData.storeId, {
+              raw: true
+            });
+            if (store) {
+              bookingData.Store = store;
+              bookingData.store = store;
+            }
+          } catch (storeError) {
+            console.error(`Error fetching store ${bookingData.storeId}:`, storeError.message);
+          }
+        }
+
+        // Manually fetch Staff if staffId exists
+        if (bookingData.staffId) {
+          try {
+            const staff = await this.models.Staff.findByPk(bookingData.staffId, {
+              raw: true
+            });
+            if (staff) {
+              bookingData.Staff = staff;
+              bookingData.staff = staff;
+            }
+          } catch (staffError) {
+            console.error(`Error fetching staff ${bookingData.staffId}:`, staffError.message);
+          }
+        }
+
+        // Add helper properties
+        bookingData.isOfferBooking = true;
+        bookingData.accessFeePaid = !!bookingData.paymentId;
+        bookingData.customerName = `${bookingData.User?.firstName || ''} ${bookingData.User?.lastName || ''}`.trim();
+        bookingData.offerTitle = bookingData.Offer?.Service?.name || bookingData.Offer?.service?.name || bookingData.Offer?.title || 'Special Offer';
+
+        return bookingData;
+      }));
+
+      // Calculate summary
+      const summary = {
+        total: count,
+        pending: bookings.filter(b => b.status === 'pending').length,
+        confirmed: bookings.filter(b => b.status === 'confirmed').length,
+        completed: bookings.filter(b => b.status === 'completed').length,
+        cancelled: bookings.filter(b => b.status === 'cancelled').length,
+        in_progress: bookings.filter(b => b.status === 'in_progress').length
+      };
+
+      console.log('📊 Summary:', summary);
+      if (processedBookings.length > 0) {
+        console.log('📋 Sample booking keys:', Object.keys(processedBookings[0]));
+      }
+
+      return res.status(200).json({
+        success: true,
+        bookings: processedBookings,
+        pagination: {
+          total: count,
+          limit: parseInt(limit),
+          offset: parseInt(offset),
+          totalPages: Math.ceil(count / limit)
+        },
+        summary
+      });
+
+    } catch (error) {
+      console.error('❌ Error getting merchant offer bookings:', error);
+      console.error('Error stack:', error.stack);
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to fetch merchant offer bookings',
+        error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+      });
+    }
   }
-}
   async getUserBookings(req, res) {
     try {
       const userId = req.user?.id;
@@ -1357,6 +1383,7 @@ async getAllMerchantBookings(req, res) {
       });
     }
   }
+  
 
   async getBookingById(req, res) {
     try {
@@ -1433,6 +1460,222 @@ async getAllMerchantBookings(req, res) {
         message: 'Failed to fetch booking details',
         error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
       });
+    }
+  }
+
+  // ==========================================
+  // NOTIFICATION METHODS
+  // ==========================================
+
+  /**
+   * Send booking notifications to both merchant and customer
+   */
+  async sendBookingNotifications(booking, offer, service, user, store, staff) {
+    try {
+      const qrCodeUrl = booking.qrCode;
+
+      // Send notification to merchant
+      await this.notificationService.sendOfferBookingNotificationToMerchant(
+        booking,
+        offer,
+        service,
+        store,
+        staff,
+        user
+      );
+
+      // Send confirmation to customer
+      await this.notificationService.sendOfferBookingConfirmationToCustomer(
+        booking,
+        offer,
+        service,
+        user,
+        store,
+        qrCodeUrl
+      );
+
+      console.log(`Offer booking notifications sent for booking ID: ${booking.id}`);
+      return true;
+    } catch (error) {
+      console.error('Error sending offer booking notifications:', error);
+      throw new Error('Failed to send booking notifications');
+    }
+  }
+
+  /**
+   * Send booking confirmation email
+   */
+  async sendBookingConfirmationEmail(booking, offer, service, user, store, staff) {
+    return this.notificationService.sendOfferBookingConfirmationToCustomer(
+      booking,
+      offer,
+      service,
+      user,
+      store,
+      booking.qrCode
+    );
+  }
+
+  /**
+   * Send pending booking email
+   */
+  async sendBookingPendingEmail(booking, offer, service, user, store, staff) {
+    // Use the same method - the status in booking will indicate it's pending
+    return this.notificationService.sendOfferBookingConfirmationToCustomer(
+      booking,
+      offer,
+      service,
+      user,
+      store,
+      booking.qrCode
+    );
+  }
+
+  /**
+   * Send check-in notification
+   */
+  async sendCheckInNotification(booking, checkInData) {
+    try {
+      const offer = await this.models.Offer.findByPk(booking.offerId, {
+        include: [{
+          model: this.models.Service,
+          as: 'service',
+          include: [{
+            model: this.models.Store,
+            as: 'store'
+          }]
+        }]
+      });
+
+      const user = await this.models.User.findByPk(booking.userId);
+
+      const templateData = {
+        userName: user.firstName || user.name || 'Valued Customer',
+        offerTitle: offer.title,
+        serviceName: offer.service?.name || 'Service',
+        bookingStartTime: this.notificationService.formatDateTime(booking.startTime),
+        status: 'Checked In',
+        checkInTime: this.notificationService.formatDateTime(checkInData.checked_in_at),
+        estimatedCompletionTime: checkInData.service_end_time
+          ? this.notificationService.formatDateTime(checkInData.service_end_time)
+          : 'TBD'
+      };
+
+      const htmlContent = await this.notificationService.renderTemplate(
+        'customerBookingConfirmation',
+        templateData
+      );
+
+      if (user.email) {
+        await this.notificationService.sendEmail(
+          user.email,
+          `Check-in Confirmed: ${offer.title}`,
+          htmlContent
+        );
+      }
+
+      return true;
+    } catch (error) {
+      console.error('Error sending check-in notification:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Send completion notification
+   */
+  async sendCompletionNotification(booking, completionData) {
+    try {
+      const offer = await this.models.Offer.findByPk(booking.offerId, {
+        include: [{
+          model: this.models.Service,
+          as: 'service',
+          include: [{
+            model: this.models.Store,
+            as: 'store'
+          }]
+        }]
+      });
+
+      const user = await this.models.User.findByPk(booking.userId);
+
+      const templateData = {
+        userName: user.firstName || user.name || 'Valued Customer',
+        offerTitle: offer.title,
+        serviceName: offer.service?.name || 'Service',
+        bookingStartTime: this.notificationService.formatDateTime(booking.startTime),
+        completionTime: this.notificationService.formatDateTime(completionData.completedAt),
+        status: 'Completed',
+        discount: offer.discount,
+        actualDuration: completionData.actual_duration || 'N/A'
+      };
+
+      const htmlContent = await this.notificationService.renderTemplate(
+        'customerBookingConfirmation',
+        templateData
+      );
+
+      if (user.email) {
+        await this.notificationService.sendEmail(
+          user.email,
+          `Service Completed: ${offer.title} - Thank you!`,
+          htmlContent
+        );
+      }
+
+      return true;
+    } catch (error) {
+      console.error('Error sending completion notification:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Send cancellation notification
+   */
+  async sendCancellationNotification(booking, reason, refundRequested) {
+    try {
+      const offer = await this.models.Offer.findByPk(booking.offerId, {
+        include: [{
+          model: this.models.Service,
+          as: 'service',
+          include: [{
+            model: this.models.Store,
+            as: 'store'
+          }]
+        }]
+      });
+
+      const user = await this.models.User.findByPk(booking.userId);
+
+      const templateData = {
+        userName: user.firstName || user.name || 'Valued Customer',
+        offerTitle: offer.title,
+        serviceName: offer.service?.name || 'Service',
+        bookingStartTime: this.notificationService.formatDateTime(booking.startTime),
+        status: 'Cancelled',
+        reason: reason || 'No reason provided',
+        refundRequested: refundRequested,
+        accessFee: booking.accessFee || 0
+      };
+
+      const htmlContent = await this.notificationService.renderTemplate(
+        'customerBookingConfirmation',
+        templateData
+      );
+
+      if (user.email) {
+        await this.notificationService.sendEmail(
+          user.email,
+          `Booking Cancelled: ${offer.title}`,
+          htmlContent
+        );
+      }
+
+      return true;
+    } catch (error) {
+      console.error('Error sending cancellation notification:', error);
+      throw error;
     }
   }
 

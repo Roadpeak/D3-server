@@ -1,137 +1,612 @@
-<!-- customer -->
+<!-- templates/customerBookingConfirmation.ejs -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Booking Confirmation - Discoun3ree</title>
   <style>
-    body {
-      font-family: 'Inter', 'Helvetica Neue', Arial, sans-serif;
+    * {
       margin: 0;
       padding: 0;
-      background-color: #f8fafc;
-      color: #4a5568;
-      line-height: 1.8;
+      box-sizing: border-box;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      margin: 0;
+      padding: 0;
+      background-color: #f0f4f8;
+      color: #2d3748;
+      line-height: 1.6;
+    }
+    .email-wrapper {
+      width: 100%;
+      background-color: #f0f4f8;
+      padding: 40px 20px;
     }
     .container {
       width: 100%;
-      max-width: 600px;
-      margin: 40px auto;
-      padding: 30px;
+      max-width: 650px;
+      margin: 0 auto;
       background-color: #ffffff;
       border-radius: 16px;
-      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.08);
       overflow: hidden;
     }
+    
+    /* Header Section */
     .header {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      padding: 40px 30px;
       text-align: center;
-      margin-bottom: 30px;
-      color: #2d3748;
+      color: white;
     }
-    .header h2 {
-      font-size: 28px;
-      font-weight: 700;
-      margin: 0;
-      background: linear-gradient(90deg, #1abc9c, #3498db);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
+    .logo {
+      font-size: 32px;
+      font-weight: 800;
+      margin-bottom: 10px;
+      letter-spacing: -0.5px;
     }
-    .header p {
+    .header-subtitle {
       font-size: 16px;
-      color: #718096;
-      margin: 8px 0 0;
+      opacity: 0.95;
+      font-weight: 400;
+    }
+    
+    /* Status Badge */
+    .status-badge {
+      display: inline-block;
+      margin-top: 20px;
+      padding: 10px 24px;
+      background-color: rgba(255, 255, 255, 0.2);
+      border-radius: 50px;
+      font-size: 14px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      backdrop-filter: blur(10px);
+    }
+    
+    /* Content Section */
+    .content {
+      padding: 40px 30px;
     }
     .greeting {
-      font-size: 18px;
-      color: #2d3748;
-      margin-bottom: 20px;
+      font-size: 20px;
+      color: #1a202c;
+      margin-bottom: 10px;
+      font-weight: 600;
     }
-    .details {
-      margin-top: 20px;
+    .intro-text {
       font-size: 16px;
-      color: #2d3748;
-      background-color: #f9fafb;
+      color: #4a5568;
+      margin-bottom: 30px;
+      line-height: 1.7;
+    }
+    
+    /* Booking Type Badge */
+    .booking-type-badge {
+      display: inline-block;
+      padding: 6px 16px;
+      border-radius: 20px;
+      font-size: 13px;
+      font-weight: 600;
+      margin-bottom: 20px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .type-service {
+      background-color: #e6f7ff;
+      color: #0066cc;
+    }
+    .type-offer {
+      background-color: #fff4e6;
+      color: #d46b08;
+    }
+    
+    /* Details Card */
+    .details-card {
+      background: linear-gradient(135deg, #f6f9fc 0%, #f0f4f8 100%);
+      border-radius: 12px;
+      padding: 30px;
+      margin: 25px 0;
+      border: 1px solid #e2e8f0;
+    }
+    .detail-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      padding: 14px 0;
+      border-bottom: 1px solid #e2e8f0;
+    }
+    .detail-row:last-child {
+      border-bottom: none;
+    }
+    .detail-label {
+      font-size: 14px;
+      color: #718096;
+      font-weight: 500;
+      flex: 0 0 40%;
+    }
+    .detail-value {
+      font-size: 15px;
+      color: #1a202c;
+      font-weight: 600;
+      text-align: right;
+      flex: 0 0 58%;
+    }
+    
+    /* Highlight Box */
+    .highlight-box {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
       padding: 20px;
       border-radius: 12px;
+      margin: 25px 0;
+      text-align: center;
     }
-    .details p {
-      margin: 10px 0;
+    .highlight-label {
+      font-size: 13px;
+      opacity: 0.9;
+      margin-bottom: 5px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
     }
-    .details strong {
-      color: #1abc9c;
+    .highlight-value {
+      font-size: 28px;
+      font-weight: 700;
+      margin-top: 5px;
     }
-    .button {
-      display: block;
-      margin: 30px auto 20px;
-      padding: 14px 28px;
-      background: linear-gradient(90deg, #1abc9c, #3498db);
+    
+    /* Offer Savings Badge */
+    .savings-badge {
+      background: linear-gradient(135deg, #10b981 0%, #059669 100%);
       color: white;
-      text-decoration: none;
+      padding: 15px 20px;
       border-radius: 12px;
+      margin: 20px 0;
+      text-align: center;
+    }
+    .savings-label {
+      font-size: 13px;
+      opacity: 0.9;
+      margin-bottom: 5px;
+    }
+    .savings-amount {
+      font-size: 24px;
+      font-weight: 700;
+    }
+    
+    /* QR Code Section */
+    .qr-section {
+      background-color: #f7fafc;
+      padding: 30px;
+      text-align: center;
+      border-radius: 12px;
+      margin: 25px 0;
+      border: 2px dashed #cbd5e0;
+    }
+    .qr-title {
       font-size: 16px;
-      font-weight: bold;
-      text-align: center;
-      max-width: 260px;
-      box-shadow: 0 6px 15px rgba(26, 188, 156, 0.3);
-      transition: background 0.3s ease, transform 0.2s ease;
-    }
-    .button:hover {
-      background: linear-gradient(90deg, #16a085, #2980b9);
-      transform: translateY(-2px);
-    }
-    .qr-code {
-      text-align: center;
-      margin-top: 30px;
+      font-weight: 600;
+      color: #2d3748;
+      margin-bottom: 15px;
     }
     .qr-code img {
       max-width: 200px;
       border-radius: 12px;
-      border: 1px solid #e2e8f0;
+      padding: 15px;
+      background: white;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
     }
-    .footer {
-      font-size: 14px;
+    .qr-instruction {
+      font-size: 13px;
       color: #718096;
+      margin-top: 15px;
+      line-height: 1.6;
+    }
+    
+    /* Action Buttons */
+    .button-container {
       text-align: center;
-      margin-top: 40px;
+      margin: 35px 0;
     }
-    .footer p {
-      margin: 10px 0;
-    }
-    .footer a {
-      color: #1abc9c;
+    .button {
+      display: inline-block;
+      padding: 16px 40px;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
       text-decoration: none;
+      border-radius: 50px;
+      font-size: 16px;
+      font-weight: 700;
+      text-align: center;
+      box-shadow: 0 10px 25px rgba(102, 126, 234, 0.3);
+      transition: all 0.3s ease;
+      letter-spacing: 0.3px;
+    }
+    .button:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 15px 35px rgba(102, 126, 234, 0.4);
+    }
+    .button-secondary {
+      display: inline-block;
+      margin-left: 15px;
+      padding: 16px 40px;
+      background: white;
+      color: #667eea;
+      text-decoration: none;
+      border: 2px solid #667eea;
+      border-radius: 50px;
+      font-size: 16px;
+      font-weight: 700;
+      transition: all 0.3s ease;
+    }
+    .button-secondary:hover {
+      background: #667eea;
+      color: white;
+    }
+    
+    /* Info Boxes */
+    .info-box {
+      background-color: #eef2ff;
+      border-left: 4px solid #667eea;
+      padding: 20px;
+      margin: 25px 0;
+      border-radius: 8px;
+    }
+    .info-box-title {
+      font-size: 15px;
+      font-weight: 700;
+      color: #4c51bf;
+      margin-bottom: 10px;
+    }
+    .info-box-content {
+      font-size: 14px;
+      color: #4a5568;
+      line-height: 1.7;
+    }
+    .info-box-content ul {
+      margin: 10px 0;
+      padding-left: 20px;
+    }
+    .info-box-content li {
+      margin: 8px 0;
+    }
+    
+    /* Warning Box */
+    .warning-box {
+      background-color: #fffbeb;
+      border-left: 4px solid #f59e0b;
+      padding: 20px;
+      margin: 25px 0;
+      border-radius: 8px;
+    }
+    .warning-box-title {
+      font-size: 15px;
+      font-weight: 700;
+      color: #d97706;
+      margin-bottom: 10px;
+    }
+    
+    /* Contact Section */
+    .contact-section {
+      background-color: #f7fafc;
+      padding: 25px;
+      border-radius: 12px;
+      margin: 30px 0;
+      text-align: center;
+    }
+    .contact-title {
+      font-size: 16px;
+      font-weight: 600;
+      color: #2d3748;
+      margin-bottom: 15px;
+    }
+    .contact-methods {
+      display: flex;
+      justify-content: center;
+      gap: 30px;
+      flex-wrap: wrap;
+    }
+    .contact-item {
+      text-align: center;
+    }
+    .contact-icon {
+      font-size: 24px;
+      margin-bottom: 8px;
+    }
+    .contact-link {
+      color: #667eea;
+      text-decoration: none;
+      font-weight: 600;
+      font-size: 14px;
+    }
+    .contact-link:hover {
+      text-decoration: underline;
+    }
+    
+    /* Footer */
+    .footer {
+      background-color: #2d3748;
+      color: #a0aec0;
+      padding: 40px 30px;
+      text-align: center;
+    }
+    .footer-logo {
+      font-size: 24px;
+      font-weight: 800;
+      color: white;
+      margin-bottom: 15px;
+    }
+    .footer-text {
+      font-size: 14px;
+      margin: 10px 0;
+      line-height: 1.6;
+    }
+    .footer-links {
+      margin: 20px 0;
+    }
+    .footer-link {
+      color: #667eea;
+      text-decoration: none;
+      margin: 0 15px;
+      font-size: 14px;
       font-weight: 500;
     }
-    .footer a:hover {
+    .footer-link:hover {
       text-decoration: underline;
+    }
+    .social-links {
+      margin-top: 20px;
+    }
+    .social-link {
+      display: inline-block;
+      margin: 0 10px;
+      color: #a0aec0;
+      font-size: 20px;
+      text-decoration: none;
+    }
+    .social-link:hover {
+      color: #667eea;
+    }
+    
+    /* Responsive */
+    @media only screen and (max-width: 600px) {
+      .email-wrapper {
+        padding: 20px 10px;
+      }
+      .container {
+        border-radius: 8px;
+      }
+      .header {
+        padding: 30px 20px;
+      }
+      .content {
+        padding: 30px 20px;
+      }
+      .button-container {
+        flex-direction: column;
+      }
+      .button, .button-secondary {
+        display: block;
+        margin: 10px 0;
+      }
+      .contact-methods {
+        flex-direction: column;
+        gap: 15px;
+      }
+      .detail-row {
+        flex-direction: column;
+      }
+      .detail-label, .detail-value {
+        text-align: left;
+        flex: 1;
+      }
+      .detail-value {
+        margin-top: 5px;
+      }
     }
   </style>
 </head>
 <body>
-  <div class="container">
-    <div class="header">
-      <h2>Booking Confirmation</h2>
-      <p>Thank you for booking with us!</p>
-    </div>
+  <div class="email-wrapper">
+    <div class="container">
+      <!-- Header -->
+      <div class="header">
+        <div class="logo">Discoun3ree</div>
+        <div class="header-subtitle">Your Booking is Confirmed!</div>
+        <div class="status-badge">
+          <%= status.toUpperCase() %>
+        </div>
+      </div>
 
-    <div class="greeting">
-      <p>Dear <strong><%= userName %></strong>,</p>
-      <p>Your Booking has been confirmed. Below are the details of your booking:</p>
-    </div>
+      <!-- Main Content -->
+      <div class="content">
+        <!-- Greeting -->
+        <div class="greeting">Hello <%= userName %>! 👋</div>
+        <div class="intro-text">
+          <% if (bookingType === 'offer') { %>
+            Great news! Your booking for our exclusive offer has been confirmed. You're all set to enjoy amazing savings!
+          <% } else { %>
+            Thank you for choosing us! Your service appointment has been confirmed and we're excited to serve you.
+          <% } %>
+        </div>
 
-    <div class="details">
-      <p><strong>Service Name:</strong> <%= serviceName %></p>
-      <p><strong>Booking Start Time:</strong> <%= bookingStartTime %></p>
-      <p><strong>Booking End Time:</strong> <%= bookingEndTime %></p>
-      <p><strong>Status:</strong> <%= status %></p>
-    </div>
+        <!-- Booking Type Badge -->
+        <div class="booking-type-badge <%= bookingType === 'offer' ? 'type-offer' : 'type-service' %>">
+          <%= bookingType === 'offer' ? '🎉 Special Offer Booking' : '✨ Service Booking' %>
+        </div>
 
-  
-    <a href="<%= bookingLink %>" class="button">View Booking Details</a>
+        <!-- Service/Offer Details -->
+        <div class="details-card">
+          <div class="detail-row">
+            <div class="detail-label"><%= bookingType === 'offer' ? 'Offer Title' : 'Service Name' %></div>
+            <div class="detail-value"><%= bookingType === 'offer' ? offerTitle : serviceName %></div>
+          </div>
+          
+          <% if (bookingType === 'offer' && serviceName) { %>
+          <div class="detail-row">
+            <div class="detail-label">Service Included</div>
+            <div class="detail-value"><%= serviceName %></div>
+          </div>
+          <% } %>
+          
+          <div class="detail-row">
+            <div class="detail-label">📅 Date & Time</div>
+            <div class="detail-value"><%= bookingStartTime %></div>
+          </div>
+          
+          <div class="detail-row">
+            <div class="detail-label">⏱️ Duration</div>
+            <div class="detail-value"><%= duration || 'TBD' %> minutes</div>
+          </div>
+          
+          <% if (storeName) { %>
+          <div class="detail-row">
+            <div class="detail-label">📍 Location</div>
+            <div class="detail-value"><%= storeName %></div>
+          </div>
+          <% } %>
+          
+          <% if (storeAddress) { %>
+          <div class="detail-row">
+            <div class="detail-label">Address</div>
+            <div class="detail-value"><%= storeAddress %></div>
+          </div>
+          <% } %>
+          
+          <% if (staffName) { %>
+          <div class="detail-row">
+            <div class="detail-label">👤 Staff Member</div>
+            <div class="detail-value"><%= staffName %></div>
+          </div>
+          <% } %>
+          
+          <div class="detail-row">
+            <div class="detail-label">🎫 Booking ID</div>
+            <div class="detail-value">#<%= bookingId %></div>
+          </div>
+        </div>
 
-    <div class="footer">
-      <p>If you have any questions, feel free to <a href="mailto:info@discoun3ree.com">contact our support team</a>.</p>
-      <p>This email was automatically generated. Please do not reply.</p>
+        <!-- Offer Savings (Only for Offer Bookings) -->
+        <% if (bookingType === 'offer' && discount) { %>
+        <div class="savings-badge">
+          <div class="savings-label">💰 You're Saving</div>
+          <div class="savings-amount"><%= discount %>% OFF</div>
+        </div>
+        <% } %>
+
+        <!-- Payment Information -->
+        <% if (bookingType === 'offer' && accessFee) { %>
+        <div class="highlight-box">
+          <div class="highlight-label">Access Fee Paid</div>
+          <div class="highlight-value">KES <%= accessFee %></div>
+          <div style="font-size: 13px; margin-top: 10px; opacity: 0.9;">
+            ✅ Payment confirmed via M-Pesa
+          </div>
+        </div>
+        <% } %>
+
+        <!-- QR Code Section -->
+        <% if (qrCodeUrl) { %>
+        <div class="qr-section">
+          <div class="qr-title">📱 Your Booking QR Code</div>
+          <div class="qr-code">
+            <img src="<%= qrCodeUrl %>" alt="Booking QR Code" />
+          </div>
+          <div class="qr-instruction">
+            Show this QR code when you arrive for quick check-in.<br>
+            You can also save it to your phone for offline access.
+          </div>
+        </div>
+        <% } %>
+
+        <!-- Important Information -->
+        <div class="info-box">
+          <div class="info-box-title">📋 What to Expect</div>
+          <div class="info-box-content">
+            <ul>
+              <li><strong>Arrive 10 minutes early</strong> for a smooth check-in process</li>
+              <li><strong>Bring your QR code</strong> (digital or printed) for verification</li>
+              <% if (bookingType === 'offer') { %>
+              <li><strong>Present your booking ID</strong> to claim your special discount</li>
+              <li><strong>Valid ID may be required</strong> for offer redemption</li>
+              <% } %>
+              <li><strong>Contact us</strong> if you need to reschedule or have questions</li>
+            </ul>
+          </div>
+        </div>
+
+        <!-- Cancellation Policy -->
+        <% if (cancellationPolicy) { %>
+        <div class="warning-box">
+          <div class="warning-box-title">⚠️ Cancellation Policy</div>
+          <div class="info-box-content">
+            <%= cancellationPolicy %>
+          </div>
+        </div>
+        <% } %>
+
+        <!-- Action Buttons -->
+        <div class="button-container">
+          <a href="<%= bookingLink || 'https://discoun3ree.com/bookings' %>" class="button">
+            View Full Details
+          </a>
+          <% if (rescheduleLink) { %>
+          <a href="<%= rescheduleLink %>" class="button-secondary">
+            Reschedule
+          </a>
+          <% } %>
+        </div>
+
+        <!-- Contact Section -->
+        <div class="contact-section">
+          <div class="contact-title">Need Help?</div>
+          <div class="contact-methods">
+            <div class="contact-item">
+              <div class="contact-icon">📧</div>
+              <a href="mailto:<%= supportEmail || 'support@discoun3ree.com' %>" class="contact-link">
+                Email Us
+              </a>
+            </div>
+            <div class="contact-item">
+              <div class="contact-icon">📞</div>
+              <a href="tel:<%= supportPhone || '+254712345678' %>" class="contact-link">
+                Call Support
+              </a>
+            </div>
+            <div class="contact-item">
+              <div class="contact-icon">💬</div>
+              <a href="<%= chatLink || 'https://discoun3ree.com/chat' %>" class="contact-link">
+                Live Chat
+              </a>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Footer -->
+      <div class="footer">
+        <div class="footer-logo">Discoun3ree</div>
+        <div class="footer-text">
+          Making quality services accessible to everyone
+        </div>
+        <div class="footer-links">
+          <a href="https://discoun3ree.com" class="footer-link">Website</a>
+          <a href="https://discoun3ree.com/offers" class="footer-link">Browse Offers</a>
+          <a href="https://discoun3ree.com/faq" class="footer-link">FAQs</a>
+          <a href="https://discoun3ree.com/contact" class="footer-link">Contact</a>
+        </div>
+        <div class="footer-text" style="font-size: 12px; margin-top: 20px;">
+          This email was sent to <%= userEmail %>.<br>
+          You're receiving this because you made a booking on Discoun3ree.<br>
+          © <%= new Date().getFullYear() %> Discoun3ree. All rights reserved.
+        </div>
+        <div class="footer-text" style="font-size: 11px; margin-top: 15px; opacity: 0.7;">
+          Please do not reply to this email. For support, contact us through the methods above.
+        </div>
+      </div>
     </div>
   </div>
 </body>

@@ -1,70 +1,743 @@
-<!-- merchant -->
-
+<!-- templates/merchantBookingNotification.ejs -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>New Booking Alert - Discoun3ree</title>
   <style>
-    body {
-      font-family: 'Arial', sans-serif;
+    * {
       margin: 0;
       padding: 0;
-      background-color: #f7f9fc;
-      color: #333;
+      box-sizing: border-box;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      margin: 0;
+      padding: 0;
+      background-color: #f0f4f8;
+      color: #2d3748;
+      line-height: 1.6;
+    }
+    .email-wrapper {
+      width: 100%;
+      background-color: #f0f4f8;
+      padding: 40px 20px;
     }
     .container {
-      max-width: 600px;
-      margin: 20px auto;
-      padding: 30px;
-      background-color: #fff;
-      border-radius: 10px;
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+      width: 100%;
+      max-width: 700px;
+      margin: 0 auto;
+      background-color: #ffffff;
+      border-radius: 16px;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.08);
+      overflow: hidden;
     }
+    
+    /* Header Section */
     .header {
-      font-size: 20px;
-      font-weight: 600;
-      color: #2c3e50;
+      background: linear-gradient(135deg, #1e3a8a 0%, #3b82f6 100%);
+      padding: 40px 30px;
+      text-align: center;
+      color: white;
+      position: relative;
+    }
+    .notification-badge {
+      position: absolute;
+      top: 20px;
+      right: 20px;
+      background-color: #ef4444;
+      color: white;
+      padding: 6px 12px;
+      border-radius: 50px;
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.7; }
+    }
+    .header-icon {
+      font-size: 48px;
       margin-bottom: 15px;
     }
-    .details p {
+    .header-title {
+      font-size: 28px;
+      font-weight: 800;
+      margin-bottom: 8px;
+      letter-spacing: -0.5px;
+    }
+    .header-subtitle {
       font-size: 16px;
-      margin: 8px 0;
+      opacity: 0.95;
+      font-weight: 400;
     }
-    .details strong {
-      color: #34495e;
+    
+    /* Booking Type Badge */
+    .booking-type-section {
+      background-color: #f7fafc;
+      padding: 20px 30px;
+      border-bottom: 3px solid #e2e8f0;
     }
-    .footer {
-      margin-top: 25px;
+    .booking-type-badge {
+      display: inline-block;
+      padding: 8px 20px;
+      border-radius: 20px;
+      font-size: 13px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .type-service {
+      background-color: #dbeafe;
+      color: #1e40af;
+    }
+    .type-offer {
+      background-color: #fef3c7;
+      color: #b45309;
+    }
+    .booking-id {
+      float: right;
       font-size: 14px;
-      color: #7f8c8d;
+      color: #64748b;
+      font-weight: 600;
+    }
+    
+    /* Content Section */
+    .content {
+      padding: 40px 30px;
+    }
+    .greeting {
+      font-size: 20px;
+      color: #1a202c;
+      margin-bottom: 15px;
+      font-weight: 600;
+    }
+    .intro-text {
+      font-size: 16px;
+      color: #4a5568;
+      margin-bottom: 30px;
+      line-height: 1.7;
+    }
+    
+    /* Alert Box */
+    .alert-box {
+      background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+      border-left: 4px solid #f59e0b;
+      padding: 20px;
+      border-radius: 8px;
+      margin-bottom: 30px;
+    }
+    .alert-title {
+      font-size: 15px;
+      font-weight: 700;
+      color: #92400e;
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .alert-content {
+      font-size: 14px;
+      color: #78350f;
+      line-height: 1.6;
+    }
+    
+    /* Customer Info Card */
+    .customer-card {
+      background: linear-gradient(135deg, #ede9fe 0%, #ddd6fe 100%);
+      border-radius: 12px;
+      padding: 25px;
+      margin: 25px 0;
+      border: 2px solid #c4b5fd;
+    }
+    .customer-card-title {
+      font-size: 16px;
+      font-weight: 700;
+      color: #5b21b6;
+      margin-bottom: 15px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .customer-detail {
+      display: flex;
+      align-items: center;
+      padding: 10px 0;
+      color: #6b21a8;
+      font-size: 15px;
+    }
+    .customer-detail-icon {
+      width: 24px;
+      margin-right: 12px;
+    }
+    .customer-detail-value {
+      font-weight: 600;
+    }
+    
+    /* Booking Details Card */
+    .details-card {
+      background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+      border-radius: 12px;
+      padding: 25px;
+      margin: 25px 0;
+      border: 2px solid #bae6fd;
+    }
+    .details-card-title {
+      font-size: 16px;
+      font-weight: 700;
+      color: #075985;
+      margin-bottom: 15px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .detail-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 12px 0;
+      border-bottom: 1px solid #bae6fd;
+    }
+    .detail-row:last-child {
+      border-bottom: none;
+    }
+    .detail-label {
+      font-size: 14px;
+      color: #0c4a6e;
+      font-weight: 500;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .detail-value {
+      font-size: 15px;
+      color: #0369a1;
+      font-weight: 700;
+      text-align: right;
+    }
+    
+    /* Revenue Card (For Offer Bookings) */
+    .revenue-card {
+      background: linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%);
+      border-radius: 12px;
+      padding: 25px;
+      margin: 25px 0;
       text-align: center;
+      border: 2px solid #6ee7b7;
+    }
+    .revenue-label {
+      font-size: 14px;
+      color: #065f46;
+      margin-bottom: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .revenue-amount {
+      font-size: 36px;
+      font-weight: 800;
+      color: #047857;
+      margin-bottom: 8px;
+    }
+    .revenue-sublabel {
+      font-size: 13px;
+      color: #059669;
+    }
+    
+    /* Status Badge */
+    .status-badge {
+      display: inline-block;
+      padding: 8px 16px;
+      border-radius: 20px;
+      font-size: 13px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+    }
+    .status-confirmed {
+      background-color: #d1fae5;
+      color: #065f46;
+    }
+    .status-pending {
+      background-color: #fef3c7;
+      color: #92400e;
+    }
+    
+    /* Action Buttons */
+    .action-section {
+      background-color: #f8fafc;
+      padding: 30px;
+      text-align: center;
+      margin: 30px 0;
+      border-radius: 12px;
+    }
+    .action-title {
+      font-size: 18px;
+      font-weight: 700;
+      color: #1e293b;
+      margin-bottom: 20px;
+    }
+    .button-group {
+      display: flex;
+      justify-content: center;
+      gap: 15px;
+      flex-wrap: wrap;
     }
     .button {
       display: inline-block;
-      padding: 10px 20px;
-      background-color: #3498db;
+      padding: 14px 32px;
+      background: linear-gradient(135deg, #1e3a8a 0%, #3b82f6 100%);
       color: white;
       text-decoration: none;
-      border-radius: 5px;
-      margin-top: 20px;
+      border-radius: 50px;
+      font-size: 15px;
+      font-weight: 700;
+      box-shadow: 0 8px 20px rgba(30, 58, 138, 0.3);
+      transition: all 0.3s ease;
+      letter-spacing: 0.3px;
+    }
+    .button:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 12px 28px rgba(30, 58, 138, 0.4);
+    }
+    .button-secondary {
+      background: white;
+      color: #1e3a8a;
+      border: 2px solid #1e3a8a;
+      box-shadow: none;
+    }
+    .button-secondary:hover {
+      background: #1e3a8a;
+      color: white;
+    }
+    
+    /* Quick Actions */
+    .quick-actions {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 15px;
+      margin: 25px 0;
+    }
+    .quick-action-card {
+      background: white;
+      border: 2px solid #e2e8f0;
+      border-radius: 10px;
+      padding: 20px;
+      text-align: center;
+      transition: all 0.3s ease;
+      cursor: pointer;
+    }
+    .quick-action-card:hover {
+      border-color: #3b82f6;
+      transform: translateY(-3px);
+      box-shadow: 0 8px 20px rgba(59, 130, 246, 0.2);
+    }
+    .quick-action-icon {
+      font-size: 32px;
+      margin-bottom: 10px;
+    }
+    .quick-action-label {
+      font-size: 13px;
+      font-weight: 600;
+      color: #475569;
+    }
+    
+    /* Important Notes */
+    .notes-section {
+      background-color: #fef2f2;
+      border-left: 4px solid #dc2626;
+      padding: 20px;
+      border-radius: 8px;
+      margin: 25px 0;
+    }
+    .notes-title {
+      font-size: 15px;
+      font-weight: 700;
+      color: #991b1b;
+      margin-bottom: 10px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .notes-content {
+      font-size: 14px;
+      color: #7f1d1d;
+      line-height: 1.7;
+    }
+    .notes-content ul {
+      margin: 10px 0;
+      padding-left: 20px;
+    }
+    .notes-content li {
+      margin: 8px 0;
+    }
+    
+    /* Stats Grid */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: 15px;
+      margin: 25px 0;
+    }
+    .stat-card {
+      background: white;
+      border: 2px solid #e2e8f0;
+      border-radius: 10px;
+      padding: 20px;
+      text-align: center;
+    }
+    .stat-value {
+      font-size: 28px;
+      font-weight: 800;
+      color: #1e40af;
+      margin-bottom: 5px;
+    }
+    .stat-label {
+      font-size: 12px;
+      color: #64748b;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      font-weight: 600;
+    }
+    
+    /* Footer */
+    .footer {
+      background-color: #1e293b;
+      color: #94a3b8;
+      padding: 40px 30px;
+      text-align: center;
+    }
+    .footer-title {
+      font-size: 20px;
+      font-weight: 800;
+      color: white;
+      margin-bottom: 15px;
+    }
+    .footer-text {
+      font-size: 14px;
+      margin: 10px 0;
+      line-height: 1.6;
+    }
+    .footer-links {
+      margin: 20px 0;
+    }
+    .footer-link {
+      color: #3b82f6;
+      text-decoration: none;
+      margin: 0 15px;
+      font-size: 14px;
+      font-weight: 500;
+    }
+    .footer-link:hover {
+      text-decoration: underline;
+    }
+    
+    /* Responsive */
+    @media only screen and (max-width: 600px) {
+      .email-wrapper {
+        padding: 20px 10px;
+      }
+      .container {
+        border-radius: 8px;
+      }
+      .header {
+        padding: 30px 20px;
+      }
+      .content {
+        padding: 30px 20px;
+      }
+      .booking-id {
+        float: none;
+        display: block;
+        margin-top: 10px;
+      }
+      .button-group {
+        flex-direction: column;
+      }
+      .button {
+        width: 100%;
+      }
+      .quick-actions {
+        grid-template-columns: 1fr;
+      }
+      .detail-row {
+        flex-direction: column;
+        align-items: flex-start;
+      }
+      .detail-value {
+        text-align: left;
+        margin-top: 5px;
+      }
     }
   </style>
 </head>
 <body>
-  <div class="container">
-    <h2 class="header">You Have A New Client Booking </h2>
-    <p>Hello <strong><%= staffName %></strong>,</p>
-    <p>Log in to manage yor bookings:</p>
-    <div class="details">
-      <p><strong>Service Name:</strong> <%= serviceName %></p>
-      <p><strong>Booking Start Time:</strong> <%= bookingStartTime %></p>
-      <p><strong>Booking End Time:</strong> <%= bookingEndTime %></p>
-      <p><strong>Customer ID:</strong> <%= customerId %></p>
+  <div class="email-wrapper">
+    <div class="container">
+      <!-- Header -->
+      <div class="header">
+        <div class="notification-badge">🔔 NEW</div>
+        <div class="header-icon">📋</div>
+        <div class="header-title">New Booking Alert</div>
+        <div class="header-subtitle">You have a new customer booking!</div>
+      </div>
+
+      <!-- Booking Type Section -->
+      <div class="booking-type-section">
+        <div class="booking-type-badge <%= bookingType === 'offer' ? 'type-offer' : 'type-service' %>">
+          <%= bookingType === 'offer' ? '🎉 Offer Booking' : '✨ Service Booking' %>
+        </div>
+        <div class="booking-id">ID: #<%= bookingId %></div>
+      </div>
+
+      <!-- Main Content -->
+      <div class="content">
+        <!-- Greeting -->
+        <div class="greeting">Hello <%= merchantName || staffName || 'Team' %>! 👋</div>
+        <div class="intro-text">
+          <% if (bookingType === 'offer') { %>
+            Great news! A customer has just booked one of your exclusive offers. Please review the details below and prepare for their visit.
+          <% } else { %>
+            A new service appointment has been booked. Please review the booking details and ensure everything is ready for the customer's visit.
+          <% } %>
+        </div>
+
+        <!-- Alert Box -->
+        <% if (status === 'pending') { %>
+        <div class="alert-box">
+          <div class="alert-title">
+            ⚠️ Action Required
+          </div>
+          <div class="alert-content">
+            This booking is <strong>pending confirmation</strong>. Please review and confirm as soon as possible to secure the appointment.
+          </div>
+        </div>
+        <% } %>
+
+        <!-- Customer Information Card -->
+        <div class="customer-card">
+          <div class="customer-card-title">
+            👤 Customer Information
+          </div>
+          <div class="customer-detail">
+            <span class="customer-detail-icon">📝</span>
+            <span><strong>Name:</strong> <span class="customer-detail-value"><%= customerName %></span></span>
+          </div>
+          <div class="customer-detail">
+            <span class="customer-detail-icon">📧</span>
+            <span><strong>Email:</strong> <span class="customer-detail-value"><%= customerEmail %></span></span>
+          </div>
+          <% if (customerPhone) { %>
+          <div class="customer-detail">
+            <span class="customer-detail-icon">📞</span>
+            <span><strong>Phone:</strong> <span class="customer-detail-value"><%= customerPhone %></span></span>
+          </div>
+          <% } %>
+          <% if (customerId) { %>
+          <div class="customer-detail">
+            <span class="customer-detail-icon">🆔</span>
+            <span><strong>Customer ID:</strong> <span class="customer-detail-value">#<%= customerId %></span></span>
+          </div>
+          <% } %>
+        </div>
+
+        <!-- Booking Details Card -->
+        <div class="details-card">
+          <div class="details-card-title">
+            📅 Booking Details
+          </div>
+          
+          <div class="detail-row">
+            <div class="detail-label">
+              <%= bookingType === 'offer' ? '🎁 Offer' : '✨ Service' %>
+            </div>
+            <div class="detail-value"><%= bookingType === 'offer' ? offerTitle : serviceName %></div>
+          </div>
+          
+          <% if (bookingType === 'offer' && serviceName) { %>
+          <div class="detail-row">
+            <div class="detail-label">🔧 Service Included</div>
+            <div class="detail-value"><%= serviceName %></div>
+          </div>
+          <% } %>
+          
+          <div class="detail-row">
+            <div class="detail-label">📅 Date</div>
+            <div class="detail-value"><%= bookingDate %></div>
+          </div>
+          
+          <div class="detail-row">
+            <div class="detail-label">🕐 Start Time</div>
+            <div class="detail-value"><%= bookingStartTime %></div>
+          </div>
+          
+          <div class="detail-row">
+            <div class="detail-label">🕐 End Time</div>
+            <div class="detail-value"><%= bookingEndTime %></div>
+          </div>
+          
+          <div class="detail-row">
+            <div class="detail-label">⏱️ Duration</div>
+            <div class="detail-value"><%= duration || 'TBD' %> min</div>
+          </div>
+          
+          <% if (storeName) { %>
+          <div class="detail-row">
+            <div class="detail-label">📍 Location</div>
+            <div class="detail-value"><%= storeName %></div>
+          </div>
+          <% } %>
+          
+          <% if (staffName) { %>
+          <div class="detail-row">
+            <div class="detail-label">👤 Assigned Staff</div>
+            <div class="detail-value"><%= staffName %></div>
+          </div>
+          <% } %>
+          
+          <div class="detail-row">
+            <div class="detail-label">📊 Status</div>
+            <div class="detail-value">
+              <span class="status-badge status-<%= status %>">
+                <%= status === 'confirmed' ? '✅ Confirmed' : '⏳ Pending' %>
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Revenue Card (For Offer Bookings) -->
+        <% if (bookingType === 'offer') { %>
+        <div class="revenue-card">
+          <div class="revenue-label">💰 Expected Revenue</div>
+          <div class="revenue-amount">
+            <% if (discount) { %>
+              <%= discount %>% OFF
+            <% } else { %>
+              KES <%= accessFee || 0 %>
+            <% } %>
+          </div>
+          <div class="revenue-sublabel">
+            <% if (accessFee) { %>
+              Access Fee: KES <%= accessFee %> (Paid ✅)
+            <% } %>
+          </div>
+        </div>
+        <% } %>
+
+        <!-- Today's Stats -->
+        <% if (todayStats) { %>
+        <div class="stats-grid">
+          <div class="stat-card">
+            <div class="stat-value"><%= todayStats.total || 0 %></div>
+            <div class="stat-label">Today's Bookings</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value"><%= todayStats.pending || 0 %></div>
+            <div class="stat-label">Pending</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value"><%= todayStats.confirmed || 0 %></div>
+            <div class="stat-label">Confirmed</div>
+          </div>
+        </div>
+        <% } %>
+
+        <!-- Action Section -->
+        <div class="action-section">
+          <div class="action-title">Quick Actions</div>
+          <div class="button-group">
+            <a href="<%= bookingLink || dashboardLink %>" class="button">
+              View Full Details
+            </a>
+            <% if (status === 'pending') { %>
+            <a href="<%= confirmLink || dashboardLink %>" class="button">
+              Confirm Booking
+            </a>
+            <% } %>
+            <a href="<%= dashboardLink || 'https://merchants.discoun3ree.com/dashboard' %>" class="button-secondary">
+              Go to Dashboard
+            </a>
+          </div>
+        </div>
+
+        <!-- Quick Actions Grid -->
+        <div class="quick-actions">
+          <div class="quick-action-card">
+            <div class="quick-action-icon">✅</div>
+            <div class="quick-action-label">Confirm</div>
+          </div>
+          <div class="quick-action-card">
+            <div class="quick-action-icon">📞</div>
+            <div class="quick-action-label">Contact Customer</div>
+          </div>
+          <div class="quick-action-card">
+            <div class="quick-action-icon">📅</div>
+            <div class="quick-action-label">Reschedule</div>
+          </div>
+          <div class="quick-action-card">
+            <div class="quick-action-icon">📊</div>
+            <div class="quick-action-label">View Analytics</div>
+          </div>
+        </div>
+
+        <!-- Important Notes -->
+        <div class="notes-section">
+          <div class="notes-title">
+            ⚠️ Important Reminders
+          </div>
+          <div class="notes-content">
+            <ul>
+              <li><strong>Prepare in advance:</strong> Review service requirements and ensure all resources are ready</li>
+              <li><strong>Confirm availability:</strong> Verify that <%= staffName || 'the assigned staff' %> is available for this time slot</li>
+              <% if (status === 'pending') { %>
+              <li><strong>Respond quickly:</strong> Pending bookings should be confirmed within 2 hours to maintain customer satisfaction</li>
+              <% } %>
+              <% if (bookingType === 'offer') { %>
+              <li><strong>Verify QR code:</strong> Customer will present a QR code for validation upon arrival</li>
+              <li><strong>Apply discount:</strong> Remember to apply the <%= discount %>% discount during checkout</li>
+              <% } %>
+              <li><strong>Quality service:</strong> This booking contributes to your store's rating - deliver excellence!</li>
+            </ul>
+          </div>
+        </div>
+
+        <!-- Customer Notes -->
+        <% if (customerNotes) { %>
+        <div class="info-box">
+          <div class="info-box-title">📝 Customer Notes</div>
+          <div class="info-box-content">
+            "<%= customerNotes %>"
+          </div>
+        </div>
+        <% } %>
+      </div>
+
+      <!-- Footer -->
+      <div class="footer">
+        <div class="footer-title">Discoun3ree Merchant Portal</div>
+        <div class="footer-text">
+          Manage your bookings efficiently and grow your business
+        </div>
+        <div class="footer-links">
+          <a href="<%= dashboardLink || 'https://merchants.discoun3ree.com' %>" class="footer-link">Dashboard</a>
+          <a href="<%= bookingsLink || 'https://merchants.discoun3ree.com/bookings' %>" class="footer-link">All Bookings</a>
+          <a href="<%= settingsLink || 'https://merchants.discoun3ree.com/settings' %>" class="footer-link">Settings</a>
+          <a href="<%= supportLink || 'https://merchants.discoun3ree.com/support' %>" class="footer-link">Support</a>
+        </div>
+        <div class="footer-text" style="font-size: 12px; margin-top: 20px;">
+          This notification was sent to <%= merchantEmail %>.<br>
+          © <%= new Date().getFullYear() %> Discoun3ree Merchant Services. All rights reserved.
+        </div>
+        <div class="footer-text" style="font-size: 11px; margin-top: 15px; opacity: 0.7;">
+          You're receiving this because you have booking notifications enabled.<br>
+          Manage your notification preferences in your <a href="<%= settingsLink %>" style="color: #3b82f6;">account settings</a>.
+        </div>
+      </div>
     </div>
-    <a href="<%= bookingLink %>" class="button">View Booking Details</a>
-    <p>Thank you for providing excellent service!</p>
-    <p class="footer">This is an automated notification. Please do not reply to this email.</p>
   </div>
 </body>
 </html>
