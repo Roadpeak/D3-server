@@ -25,7 +25,7 @@ const { Booking, Service, Store, User, Staff, Offer, Payment } = require('../mod
 router.get('/services', authenticateMerchant, async (req, res) => {
   try {
     const merchantId = req.user?.id;
-    
+
     if (!merchantId) {
       return res.status(401).json({
         success: false,
@@ -33,24 +33,24 @@ router.get('/services', authenticateMerchant, async (req, res) => {
       });
     }
 
-    const { 
-      status, 
-      limit = 50, 
-      offset = 0, 
-      startDate, 
+    const {
+      status,
+      limit = 50,
+      offset = 0,
+      startDate,
       endDate,
       storeId,
-      staffId 
+      staffId
     } = req.query;
 
     console.log('Fetching service bookings for merchant:', merchantId);
 
     // Build where conditions
-    const whereConditions = { 
+    const whereConditions = {
       serviceId: { [Op.ne]: null },
       bookingType: 'service'
     };
-    
+
     if (status) {
       whereConditions.status = status;
     }
@@ -116,16 +116,16 @@ router.get('/services', authenticateMerchant, async (req, res) => {
     // Format response with CORRECTED property access
     const formattedBookings = bookings.rows.map(booking => {
       const bookingData = booking.toJSON();
-      
+
       // CORRECTED: Use the exact aliases from your associations
       const user = bookingData.bookingUser; // This is the correct alias
       const service = bookingData.service;   // This is the correct alias
       const staff = bookingData.staff;       // This is the correct alias
-      
+
       return {
         ...bookingData,
         // Add standardized properties for frontend compatibility
-        customerName: user 
+        customerName: user
           ? `${user.firstName || ''} ${user.lastName || ''}`.trim()
           : 'Unknown Customer',
         serviceName: service?.name || 'Unknown Service',
@@ -133,9 +133,9 @@ router.get('/services', authenticateMerchant, async (req, res) => {
         staffName: staff?.name || null,
         isUpcoming: new Date(bookingData.startTime) > new Date(),
         isPast: new Date(bookingData.startTime) < new Date(),
-        canModify: ['pending', 'confirmed'].includes(bookingData.status) && 
-                  new Date(bookingData.startTime) > new Date(),
-        
+        canModify: ['pending', 'confirmed'].includes(bookingData.status) &&
+          new Date(bookingData.startTime) > new Date(),
+
         // IMPORTANT: Also provide the capitalized versions for frontend compatibility
         User: user ? {
           id: user.id,
@@ -144,7 +144,7 @@ router.get('/services', authenticateMerchant, async (req, res) => {
           email: user.email,
           phoneNumber: user.phoneNumber
         } : null,
-        
+
         Service: service ? {
           id: service.id,
           name: service.name,
@@ -152,7 +152,7 @@ router.get('/services', authenticateMerchant, async (req, res) => {
           duration: service.duration,
           store: service.store
         } : null,
-        
+
         Staff: staff ? {
           id: staff.id,
           name: staff.name,
@@ -193,14 +193,14 @@ router.get('/services', authenticateMerchant, async (req, res) => {
 
   } catch (error) {
     console.error('Error fetching merchant service bookings:', error);
-    
+
     // Enhanced error handling for debugging
     if (error.name === 'SequelizeEagerLoadingError') {
       console.error('Association error details:', {
         message: error.message,
         include: error.include
       });
-      
+
       return res.status(500).json({
         success: false,
         message: 'Database association error - check model relationships',
@@ -215,13 +215,13 @@ router.get('/services', authenticateMerchant, async (req, res) => {
           expectedAssociations: [
             'Booking -> User (as: bookingUser)',
             'Booking -> Service (as: service)',
-            'Service -> Store (as: store)', 
+            'Service -> Store (as: store)',
             'Booking -> Staff (as: staff)'
           ]
         }
       });
     }
-    
+
     // Provide fallback mock data for development
     if (process.env.NODE_ENV === 'development') {
       console.log('Providing mock service bookings for development');
@@ -370,7 +370,7 @@ router.put('/services/:bookingId/status', authenticateMerchant, async (req, res)
     }
 
     // Update the booking
-    const updateData = { 
+    const updateData = {
       status,
       updatedBy: merchantId
     };
@@ -398,7 +398,7 @@ router.put('/services/:bookingId/status', authenticateMerchant, async (req, res)
 
     // Add notes if provided
     if (notes) {
-      updateData.merchantNotes = booking.merchantNotes 
+      updateData.merchantNotes = booking.merchantNotes
         ? `${booking.merchantNotes}\n\n[${new Date().toISOString()}] ${notes}`
         : notes;
     }
@@ -432,7 +432,7 @@ router.put('/services/:bookingId/status', authenticateMerchant, async (req, res)
 router.get('/offers', authenticateMerchant, async (req, res) => {
   try {
     const merchantId = req.user?.id;
-    
+
     if (!merchantId) {
       return res.status(401).json({
         success: false,
@@ -440,24 +440,24 @@ router.get('/offers', authenticateMerchant, async (req, res) => {
       });
     }
 
-    const { 
-      status, 
-      limit = 50, 
-      offset = 0, 
-      startDate, 
+    const {
+      status,
+      limit = 50,
+      offset = 0,
+      startDate,
       endDate,
       storeId,
-      staffId 
+      staffId
     } = req.query;
 
     console.log('Fetching offer bookings for merchant:', merchantId);
 
     // Build where conditions
-    const whereConditions = { 
+    const whereConditions = {
       offerId: { [Op.ne]: null },
       bookingType: 'offer'
     };
-    
+
     if (status) {
       whereConditions.status = status;
     }
@@ -534,17 +534,17 @@ router.get('/offers', authenticateMerchant, async (req, res) => {
     // Format response
     const formattedBookings = bookings.rows.map(booking => {
       const bookingData = booking.toJSON();
-      
+
       // ✅ Get data using correct aliases
       const user = bookingData.bookingUser;
       const offer = bookingData.offer;
       const staff = bookingData.staff;
       const payment = bookingData.payment;
-      
+
       return {
         ...bookingData,
         // Add helper properties
-        customerName: user 
+        customerName: user
           ? `${user.firstName || ''} ${user.lastName || ''}`.trim()
           : 'Unknown Customer',
         offerTitle: offer?.title || 'Unknown Offer',
@@ -555,9 +555,9 @@ router.get('/offers', authenticateMerchant, async (req, res) => {
         paymentAmount: payment?.amount || bookingData.accessFee || 0,
         isUpcoming: new Date(bookingData.startTime) > new Date(),
         isPast: new Date(bookingData.startTime) < new Date(),
-        canModify: ['pending', 'confirmed'].includes(bookingData.status) && 
-                  new Date(bookingData.startTime) > new Date(),
-        
+        canModify: ['pending', 'confirmed'].includes(bookingData.status) &&
+          new Date(bookingData.startTime) > new Date(),
+
         // ✅ Map to frontend-expected capitalized versions
         User: user ? {
           id: user.id,
@@ -565,7 +565,7 @@ router.get('/offers', authenticateMerchant, async (req, res) => {
           lastName: user.lastName,
           email: user.email,
           phoneNumber: user.phoneNumber
-        } : null,
+        } : null, model: Offer,
         Offer: offer,
         Staff: staff,
         Payment: payment
@@ -593,7 +593,7 @@ router.get('/offers', authenticateMerchant, async (req, res) => {
 
   } catch (error) {
     console.error('Error fetching merchant offer bookings:', error);
-    
+
     if (process.env.NODE_ENV === 'development') {
       console.log('Providing mock offer bookings for development');
       return res.json({
@@ -641,9 +641,9 @@ router.get('/offers/:bookingId', authenticateMerchant, async (req, res) => {
         },
         {
           model: Offer,
-          as: 'Offer',
+          as: 'offer',
           required: true,
-          attributes: ['id', 'title', 'description', 'discount', 'original_price', 'discounted_price'],
+          attributes: ['id', 'title', 'description', 'discount'], 
           include: [{
             model: Service,
             as: 'service',
@@ -749,7 +749,7 @@ router.put('/offers/:bookingId/status', authenticateMerchant, async (req, res) =
     }
 
     // Update the booking
-    const updateData = { 
+    const updateData = {
       status,
       updatedBy: merchantId
     };
@@ -777,7 +777,7 @@ router.put('/offers/:bookingId/status', authenticateMerchant, async (req, res) =
 
     // Add notes if provided
     if (notes) {
-      updateData.merchantNotes = booking.merchantNotes 
+      updateData.merchantNotes = booking.merchantNotes
         ? `${booking.merchantNotes}\n\n[${new Date().toISOString()}] ${notes}`
         : notes;
     }
@@ -811,7 +811,7 @@ router.put('/offers/:bookingId/status', authenticateMerchant, async (req, res) =
 router.get('/all', authenticateMerchant, async (req, res) => {
   try {
     const merchantId = req.user?.id;
-    
+
     if (!merchantId) {
       return res.status(401).json({
         success: false,
@@ -819,21 +819,21 @@ router.get('/all', authenticateMerchant, async (req, res) => {
       });
     }
 
-    const { 
-      status, 
-      limit = 50, 
-      offset = 0, 
-      startDate, 
+    const {
+      status,
+      limit = 50,
+      offset = 0,
+      startDate,
       endDate,
       storeId,
-      bookingType 
+      bookingType
     } = req.query;
 
     console.log('Fetching all bookings for merchant:', merchantId);
 
     // Build where conditions
     const whereConditions = {};
-    
+
     if (bookingType === 'service') {
       whereConditions.serviceId = { [Op.ne]: null };
       whereConditions.bookingType = 'service';
@@ -847,7 +847,7 @@ router.get('/all', authenticateMerchant, async (req, res) => {
         { offerId: { [Op.ne]: null } }
       ];
     }
-    
+
     if (status) {
       whereConditions.status = status;
     }
@@ -940,19 +940,19 @@ router.get('/all', authenticateMerchant, async (req, res) => {
     // Format response
     const formattedBookings = merchantBookings.map(booking => {
       const bookingData = booking.toJSON();
-      
+
       const user = bookingData.User || bookingData.user;
       const service = bookingData.Service;
       const offer = bookingData.Offer;
       const staff = bookingData.Staff || bookingData.staff;
       const payment = bookingData.Payment || bookingData.payment;
-      
+
       const isOfferBooking = !!bookingData.offerId;
       const actualService = isOfferBooking ? offer?.service : service;
-      
+
       return {
         ...bookingData,
-        customerName: user 
+        customerName: user
           ? `${user.firstName || ''} ${user.lastName || ''}`.trim()
           : 'Unknown Customer',
         entityName: isOfferBooking ? offer?.title : service?.name,
@@ -965,9 +965,9 @@ router.get('/all', authenticateMerchant, async (req, res) => {
         paymentAmount: payment?.amount || bookingData.accessFee || 0,
         isUpcoming: new Date(bookingData.startTime) > new Date(),
         isPast: new Date(bookingData.startTime) < new Date(),
-        canModify: ['pending', 'confirmed'].includes(bookingData.status) && 
-                  new Date(bookingData.startTime) > new Date(),
-        
+        canModify: ['pending', 'confirmed'].includes(bookingData.status) &&
+          new Date(bookingData.startTime) > new Date(),
+
         // Ensure frontend compatibility
         User: user,
         Service: actualService,
@@ -1000,7 +1000,7 @@ router.get('/all', authenticateMerchant, async (req, res) => {
 
   } catch (error) {
     console.error('Error fetching all merchant bookings:', error);
-    
+
     if (process.env.NODE_ENV === 'development') {
       return res.json({
         success: true,
@@ -1103,7 +1103,7 @@ router.get('/view/:bookingId', authenticateMerchant, async (req, res) => {
     // Verify merchant has access to this booking
     const serviceStore = booking.Service?.store;
     const offerStore = booking.Offer?.service?.store;
-    
+
     if (!serviceStore && !offerStore) {
       return res.status(404).json({
         success: false,
@@ -1194,7 +1194,7 @@ router.put('/:bookingId/status', authenticateMerchant, async (req, res) => {
     // Verify merchant ownership
     const serviceStore = booking.Service?.store;
     const offerStore = booking.Offer?.service?.store;
-    
+
     if (!serviceStore && !offerStore) {
       return res.status(403).json({
         success: false,
@@ -1203,7 +1203,7 @@ router.put('/:bookingId/status', authenticateMerchant, async (req, res) => {
     }
 
     // Update the booking
-    const updateData = { 
+    const updateData = {
       status,
       updatedBy: merchantId
     };
@@ -1231,7 +1231,7 @@ router.put('/:bookingId/status', authenticateMerchant, async (req, res) => {
 
     // Add notes if provided
     if (notes) {
-      updateData.merchantNotes = booking.merchantNotes 
+      updateData.merchantNotes = booking.merchantNotes
         ? `${booking.merchantNotes}\n\n[${new Date().toISOString()}] ${notes}`
         : notes;
     }
@@ -1329,13 +1329,13 @@ router.get('/store/:storeId', authenticateMerchant, async (req, res) => {
   try {
     const { storeId } = req.params;
     const merchantId = req.user.id;
-    const { 
-      status, 
-      limit = 50, 
-      offset = 0, 
-      startDate, 
+    const {
+      status,
+      limit = 50,
+      offset = 0,
+      startDate,
       endDate,
-      bookingType 
+      bookingType
     } = req.query;
 
     // Verify store ownership
@@ -1353,16 +1353,16 @@ router.get('/store/:storeId', authenticateMerchant, async (req, res) => {
       });
     }
 
-    const whereConditions = { 
+    const whereConditions = {
       storeId: storeId
     };
-    
+
     if (bookingType === 'service') {
       whereConditions.serviceId = { [Op.ne]: null };
     } else if (bookingType === 'offer') {
       whereConditions.offerId = { [Op.ne]: null };
     }
-    
+
     if (status) {
       whereConditions.status = status;
     }
@@ -1455,7 +1455,7 @@ router.get('/analytics', authenticateMerchant, async (req, res) => {
     // Calculate date range
     const now = new Date();
     let startDate;
-    
+
     switch (timeRange) {
       case '1d':
         startDate = new Date(now.getTime() - 24 * 60 * 60 * 1000);
@@ -1542,12 +1542,12 @@ router.get('/analytics', authenticateMerchant, async (req, res) => {
           const amount = parseFloat(b.Service?.price || b.Offer?.discounted_price || b.accessFee || 0);
           return sum + amount;
         }, 0),
-      averageBookingValue: merchantBookings.length > 0 ? 
+      averageBookingValue: merchantBookings.length > 0 ?
         merchantBookings.reduce((sum, b) => {
           const amount = parseFloat(b.Service?.price || b.Offer?.discounted_price || b.accessFee || 0);
           return sum + amount;
         }, 0) / merchantBookings.length : 0,
-      completionRate: merchantBookings.length > 0 ? 
+      completionRate: merchantBookings.length > 0 ?
         (merchantBookings.filter(b => b.status === 'completed').length / merchantBookings.length) * 100 : 0
     };
 
@@ -1636,7 +1636,7 @@ router.get('/summary/today', authenticateMerchant, async (req, res) => {
       in_progress: todayBookings.filter(b => b.status === 'in_progress').length,
       completed: todayBookings.filter(b => b.status === 'completed').length,
       cancelled: todayBookings.filter(b => b.status === 'cancelled').length,
-      upcoming: todayBookings.filter(b => 
+      upcoming: todayBookings.filter(b =>
         new Date(b.startTime) > new Date() && ['confirmed', 'pending'].includes(b.status)
       ).length
     };
@@ -1758,7 +1758,7 @@ router.put('/services/bulk-status', authenticateMerchant, async (req, res) => {
     }
 
     // Update all bookings
-    const updateData = { 
+    const updateData = {
       status,
       updatedBy: merchantId
     };
@@ -1913,12 +1913,12 @@ router.get('/services', authenticateMerchant, async (req, res) => {
   try {
     const merchantId = req.user.id;
     const { status, limit = 50, offset = 0, startDate, endDate, storeId, serviceId } = req.query;
-    
-    const whereConditions = { 
+
+    const whereConditions = {
       serviceId: { [Op.ne]: null },
       bookingType: 'service'
     };
-    
+
     if (status) {
       whereConditions.status = status;
     }
@@ -2005,10 +2005,10 @@ router.get('/services/analytics', authenticateMerchant, async (req, res) => {
   try {
     const merchantId = req.user.id;
     const { period = '30', storeId } = req.query; // days
-    
+
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - parseInt(period));
-    
+
     const baseWhere = {
       serviceId: { [Op.ne]: null },
       bookingType: 'service',
@@ -2181,7 +2181,7 @@ router.get('/services/:bookingId', authenticateMerchant, async (req, res) => {
   try {
     const { bookingId } = req.params;
     const merchantId = req.user.id;
-    
+
     const booking = await Booking.findOne({
       where: {
         id: bookingId,
@@ -2286,8 +2286,8 @@ router.put('/services/:bookingId/notes', authenticateMerchant, async (req, res) 
     const timestamp = new Date().toISOString();
     const merchantName = req.user.name || req.user.email || 'Merchant';
     const newNote = `[${timestamp}] ${merchantName}: ${notes}`;
-    
-    const updatedNotes = booking.merchantNotes 
+
+    const updatedNotes = booking.merchantNotes
       ? `${booking.merchantNotes}\n\n${newNote}`
       : newNote;
 
@@ -2323,7 +2323,7 @@ router.get('/upcoming', authenticateMerchant, async (req, res) => {
   try {
     const merchantId = req.user.id;
     const { hours = 24 } = req.query;
-    
+
     const now = new Date();
     const futureTime = new Date(now.getTime() + parseInt(hours) * 60 * 60 * 1000);
 
@@ -2517,7 +2517,7 @@ router.get('/search', authenticateMerchant, async (req, res) => {
 router.get('/filter', authenticateMerchant, async (req, res) => {
   try {
     const merchantId = req.user.id;
-    const { 
+    const {
       status,
       bookingType,
       startDate,
@@ -2530,36 +2530,36 @@ router.get('/filter', authenticateMerchant, async (req, res) => {
     } = req.query;
 
     const whereConditions = {};
-    
+
     if (status) {
       whereConditions.status = status;
     }
-    
+
     if (bookingType === 'service') {
       whereConditions.serviceId = { [Op.ne]: null };
     } else if (bookingType === 'offer') {
       whereConditions.offerId = { [Op.ne]: null };
     }
-    
+
     if (startDate) {
       whereConditions.startTime = { [Op.gte]: new Date(startDate) };
     }
-    
+
     if (endDate) {
       whereConditions.startTime = {
         ...whereConditions.startTime,
         [Op.lte]: new Date(endDate)
       };
     }
-    
+
     if (serviceId) {
       whereConditions.serviceId = serviceId;
     }
-    
+
     if (staffId) {
       whereConditions.staffId = staffId;
     }
-    
+
     if (storeId) {
       whereConditions.storeId = storeId;
     }
@@ -2719,7 +2719,7 @@ router.put('/bulk-status', authenticateMerchant, async (req, res) => {
     }
 
     // Update all bookings
-    const updateData = { 
+    const updateData = {
       status,
       updatedBy: merchantId
     };
@@ -2784,21 +2784,21 @@ router.post('/export', authenticateMerchant, async (req, res) => {
 
     // Build where conditions from filters
     const whereConditions = {};
-    
+
     if (filters.status) {
       whereConditions.status = filters.status;
     }
-    
+
     if (filters.bookingType === 'service') {
       whereConditions.serviceId = { [Op.ne]: null };
     } else if (filters.bookingType === 'offer') {
       whereConditions.offerId = { [Op.ne]: null };
     }
-    
+
     if (filters.startDate) {
       whereConditions.startTime = { [Op.gte]: new Date(filters.startDate) };
     }
-    
+
     if (filters.endDate) {
       whereConditions.startTime = {
         ...whereConditions.startTime,
@@ -2869,7 +2869,7 @@ router.post('/export', authenticateMerchant, async (req, res) => {
     if (format === 'csv') {
       const headers = [
         'ID', 'Type', 'Customer Name', 'Customer Email', 'Customer Phone',
-        'Service/Offer', 'Date', 'Time', 'Status', 'Duration', 'Price', 
+        'Service/Offer', 'Date', 'Time', 'Status', 'Duration', 'Price',
         'Staff', 'Store', 'Notes', 'Created At'
       ];
 
@@ -2898,7 +2898,7 @@ router.post('/export', authenticateMerchant, async (req, res) => {
 
       res.setHeader('Content-Type', 'text/csv');
       res.setHeader('Content-Disposition', `attachment; filename="bookings-export-${new Date().toISOString().split('T')[0]}.csv"`);
-      
+
       return res.send(csvContent);
     }
 
@@ -2983,7 +2983,7 @@ router.post('/:bookingId/send-confirmation', authenticateMerchant, async (req, r
     // Verify merchant ownership
     const serviceStore = booking.Service?.store;
     const offerStore = booking.Offer?.service?.store;
-    
+
     if (!serviceStore && !offerStore) {
       return res.status(403).json({
         success: false,
@@ -3074,7 +3074,7 @@ router.post('/:bookingId/send-reminder', authenticateMerchant, async (req, res) 
     // Verify merchant ownership
     const serviceStore = booking.Service?.store;
     const offerStore = booking.Offer?.service?.store;
-    
+
     if (!serviceStore && !offerStore) {
       return res.status(403).json({
         success: false,
@@ -3123,11 +3123,11 @@ function generateMockServiceBookings(limit = 10) {
     const service = services[i % services.length];
     const customer = customers[i % customers.length];
     const status = statuses[i % statuses.length];
-    
+
     const now = new Date();
     const randomDays = (Math.random() - 0.5) * 60;
     const bookingDate = new Date(now.getTime() + randomDays * 24 * 60 * 60 * 1000);
-    
+
     mockBookings.push({
       id: 1000 + i,
       serviceId: service.id,
@@ -3177,11 +3177,11 @@ function generateMockOfferBookings(limit = 10) {
     const offer = offers[i % offers.length];
     const customer = customers[i % customers.length];
     const status = statuses[i % statuses.length];
-    
+
     const now = new Date();
     const randomDays = (Math.random() - 0.5) * 60;
     const bookingDate = new Date(now.getTime() + randomDays * 24 * 60 * 60 * 1000);
-    
+
     mockBookings.push({
       id: 2000 + i,
       offerId: offer.id,
@@ -3220,10 +3220,10 @@ function generateMockOfferBookings(limit = 10) {
 function generateMockCombinedBookings(limit = 10) {
   const serviceLimit = Math.ceil(limit / 2);
   const offerLimit = Math.floor(limit / 2);
-  
+
   const serviceBookings = generateMockServiceBookings(serviceLimit);
   const offerBookings = generateMockOfferBookings(offerLimit);
-  
+
   return [
     ...serviceBookings,
     ...offerBookings
