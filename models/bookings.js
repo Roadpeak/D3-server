@@ -1,4 +1,4 @@
-// models/Booking.js - Optimized version with reduced indexes
+// models/Booking.js - Updated with payment_status field
 const { Model, DataTypes } = require('sequelize');
 const { v4: uuidv4 } = require('uuid');
 
@@ -7,40 +7,40 @@ module.exports = (sequelize) => {
     static associate(models) {
       Booking.belongsTo(models.Offer, { 
         foreignKey: 'offerId',
-        as: 'Offer'
+        as: 'offer'
       });
       
       Booking.belongsTo(models.Service, { 
         foreignKey: 'serviceId',
-        as: 'Service'
+        as: 'service'
       });
       
       Booking.belongsTo(models.User, { 
         foreignKey: 'userId',
-        as: 'User'
+        as: 'bookingUser'
       });
       
       Booking.belongsTo(models.Store, { 
         foreignKey: 'storeId',
-        as: 'Store',
+        as: 'store',
         allowNull: true
       });
 
       Booking.belongsTo(models.Branch, { 
         foreignKey: 'branchId',
-        as: 'Branch',
+        as: 'branch',
         allowNull: true
       });
       
       Booking.belongsTo(models.Staff, { 
         foreignKey: 'staffId',
-        as: 'Staff',
+        as: 'staff',
         allowNull: true
       });
       
       Booking.belongsTo(models.Payment, { 
         foreignKey: 'paymentId',
-        as: 'Payment',
+        as: 'payment',
         allowNull: true
       });
     }
@@ -65,6 +65,19 @@ module.exports = (sequelize) => {
     
     getDurationMinutes() {
       return Math.round((new Date(this.endTime) - new Date(this.startTime)) / (1000 * 60));
+    }
+
+    // NEW: Payment status helpers
+    isPaymentPending() {
+      return this.payment_status === 'pending';
+    }
+
+    isPaymentCompleted() {
+      return this.payment_status === 'paid' || this.payment_status === 'completed';
+    }
+
+    requiresPayment() {
+      return this.bookingType === 'offer' && this.accessFee > 0;
     }
 
     // Class methods
@@ -201,6 +214,21 @@ module.exports = (sequelize) => {
         allowNull: false,
         defaultValue: 'pending',
       },
+      // ============ NEW FIELD ============
+      payment_status: {
+        type: DataTypes.ENUM(
+          'pending',
+          'paid',
+          'completed',
+          'failed',
+          'refunded',
+          'not_required'
+        ),
+        allowNull: false,
+        defaultValue: 'pending',
+        comment: 'Payment status for the booking - separate from booking status'
+      },
+      // ===================================
       bookingType: {
         type: DataTypes.ENUM('offer', 'service'),
         allowNull: false,
@@ -220,6 +248,13 @@ module.exports = (sequelize) => {
         defaultValue: 0.00,
         comment: 'Platform access fee paid by user'
       },
+      // ============ NEW FIELD ============
+      mpesa_receipt_number: {
+        type: DataTypes.STRING(50),
+        allowNull: true,
+        comment: 'M-Pesa receipt number for this booking payment'
+      },
+      // ===================================
       notes: {
         type: DataTypes.TEXT,
         allowNull: true,
@@ -432,6 +467,15 @@ module.exports = (sequelize) => {
         {
           fields: ['startTime'],
           name: 'idx_bookings_start_time'
+        },
+        // NEW: Index for payment status queries
+        {
+          fields: ['payment_status'],
+          name: 'idx_bookings_payment_status'
+        },
+        {
+          fields: ['status', 'payment_status'],
+          name: 'idx_bookings_status_payment'
         }
       ],
       hooks: {
@@ -450,6 +494,15 @@ module.exports = (sequelize) => {
           if (booking.bookingType === 'service' && !booking.serviceId) {
             throw new Error('Service ID is required for service bookings');
           }
+
+          // NEW: Set default payment_status based on booking type
+          if (!booking.payment_status) {
+            if (booking.bookingType === 'service' || booking.accessFee === 0) {
+              booking.payment_status = 'not_required';
+            } else {
+              booking.payment_status = 'pending';
+            }
+          }
         },
         
         beforeUpdate: (booking) => {
@@ -467,6 +520,14 @@ module.exports = (sequelize) => {
                 break;
             }
           }
+
+          // NEW: Auto-confirm booking when payment is completed
+          if (booking.changed('payment_status') && booking.payment_status === 'paid') {
+            if (booking.status === 'pending') {
+              booking.status = 'confirmed';
+              if (!booking.confirmedAt) booking.confirmedAt = new Date();
+            }
+          }
         },
         
         afterCreate: async (booking) => {
@@ -476,6 +537,9 @@ module.exports = (sequelize) => {
         afterUpdate: async (booking) => {
           if (booking.changed('status')) {
             console.log(`📅 Booking ${booking.id} status changed to: ${booking.status}`);
+          }
+          if (booking.changed('payment_status')) {
+            console.log(`💳 Booking ${booking.id} payment status changed to: ${booking.payment_status}`);
           }
         }
       }

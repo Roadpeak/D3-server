@@ -371,20 +371,21 @@ router.post('/mpesa/callback', async (req, res) => {
           
           if (booking) {
             console.log('📋 Booking found:', booking.id, '| Current status:', booking.status);
+            console.log('📋 Current payment_status:', booking.payment_status);
             
-            // Update booking to confirmed
+            // ✅ FIXED: Update booking to confirmed with correct field names
             await booking.update({ 
               status: 'confirmed',
               payment_status: 'paid',
               paymentId: payment.id,
               paymentUniqueCode: payment.unique_code,
               mpesa_receipt_number: mpesaReceiptNumber,
-              confirmed_at: new Date()
+              confirmedAt: new Date()  // ✅ FIXED: camelCase
             });
             
             console.log('✅ BOOKING CONFIRMED! Booking ID:', booking.id);
             console.log('📊 New booking status:', booking.status);
-            console.log('💳 Payment status:', booking.payment_status);
+            console.log('💳 New payment_status:', booking.payment_status);
             console.log('📝 M-Pesa Receipt:', mpesaReceiptNumber);
           } else {
             console.error('❌ Booking not found with ID:', bookingId);
@@ -437,6 +438,21 @@ router.post('/mpesa/callback', async (req, res) => {
       });
 
       console.log('❌ Payment marked as failed:', failureReason);
+
+      // OPTIONAL: Update booking to failed payment status
+      if (payment.metadata?.bookingId) {
+        try {
+          const booking = await Booking.findByPk(payment.metadata.bookingId);
+          if (booking) {
+            await booking.update({
+              payment_status: 'failed'
+            });
+            console.log('📋 Booking payment_status updated to failed');
+          }
+        } catch (bookingError) {
+          console.warn('⚠️ Could not update booking payment status:', bookingError.message);
+        }
+      }
     }
 
     // Always return success to M-Pesa
