@@ -432,7 +432,7 @@ router.put('/services/:bookingId/status', authenticateMerchant, async (req, res)
 router.get('/offers', authenticateMerchant, async (req, res) => {
   try {
     const merchantId = req.user?.id;
-
+    
     if (!merchantId) {
       return res.status(401).json({
         success: false,
@@ -440,24 +440,24 @@ router.get('/offers', authenticateMerchant, async (req, res) => {
       });
     }
 
-    const {
-      status,
-      limit = 50,
-      offset = 0,
-      startDate,
+    const { 
+      status, 
+      limit = 50, 
+      offset = 0, 
+      startDate, 
       endDate,
       storeId,
-      staffId
+      staffId 
     } = req.query;
 
     console.log('Fetching offer bookings for merchant:', merchantId);
 
     // Build where conditions
-    const whereConditions = {
+    const whereConditions = { 
       offerId: { [Op.ne]: null },
       bookingType: 'offer'
     };
-
+    
     if (status) {
       whereConditions.status = status;
     }
@@ -487,15 +487,15 @@ router.get('/offers', authenticateMerchant, async (req, res) => {
       include: [
         {
           model: User,
-          as: 'bookingUser', // ✅ FIXED: Changed from 'User' to 'bookingUser'
+          as: 'bookingUser',
           attributes: ['id', 'firstName', 'lastName', 'email', 'phoneNumber'],
           required: false
         },
         {
           model: Offer,
-          as: 'offer', // ✅ FIXED: Changed from 'Offer' to 'offer' (lowercase)
+          as: 'offer',
           required: true,
-          attributes: ['id', 'title', 'description', 'discount', 'original_price', 'discounted_price'],
+          attributes: ['id', 'title', 'description', 'discount', 'fee', 'offer_type'], // ✅ FIXED: Using actual column names
           include: [{
             model: Service,
             as: 'service',
@@ -504,7 +504,7 @@ router.get('/offers', authenticateMerchant, async (req, res) => {
               model: Store,
               as: 'store',
               where: {
-                merchant_id: merchantId // Filter by merchant's stores
+                merchant_id: merchantId
               },
               attributes: ['id', 'name', 'location'],
               required: true
@@ -513,13 +513,13 @@ router.get('/offers', authenticateMerchant, async (req, res) => {
         },
         {
           model: Staff,
-          as: 'staff', // ✅ FIXED: Changed from 'Staff' to 'staff' (lowercase)
+          as: 'staff',
           required: false,
           attributes: ['id', 'name', 'email', 'phoneNumber', 'role', 'status']
         },
         {
           model: Payment,
-          as: 'payment', // ✅ FIXED: Changed from 'Payment' to 'payment' (lowercase)
+          as: 'payment',
           required: false,
           attributes: ['id', 'amount', 'status', 'method', 'transaction_id']
         }
@@ -529,44 +529,57 @@ router.get('/offers', authenticateMerchant, async (req, res) => {
       offset: parseInt(offset)
     });
 
-    console.log(`Found ${bookings.count} offer bookings for merchant ${merchantId}`);
+    console.log(`✅ Found ${bookings.count} offer bookings for merchant ${merchantId}`);
 
     // Format response
     const formattedBookings = bookings.rows.map(booking => {
       const bookingData = booking.toJSON();
-
-      // ✅ Get data using correct aliases
+      
       const user = bookingData.bookingUser;
       const offer = bookingData.offer;
+      const service = offer?.service;
       const staff = bookingData.staff;
       const payment = bookingData.payment;
-
+      
+      // Calculate discounted price from service price and discount percentage
+      const originalPrice = service?.price || 0;
+      const discountPercent = offer?.discount || 0;
+      const discountedPrice = originalPrice * (1 - discountPercent / 100);
+      
       return {
         ...bookingData,
-        // Add helper properties
-        customerName: user
+        customerName: user 
           ? `${user.firstName || ''} ${user.lastName || ''}`.trim()
           : 'Unknown Customer',
         offerTitle: offer?.title || 'Unknown Offer',
-        serviceName: offer?.service?.name || 'Unknown Service',
-        storeName: offer?.service?.store?.name || 'Unknown Store',
+        serviceName: service?.name || 'Unknown Service',
+        storeName: service?.store?.name || 'Unknown Store',
         staffName: staff?.name || null,
         accessFeePaid: !!payment,
-        paymentAmount: payment?.amount || bookingData.accessFee || 0,
+        paymentAmount: payment?.amount || bookingData.accessFee || offer?.fee || 0,
+        originalPrice: originalPrice,
+        discountPercent: discountPercent,
+        discountedPrice: discountedPrice,
         isUpcoming: new Date(bookingData.startTime) > new Date(),
         isPast: new Date(bookingData.startTime) < new Date(),
-        canModify: ['pending', 'confirmed'].includes(bookingData.status) &&
-          new Date(bookingData.startTime) > new Date(),
-
-        // ✅ Map to frontend-expected capitalized versions
+        canModify: ['pending', 'confirmed'].includes(bookingData.status) && 
+                  new Date(bookingData.startTime) > new Date(),
+        
+        // Map to frontend-expected format
         User: user ? {
           id: user.id,
           firstName: user.firstName,
           lastName: user.lastName,
           email: user.email,
           phoneNumber: user.phoneNumber
-        } : null, model: Offer,
-        Offer: offer,
+        } : null,
+        Offer: {
+          ...offer,
+          // Add computed price fields for frontend compatibility
+          original_price: originalPrice,
+          discounted_price: discountedPrice,
+          Service: service
+        },
         Staff: staff,
         Payment: payment
       };
@@ -592,10 +605,11 @@ router.get('/offers', authenticateMerchant, async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Error fetching merchant offer bookings:', error);
-
+    console.error('❌ Error fetching merchant offer bookings:', error);
+    console.error('Error message:', error.message);
+    
     if (process.env.NODE_ENV === 'development') {
-      console.log('Providing mock offer bookings for development');
+      console.log('⚠️ Providing mock offer bookings for development');
       return res.json({
         success: true,
         bookings: generateMockOfferBookings(parseInt(req.query.limit) || 10),
