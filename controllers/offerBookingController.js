@@ -953,6 +953,165 @@ class OfferBookingController {
     }
   }
 
+  /**
+ * Get all offer bookings for a merchant
+ * @route GET /api/v1/bookings/merchant/offers
+ */
+async getAllMerchantBookings(req, res) {
+  try {
+    console.log('📊 Getting all merchant offer bookings');
+    const merchantId = req.user?.id || req.merchant?.id;
+
+    if (!merchantId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Merchant authentication required'
+      });
+    }
+
+    const { limit = 100, offset = 0, status } = req.query;
+
+    // Get merchant's stores
+    const merchantStores = await this.models.Store.findAll({
+      where: { merchant_id: merchantId },
+      attributes: ['id']
+    });
+
+    if (!merchantStores || merchantStores.length === 0) {
+      console.log('⚠️ No stores found for merchant:', merchantId);
+      return res.status(200).json({
+        success: true,
+        bookings: [],
+        pagination: { total: 0, limit, offset },
+        summary: {
+          total: 0,
+          pending: 0,
+          confirmed: 0,
+          completed: 0,
+          cancelled: 0,
+          in_progress: 0
+        },
+        message: 'No stores found for this merchant'
+      });
+    }
+
+    const storeIds = merchantStores.map(store => store.id);
+    console.log('📍 Merchant store IDs:', storeIds);
+
+    // Build where clause
+    const whereClause = {
+      bookingType: 'offer', // ✅ Only offer bookings
+      storeId: storeIds
+    };
+
+    if (status && status !== 'all' && status !== '') {
+      whereClause.status = status;
+    }
+
+    console.log('🔍 Query where clause:', whereClause);
+
+    // Fetch bookings
+    const { count, rows: bookings } = await this.models.Booking.findAndCountAll({
+      where: whereClause,
+      include: [
+        {
+          model: this.models.Offer,
+          as: 'offer',
+          required: false,
+          include: [{
+            model: this.models.Service,
+            as: 'service',
+            required: false,
+            include: [{
+              model: this.models.Store,
+              as: 'store',
+              required: false
+            }]
+          }]
+        },
+        {
+          model: this.models.User,
+          as: 'bookingUser', // ✅ Correct alias from your Booking model
+          required: false,
+          attributes: ['id', 'firstName', 'lastName', 'email', 'phoneNumber']
+        },
+        {
+          model: this.models.Payment,
+          as: 'payment',
+          required: false
+        },
+        {
+          model: this.models.Store,
+          as: 'store',
+          required: false
+        }
+      ],
+      limit: parseInt(limit),
+      offset: parseInt(offset),
+      order: [['createdAt', 'DESC']]
+    });
+
+    console.log(`✅ Found ${count} offer bookings for merchant`);
+
+    // Add helper properties and format for frontend
+    const processedBookings = bookings.map(booking => {
+      const bookingData = booking.toJSON();
+      
+      // ✅ Map bookingUser to User for frontend compatibility
+      if (bookingData.bookingUser) {
+        bookingData.User = bookingData.bookingUser;
+      }
+      
+      // ✅ Add offer details at root level for frontend
+      if (bookingData.offer) {
+        bookingData.Offer = bookingData.offer;
+      }
+      
+      // ✅ Add helper properties
+      bookingData.isOfferBooking = true;
+      bookingData.accessFeePaid = !!booking.paymentId;
+      bookingData.customerName = `${bookingData.User?.firstName || ''} ${bookingData.User?.lastName || ''}`.trim();
+      bookingData.offerTitle = bookingData.Offer?.service?.name || bookingData.Offer?.title || 'Special Offer';
+      
+      return bookingData;
+    });
+
+    // Calculate summary
+    const summary = {
+      total: count,
+      pending: bookings.filter(b => b.status === 'pending').length,
+      confirmed: bookings.filter(b => b.status === 'confirmed').length,
+      completed: bookings.filter(b => b.status === 'completed').length,
+      cancelled: bookings.filter(b => b.status === 'cancelled').length,
+      in_progress: bookings.filter(b => b.status === 'in_progress').length
+    };
+
+    console.log('📊 Summary:', summary);
+    console.log('📋 Sample booking (first):', processedBookings[0]);
+
+    return res.status(200).json({
+      success: true,
+      bookings: processedBookings,
+      pagination: {
+        total: count,
+        limit: parseInt(limit),
+        offset: parseInt(offset),
+        totalPages: Math.ceil(count / limit)
+      },
+      summary
+    });
+
+  } catch (error) {
+    console.error('❌ Error getting merchant offer bookings:', error);
+    console.error('Error stack:', error.stack);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to fetch merchant offer bookings',
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+    });
+  }
+}
+
   async getUserBookings(req, res) {
     try {
       const userId = req.user?.id;
@@ -1246,6 +1405,7 @@ module.exports = {
   getStaff: offerBookingController.getStaff.bind(offerBookingController),
   getBranch: offerBookingController.getBranch.bind(offerBookingController),
   getStores: offerBookingController.getStores.bind(offerBookingController),
+  getAllMerchantBookings: offerBookingController.getAllMerchantBookings.bind(offerBookingController),
   OfferBookingController,
   default: offerBookingController
 };
