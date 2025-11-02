@@ -487,13 +487,13 @@ router.get('/offers', authenticateMerchant, async (req, res) => {
       include: [
         {
           model: User,
-          as: 'User',
+          as: 'bookingUser', // ✅ FIXED: Changed from 'User' to 'bookingUser'
           attributes: ['id', 'firstName', 'lastName', 'email', 'phoneNumber'],
           required: false
         },
         {
           model: Offer,
-          as: 'Offer',
+          as: 'offer', // ✅ FIXED: Changed from 'Offer' to 'offer' (lowercase)
           required: true,
           attributes: ['id', 'title', 'description', 'discount', 'original_price', 'discounted_price'],
           include: [{
@@ -513,13 +513,13 @@ router.get('/offers', authenticateMerchant, async (req, res) => {
         },
         {
           model: Staff,
-          as: 'Staff',
+          as: 'staff', // ✅ FIXED: Changed from 'Staff' to 'staff' (lowercase)
           required: false,
           attributes: ['id', 'name', 'email', 'phoneNumber', 'role', 'status']
         },
         {
           model: Payment,
-          as: 'Payment',
+          as: 'payment', // ✅ FIXED: Changed from 'Payment' to 'payment' (lowercase)
           required: false,
           attributes: ['id', 'amount', 'status', 'method', 'transaction_id']
         }
@@ -535,13 +535,15 @@ router.get('/offers', authenticateMerchant, async (req, res) => {
     const formattedBookings = bookings.rows.map(booking => {
       const bookingData = booking.toJSON();
       
-      const user = bookingData.User || bookingData.user;
-      const offer = bookingData.Offer || bookingData.offer;
-      const staff = bookingData.Staff || bookingData.staff;
-      const payment = bookingData.Payment || bookingData.payment;
+      // ✅ Get data using correct aliases
+      const user = bookingData.bookingUser;
+      const offer = bookingData.offer;
+      const staff = bookingData.staff;
+      const payment = bookingData.payment;
       
       return {
         ...bookingData,
+        // Add helper properties
         customerName: user 
           ? `${user.firstName || ''} ${user.lastName || ''}`.trim()
           : 'Unknown Customer',
@@ -556,8 +558,14 @@ router.get('/offers', authenticateMerchant, async (req, res) => {
         canModify: ['pending', 'confirmed'].includes(bookingData.status) && 
                   new Date(bookingData.startTime) > new Date(),
         
-        // Ensure frontend compatibility
-        User: user,
+        // ✅ Map to frontend-expected capitalized versions
+        User: user ? {
+          id: user.id,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          email: user.email,
+          phoneNumber: user.phoneNumber
+        } : null,
         Offer: offer,
         Staff: staff,
         Payment: payment
