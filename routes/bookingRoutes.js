@@ -1,4 +1,4 @@
-// routes/bookingRoutes.js - UPDATED VERSION with frontend compatibility aliases
+// routes/bookingRoutes.js - UPDATED VERSION with correct controller assignments
 
 const express = require('express');
 const router = express.Router();
@@ -97,6 +97,11 @@ router.get('/branches/offer/:offerId', safeControllerMethod(offerBookingControll
  */
 router.get('/stores/offer/:offerId', safeControllerMethod(offerBookingController, 'getStores'));
 
+/**
+ * Get platform fee for offer
+ */
+router.get('/offers/:offerId/platform-fee', safeControllerMethod(offerBookingController, 'getPlatformFee'));
+
 // ==========================================
 // SERVICE BOOKING ROUTES (Dedicated)
 // ==========================================
@@ -145,7 +150,6 @@ router.get('/slots/unified', safeControllerMethod(enhancedBookingController, 'ge
  */
 router.get('/slots', safeControllerMethod(enhancedBookingController, 'getAvailableSlots'));
 
-router.get('/offers/:offerId/platform-fee', safeControllerMethod(offerBookingController, 'getPlatformFee'));
 /**
  * Main booking creation endpoint - routes to appropriate controller based on request
  */
@@ -188,39 +192,70 @@ router.post('/create', authenticateUser, (req, res, next) => {
 });
 
 // ==========================================
-// LEGACY STAFF ROUTES (Enhanced Controller)
+// USER BOOKING MANAGEMENT ROUTES
 // ==========================================
 
 /**
- * Legacy: Get staff for store (enhanced with branch awareness)
+ * Get user's bookings (all types)
  */
-router.get('/staff/store/:storeId', safeControllerMethod(enhancedBookingController, 'getStaffForStore'));
-
-// ==========================================
-// BOOKING MANAGEMENT ROUTES (Enhanced Controller)
-// ==========================================
-
-/**
- * Get user's bookings
- */
-router.get('/user', authenticateUser, safeControllerMethod(offerBookingController, 'getUserBookings'));
+router.get('/user', authenticateUser, async (req, res, next) => {
+  try {
+    const { bookingType } = req.query;
+    
+    // If specific type requested, route accordingly
+    if (bookingType === 'offer') {
+      return safeControllerMethod(offerBookingController, 'getUserBookings')(req, res, next);
+    } else if (bookingType === 'service') {
+      return safeControllerMethod(serviceBookingController, 'getUserBookings')(req, res, next);
+    }
+    
+    // Otherwise, get both types (you'll need to implement this or use enhanced controller)
+    return safeControllerMethod(offerBookingController, 'getUserBookings')(req, res, next);
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: 'Error fetching user bookings'
+    });
+  }
+});
 
 /**
  * Get specific booking by ID
  */
-router.get('/:bookingId', authenticateUser, safeControllerMethod(offerBookingController, 'getBookingById'));
+router.get('/:bookingId', authenticateUser, async (req, res, next) => {
+  try {
+    // Try to determine booking type from database first
+    const { Booking } = require('../models');
+    const booking = await Booking.findByPk(req.params.bookingId, {
+      attributes: ['id', 'bookingType', 'offerId', 'serviceId']
+    });
+    
+    if (!booking) {
+      return res.status(404).json({
+        success: false,
+        message: 'Booking not found'
+      });
+    }
+
+    // Route to appropriate controller
+    if (booking.bookingType === 'offer' || booking.offerId) {
+      return safeControllerMethod(offerBookingController, 'getBookingById')(req, res, next);
+    } else {
+      return safeControllerMethod(serviceBookingController, 'getBookingById')(req, res, next);
+    }
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: 'Error fetching booking'
+    });
+  }
+});
 
 /**
  * Update booking status
  */
-router.put('/:bookingId/status', authenticateUser, safeControllerMethod(offerBookingController, 'updateBookingStatus'));
-
-/**
- * Cancel booking - route to appropriate controller
- */
-router.put('/:bookingId/cancel', authenticateUser, async (req, res, next) => {
+router.put('/:bookingId/status', authenticateUser, async (req, res, next) => {
   try {
-    // Determine booking type first
     const { Booking } = require('../models');
     const booking = await Booking.findByPk(req.params.bookingId);
     
@@ -232,7 +267,36 @@ router.put('/:bookingId/cancel', authenticateUser, async (req, res, next) => {
     }
 
     // Route to appropriate controller
-    if (booking.offerId) {
+    if (booking.bookingType === 'offer' || booking.offerId) {
+      return safeControllerMethod(offerBookingController, 'updateBookingStatus')(req, res, next);
+    } else {
+      return safeControllerMethod(serviceBookingController, 'updateBookingStatus')(req, res, next);
+    }
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: 'Error updating booking status'
+    });
+  }
+});
+
+/**
+ * Cancel booking - route to appropriate controller
+ */
+router.put('/:bookingId/cancel', authenticateUser, async (req, res, next) => {
+  try {
+    const { Booking } = require('../models');
+    const booking = await Booking.findByPk(req.params.bookingId);
+    
+    if (!booking) {
+      return res.status(404).json({
+        success: false,
+        message: 'Booking not found'
+      });
+    }
+
+    // Route to appropriate controller
+    if (booking.bookingType === 'offer' || booking.offerId) {
       return safeControllerMethod(offerBookingController, 'cancelBooking')(req, res, next);
     } else {
       return safeControllerMethod(serviceBookingController, 'cancelBooking')(req, res, next);
@@ -245,13 +309,22 @@ router.put('/:bookingId/cancel', authenticateUser, async (req, res, next) => {
   }
 });
 
-
+/**
+ * Reschedule booking
+ */
 router.put('/:bookingId/reschedule', authenticateUser, async (req, res, next) => {
   try {
     const { Booking } = require('../models');
     const booking = await Booking.findByPk(req.params.bookingId);
     
-    if (booking?.offerId) {
+    if (!booking) {
+      return res.status(404).json({
+        success: false,
+        message: 'Booking not found'
+      });
+    }
+    
+    if (booking.bookingType === 'offer' || booking.offerId) {
       return safeControllerMethod(offerBookingController, 'rescheduleBooking')(req, res, next);
     } else {
       return safeControllerMethod(serviceBookingController, 'rescheduleBooking')(req, res, next);
@@ -263,14 +336,83 @@ router.put('/:bookingId/reschedule', authenticateUser, async (req, res, next) =>
     });
   }
 });
+
 // ==========================================
 // MERCHANT BOOKING MANAGEMENT
 // ==========================================
 
 /**
- * Get all bookings for merchant
+ * ✅ FIXED: Get merchant offer bookings specifically
  */
-router.get('/merchant/all', authenticateMerchant, safeControllerMethod(serviceBookingController, 'getAllMerchantBookings'));
+router.get('/merchant/offers', authenticateMerchant, safeControllerMethod(offerBookingController, 'getAllMerchantBookings'));
+
+/**
+ * ✅ Get merchant service bookings specifically
+ */
+router.get('/merchant/services', authenticateMerchant, safeControllerMethod(serviceBookingController, 'getAllMerchantBookings'));
+
+/**
+ * Get all bookings for merchant (both offer and service)
+ */
+router.get('/merchant/all', authenticateMerchant, async (req, res) => {
+  try {
+    // Get both offer and service bookings
+    const offerBookingsPromise = offerBookingController.getAllMerchantBookings ? 
+      new Promise((resolve) => {
+        offerBookingController.getAllMerchantBookings(req, {
+          json: (data) => resolve(data),
+          status: () => ({ json: (data) => resolve(data) })
+        });
+      }) : Promise.resolve({ bookings: [] });
+
+    const serviceBookingsPromise = serviceBookingController.getAllMerchantBookings ?
+      new Promise((resolve) => {
+        serviceBookingController.getAllMerchantBookings(req, {
+          json: (data) => resolve(data),
+          status: () => ({ json: (data) => resolve(data) })
+        });
+      }) : Promise.resolve({ bookings: [] });
+
+    const [offerResult, serviceResult] = await Promise.all([
+      offerBookingsPromise,
+      serviceBookingsPromise
+    ]);
+
+    const allBookings = [
+      ...(offerResult.bookings || []),
+      ...(serviceResult.bookings || [])
+    ].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+    const summary = {
+      total: allBookings.length,
+      offers: offerResult.bookings?.length || 0,
+      services: serviceResult.bookings?.length || 0,
+      pending: allBookings.filter(b => b.status === 'pending').length,
+      confirmed: allBookings.filter(b => b.status === 'confirmed').length,
+      completed: allBookings.filter(b => b.status === 'completed').length,
+      cancelled: allBookings.filter(b => b.status === 'cancelled').length,
+      in_progress: allBookings.filter(b => b.status === 'in_progress').length
+    };
+
+    return res.status(200).json({
+      success: true,
+      bookings: allBookings,
+      summary,
+      pagination: {
+        total: allBookings.length,
+        limit: parseInt(req.query.limit) || 100,
+        offset: parseInt(req.query.offset) || 0
+      }
+    });
+  } catch (error) {
+    console.error('Error getting all merchant bookings:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to fetch merchant bookings',
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+    });
+  }
+});
 
 /**
  * Get bookings for specific merchant store
@@ -280,28 +422,71 @@ router.get('/merchant/store/:storeId', authenticateMerchant, safeControllerMetho
 /**
  * Get specific booking by ID (merchant view)
  */
-router.get('/merchant/:bookingId/view', authenticateMerchant, safeControllerMethod(serviceBookingController, 'getMerchantBookingById'));
+router.get('/merchant/:bookingId/view', authenticateMerchant, async (req, res, next) => {
+  try {
+    const { Booking } = require('../models');
+    const booking = await Booking.findByPk(req.params.bookingId, {
+      attributes: ['id', 'bookingType', 'offerId', 'serviceId']
+    });
+    
+    if (!booking) {
+      return res.status(404).json({
+        success: false,
+        message: 'Booking not found'
+      });
+    }
+
+    // Route to appropriate controller
+    if (booking.bookingType === 'offer' || booking.offerId) {
+      return safeControllerMethod(offerBookingController, 'getBookingById')(req, res, next);
+    } else {
+      return safeControllerMethod(serviceBookingController, 'getMerchantBookingById')(req, res, next);
+    }
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: 'Error fetching booking'
+    });
+  }
+});
 
 /**
  * Update booking status (merchant action)
  */
-router.put('/merchant/:bookingId/status', authenticateMerchant, safeControllerMethod(serviceBookingController, 'merchantUpdateBookingStatus'));
+router.put('/merchant/:bookingId/status', authenticateMerchant, async (req, res, next) => {
+  try {
+    const { Booking } = require('../models');
+    const booking = await Booking.findByPk(req.params.bookingId);
+    
+    if (!booking) {
+      return res.status(404).json({
+        success: false,
+        message: 'Booking not found'
+      });
+    }
 
-/**
- * Get merchant service bookings specifically
- */
-router.get('/merchant/services', authenticateMerchant, (req, res) => {
-  req.query.bookingType = 'service';
-  return safeControllerMethod(serviceBookingController, 'getAllMerchantBookings')(req, res);
+    // Route to appropriate controller
+    if (booking.bookingType === 'offer' || booking.offerId) {
+      return safeControllerMethod(offerBookingController, 'merchantUpdateBookingStatus')(req, res, next);
+    } else {
+      return safeControllerMethod(serviceBookingController, 'merchantUpdateBookingStatus')(req, res, next);
+    }
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: 'Error updating booking status'
+    });
+  }
 });
 
+// ==========================================
+// LEGACY STAFF ROUTES (Enhanced Controller)
+// ==========================================
+
 /**
- * Get merchant offer bookings specifically
+ * Legacy: Get staff for store (enhanced with branch awareness)
  */
-router.get('/merchant/offers', authenticateMerchant, (req, res) => {
-  req.query.bookingType = 'offer';
-  return safeControllerMethod(enhancedBookingController, 'getAllMerchantBookings')(req, res);
-});
+router.get('/staff/store/:storeId', safeControllerMethod(enhancedBookingController, 'getStaffForStore'));
 
 // ==========================================
 // ANALYTICS ROUTES (CONDITIONAL)
@@ -310,14 +495,14 @@ router.get('/merchant/offers', authenticateMerchant, (req, res) => {
 /**
  * Get booking analytics (only if method exists)
  */
-if (enhancedBookingController.getBookingAnalytics) {
+if (enhancedBookingController && enhancedBookingController.getBookingAnalytics) {
   router.get('/analytics', authenticateMerchant, safeControllerMethod(enhancedBookingController, 'getBookingAnalytics'));
 }
 
 /**
  * Get service booking statistics (only if method exists)
  */
-if (enhancedBookingController.getServiceBookingStats) {
+if (enhancedBookingController && enhancedBookingController.getServiceBookingStats) {
   router.get('/analytics/service/:serviceId', authenticateMerchant, safeControllerMethod(enhancedBookingController, 'getServiceBookingStats'));
 }
 
@@ -328,14 +513,14 @@ if (enhancedBookingController.getServiceBookingStats) {
 /**
  * Check specific slot availability (only if method exists)
  */
-if (enhancedBookingController.checkSlotAvailability) {
+if (enhancedBookingController && enhancedBookingController.checkSlotAvailability) {
   router.get('/check-slot', safeControllerMethod(enhancedBookingController, 'checkSlotAvailability'));
 }
 
 /**
  * Get slot utilization report (only if method exists)
  */
-if (enhancedBookingController.getSlotUtilization) {
+if (enhancedBookingController && enhancedBookingController.getSlotUtilization) {
   router.get('/slot-utilization/:serviceId', authenticateMerchant, safeControllerMethod(enhancedBookingController, 'getSlotUtilization'));
 }
 
@@ -346,7 +531,9 @@ if (enhancedBookingController.getSlotUtilization) {
 /**
  * Debug working days endpoint
  */
-router.get('/debug/working-days', safeControllerMethod(enhancedBookingController, 'debugWorkingDays'));
+if (enhancedBookingController && enhancedBookingController.debugWorkingDays) {
+  router.get('/debug/working-days', safeControllerMethod(enhancedBookingController, 'debugWorkingDays'));
+}
 
 /**
  * Test working days for offers
@@ -453,7 +640,8 @@ router.get('/test', (req, res) => {
         'POST /offers',
         'GET /staff/offer/:offerId',
         'GET /branches/offer/:offerId',
-        'GET /stores/offer/:offerId'
+        'GET /stores/offer/:offerId',
+        'GET /offers/:offerId/platform-fee'
       ],
       serviceRoutes: [
         'GET /slots/service',
@@ -471,15 +659,16 @@ router.get('/test', (req, res) => {
         'GET /user',
         'GET /:bookingId',
         'PUT /:bookingId/status',
-        'PUT /:bookingId/cancel'
+        'PUT /:bookingId/cancel',
+        'PUT /:bookingId/reschedule'
       ],
       merchantRoutes: [
+        'GET /merchant/offers (✅ FIXED)',
+        'GET /merchant/services',
         'GET /merchant/all',
         'GET /merchant/store/:storeId',
         'GET /merchant/:bookingId/view',
-        'PUT /merchant/:bookingId/status',
-        'GET /merchant/services',
-        'GET /merchant/offers'
+        'PUT /merchant/:bookingId/status'
       ],
       legacyRoutes: [
         'GET /staff/store/:storeId'
