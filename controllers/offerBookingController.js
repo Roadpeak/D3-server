@@ -1,4 +1,4 @@
-// controllers/offerBookingController.js - Updated with separated platform fee calculation
+// controllers/offerBookingController.js - FIXED VERSION with proper email notifications
 
 const moment = require('moment');
 const QRCode = require('qrcode');
@@ -30,18 +30,14 @@ const SlotGenerationService = require('../services/slotGenerationService');
 const NotificationService = require('../services/notificationService');
 const slotService = new SlotGenerationService(models);
 
-
 class OfferBookingController {
 
   constructor() {
     this.slotService = new SlotGenerationService(models);
-    this.notificationService = new NotificationService(); // ✅ ADD THIS
+    this.notificationService = new NotificationService();
+    this.models = models; // Store models reference
   }
 
-  /**
-   * Calculate platform access fee for an offer
-   * Fee is 20% of the discount amount (original_price - discounted_price)
-   */
   calculatePlatformFee(offer) {
     try {
       console.log('=== PLATFORM FEE DEBUG ===');
@@ -50,32 +46,15 @@ class OfferBookingController {
       console.log('Offer discount:', offer?.discount);
       console.log('Offer service:', offer?.service ? 'EXISTS' : 'MISSING');
       console.log('Service price:', offer?.service?.price);
-      console.log('Raw offer object:', JSON.stringify(offer, null, 2));
-      console.log('=== END DEBUG ===');
 
       if (!offer) {
         console.warn('No offer provided for fee calculation, using default');
         return 5.99;
       }
 
-      // Try multiple ways to get the service price
-      const servicePrice = parseFloat(
-        offer.service?.price ||
-        offer.price ||
-        0
-      );
-
+      const servicePrice = parseFloat(offer.service?.price || offer.price || 0);
       const discountPercentage = parseFloat(offer.discount || 0);
 
-      console.log('Extracted values:', {
-        servicePrice,
-        discountPercentage,
-        offerService: !!offer.service,
-        servicePriceRaw: offer.service?.price,
-        discountRaw: offer.discount
-      });
-
-      // Validate data
       if (servicePrice <= 0) {
         console.warn('Invalid service price:', servicePrice, 'for offer', offer.id);
         return 5.99;
@@ -91,12 +70,8 @@ class OfferBookingController {
         return 5.99;
       }
 
-      // Calculate the actual discount amount in KSH
       const discountAmount = (servicePrice * discountPercentage) / 100;
-
-      // Platform fee is 20% of the discount amount
       const platformFee = discountAmount * 0.20;
-
       const finalFee = Math.max(1.00, parseFloat(platformFee.toFixed(2)));
 
       console.log('Platform fee calculated:', {
@@ -115,9 +90,6 @@ class OfferBookingController {
     }
   }
 
-  /**
-   * Get platform fee for a specific offer (separate endpoint)
-   */
   async getPlatformFee(req, res) {
     try {
       const { offerId } = req.params;
@@ -129,7 +101,6 @@ class OfferBookingController {
         });
       }
 
-      // Get offer details
       const offer = await Offer.findByPk(offerId, {
         include: [{
           model: Service,
@@ -149,7 +120,6 @@ class OfferBookingController {
       }
 
       const platformFee = this.calculatePlatformFee(offer);
-
       const originalPrice = parseFloat(offer.original_price || 0);
       const discountedPrice = parseFloat(offer.discounted_price || offer.offerPrice || 0);
       const discountAmount = originalPrice - discountedPrice;
@@ -187,12 +157,10 @@ class OfferBookingController {
       throw new Error('DateTime string is required');
     }
 
-    // If it's already a moment object, return it
     if (moment.isMoment(dateTimeStr)) {
       return dateTimeStr;
     }
 
-    // If it's a Date object, convert to moment
     if (dateTimeStr instanceof Date) {
       return moment(dateTimeStr);
     }
@@ -200,7 +168,6 @@ class OfferBookingController {
     if (typeof dateTimeStr === 'string') {
       let fixedDateTime = dateTimeStr.trim();
 
-      // Handle the common format from frontend: YYYY-MM-DDTHH:mm:ss
       if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/.test(fixedDateTime)) {
         const parsed = moment(fixedDateTime, 'YYYY-MM-DDTHH:mm:ss', true);
         if (parsed.isValid()) {
@@ -208,7 +175,6 @@ class OfferBookingController {
         }
       }
 
-      // Handle format without seconds: YYYY-MM-DDTHH:mm
       if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(fixedDateTime)) {
         fixedDateTime += ':00';
         const parsed = moment(fixedDateTime, 'YYYY-MM-DDTHH:mm:ss', true);
@@ -217,7 +183,6 @@ class OfferBookingController {
         }
       }
 
-      // Try other common formats
       const formats = [
         'YYYY-MM-DDTHH:mm:ss',
         'YYYY-MM-DDTHH:mm',
@@ -233,7 +198,6 @@ class OfferBookingController {
         }
       }
 
-      // Final fallback - let moment try to parse it automatically
       const fallbackParsed = moment(fixedDateTime);
       if (fallbackParsed.isValid()) {
         return fallbackParsed;
@@ -245,23 +209,39 @@ class OfferBookingController {
 
   async getAvailableSlots(req, res) {
     try {
-      console.log('=== GET AVAILABLE SLOTS DEBUG ===');
-      console.log('Query params:', req.query);
-
       const { date, offerId } = req.query;
 
-      // ... existing validation code ...
+      if (!date || !offerId) {
+        return res.status(400).json({
+          success: false,
+          message: 'Date and offer ID are required.',
+          received: { date, offerId }
+        });
+      }
+
+      if (!moment(date, 'YYYY-MM-DD', true).isValid()) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid date format. Use YYYY-MM-DD.',
+          received: date
+        });
+      }
+
+      if (moment(date).isBefore(moment().startOf('day'))) {
+        return res.status(400).json({
+          success: false,
+          message: 'Cannot book slots for past dates.',
+          received: date
+        });
+      }
 
       const result = await slotService.generateAvailableSlots(offerId, 'offer', date);
-
-      console.log('Slot service result:', result);
 
       if (result.success) {
         result.bookingType = 'offer';
         result.requiresPayment = true;
         result.needsFeeCalculation = true;
 
-        // Add fee calculation here for now
         try {
           const offer = await Offer.findByPk(offerId, {
             include: [{
@@ -270,29 +250,16 @@ class OfferBookingController {
             }]
           });
 
-          console.log('Offer found for fee calc:', !!offer);
-          console.log('Offer data:', offer ? {
-            id: offer.id,
-            discount: offer.discount,
-            hasService: !!offer.service,
-            servicePrice: offer.service?.price
-          } : null);
-
           if (offer) {
             result.accessFee = this.calculatePlatformFee(offer);
-            console.log('Calculated access fee:', result.accessFee);
           } else {
             result.accessFee = 5.99;
-            console.log('No offer found, using default fee');
           }
         } catch (feeError) {
           console.error('Fee calculation error:', feeError);
           result.accessFee = 5.99;
         }
       }
-
-      console.log('Final result access fee:', result.accessFee);
-      console.log('=== END SLOTS DEBUG ===');
 
       const statusCode = result.success ? 200 : (result.message.includes('not found') ? 404 : 400);
       return res.status(statusCode).json(result);
@@ -344,7 +311,6 @@ class OfferBookingController {
         });
       }
 
-      // Normalize datetime
       let bookingDateTime;
       try {
         bookingDateTime = this.normalizeDateTime(startTime);
@@ -358,7 +324,6 @@ class OfferBookingController {
         });
       }
 
-      // Get offer details
       const offer = await Offer.findByPk(offerId, {
         include: [{
           model: Service,
@@ -413,7 +378,6 @@ class OfferBookingController {
         });
       }
 
-      // Validate advance booking rules
       const now = moment();
       const advanceMinutes = bookingDateTime.diff(now, 'minutes');
 
@@ -427,7 +391,6 @@ class OfferBookingController {
         });
       }
 
-      // Check slot availability
       const date = bookingDateTime.format('YYYY-MM-DD');
       const time = bookingDateTime.format('h:mm A');
 
@@ -441,7 +404,6 @@ class OfferBookingController {
         });
       }
 
-      // Handle branch and store
       let bookingBranch = null;
       let bookingStore = null;
 
@@ -474,7 +436,6 @@ class OfferBookingController {
         bookingStore = service.store;
       }
 
-      // Handle staff selection
       let bookingStaff = null;
       if (staffId && Staff) {
         const staffQuery = {
@@ -502,7 +463,6 @@ class OfferBookingController {
         }
       }
 
-      // Calculate access fee using the separated method
       const accessFee = this.calculatePlatformFee(offer);
 
       let paymentRecord = null;
@@ -517,11 +477,9 @@ class OfferBookingController {
         }
       }
 
-      // Calculate end time
       const serviceDuration = service.duration || 60;
       const endTime = bookingDateTime.clone().add(serviceDuration, 'minutes').toDate();
 
-      // Create the offer booking
       const bookingData = {
         offerId,
         userId,
@@ -540,21 +498,12 @@ class OfferBookingController {
       if (paymentRecord) {
         bookingData.paymentId = paymentRecord.id;
         bookingData.paymentUniqueCode = paymentRecord.unique_code;
-        console.log('⚠️ Payment record exists before booking creation - using legacy flow');
       }
-      console.log('Creating booking with data:', {
-        offerId: bookingData.offerId,
-        userId: bookingData.userId,
-        status: bookingData.status,
-        payment_status: bookingData.payment_status,
-        accessFee: bookingData.accessFee
-      });
 
       const booking = await Booking.create(bookingData, {
         ...(transaction && { transaction })
       });
 
-      // Generate QR code
       try {
         const qrCodeUrl = await this.generateQRCode(booking, req);
         if (qrCodeUrl) {
@@ -566,39 +515,45 @@ class OfferBookingController {
         console.warn('QR code generation failed:', qrError.message);
       }
 
-      // Commit transaction
+      // Commit transaction BEFORE sending emails
       if (transaction && !transactionCommitted) {
         await transaction.commit();
         transactionCommitted = true;
       }
 
-      // Send booking notifications to both user and merchant
+      // ✅ FIXED: Send notifications AFTER transaction commit
+      console.log('📧 Sending offer booking notifications...');
       try {
-        await this.sendBookingNotifications(booking, offer, service, user, store, staff);
+        // Send to MERCHANT
+        console.log('📧 Sending notification to MERCHANT...');
+        await this.notificationService.sendOfferBookingNotificationToMerchant(
+          booking,
+          offer,
+          service,
+          bookingStore,
+          bookingStaff,
+          user
+        );
+        console.log('✅ Merchant notification sent successfully');
+
+        // Send to CUSTOMER
+        console.log('📧 Sending confirmation to CUSTOMER...');
+        await this.notificationService.sendOfferBookingConfirmationToCustomer(
+          booking,
+          offer,
+          service,
+          user,
+          bookingStore,
+          booking.qrCode
+        );
+        console.log('✅ Customer confirmation sent successfully');
+
       } catch (notificationError) {
-        console.warn('Booking notification failed:', notificationError.message);
-        // Don't fail the booking if notifications fail
+        console.error('❌ Offer booking notification failed:', notificationError);
+        console.error('Error details:', notificationError.message);
+        console.error('Stack trace:', notificationError.stack);
       }
 
-      // Send appropriate confirmation email based on status
-      try {
-        if (booking.status === 'confirmed') {
-          await this.sendBookingConfirmationEmail(booking, offer, service, user, store, staff);
-        } else {
-          await this.sendBookingPendingEmail(booking, offer, service, user, store, staff);
-        }
-      } catch (emailError) {
-        console.warn('Email sending failed:', emailError.message);
-      }
-
-      // Send confirmation email
-      try {
-        await this.sendBookingConfirmationEmail(booking, offer, user, bookingStore, bookingStaff);
-      } catch (emailError) {
-        console.warn('Email sending failed:', emailError.message);
-      }
-
-      // Fetch complete booking data
       const completeBooking = await Booking.findByPk(booking.id, {
         include: [
           {
@@ -625,12 +580,7 @@ class OfferBookingController {
             model: Payment,
             as: 'payment',
             required: false
-          },
-          // ...(Branch ? [{
-          //   model: Branch,
-          //   as: 'branch',
-          //   required: false
-          // }] : [])
+          }
         ]
       });
 
@@ -857,7 +807,6 @@ class OfferBookingController {
     }
   }
 
-  // Legacy compatibility method
   async getStores(req, res) {
     try {
       const { offerId } = req.params;
@@ -921,7 +870,6 @@ class OfferBookingController {
     }
   }
 
-  // Utility methods
   async processPayment(paymentData, transaction) {
     if (!Payment) {
       console.warn('Payment model not available, skipping payment processing');
@@ -979,13 +927,8 @@ class OfferBookingController {
     }
   }
 
-  /**
-  * Get all offer bookings for a merchant
-  * @route GET /api/v1/bookings/merchant/offers
-  */
   async getAllMerchantBookings(req, res) {
     try {
-      console.log('📊 Getting all merchant offer bookings');
       const merchantId = req.user?.id || req.merchant?.id;
 
       if (!merchantId) {
@@ -997,7 +940,6 @@ class OfferBookingController {
 
       const { limit = 100, offset = 0, status } = req.query;
 
-      // Get merchant's stores
       const merchantStores = await this.models.Store.findAll({
         where: { merchant_id: merchantId },
         attributes: ['id'],
@@ -1005,7 +947,6 @@ class OfferBookingController {
       });
 
       if (!merchantStores || merchantStores.length === 0) {
-        console.log('⚠️ No stores found for merchant:', merchantId);
         return res.status(200).json({
           success: true,
           bookings: [],
@@ -1023,9 +964,7 @@ class OfferBookingController {
       }
 
       const storeIds = merchantStores.map(store => store.id);
-      console.log('📍 Merchant store IDs:', storeIds);
 
-      // Build where clause
       const whereClause = {
         bookingType: 'offer',
         storeId: storeIds
@@ -1035,29 +974,21 @@ class OfferBookingController {
         whereClause.status = status;
       }
 
-      console.log('🔍 Query where clause:', JSON.stringify(whereClause, null, 2));
-
-      // ✅ Fetch bookings with NO INCLUDES (raw query)
       const bookings = await this.models.Booking.findAll({
         where: whereClause,
         limit: parseInt(limit),
         offset: parseInt(offset),
         order: [['createdAt', 'DESC']],
-        raw: false // We need the Sequelize instance for toJSON()
+        raw: false
       });
 
       const count = await this.models.Booking.count({
         where: whereClause
       });
 
-      console.log(`✅ Found ${count} offer bookings (total)`);
-      console.log(`📦 Returning ${bookings.length} bookings in this batch`);
-
-      // Process each booking and manually fetch related data
       const processedBookings = await Promise.all(bookings.map(async (booking) => {
         const bookingData = booking.toJSON();
 
-        // Manually fetch User
         if (bookingData.userId) {
           try {
             const user = await this.models.User.findByPk(bookingData.userId, {
@@ -1073,7 +1004,6 @@ class OfferBookingController {
           }
         }
 
-        // Manually fetch Offer with Service
         if (bookingData.offerId) {
           try {
             const offer = await this.models.Offer.findByPk(bookingData.offerId, {
@@ -1083,7 +1013,6 @@ class OfferBookingController {
             if (offer) {
               const offerData = offer.toJSON();
 
-              // Fetch Service for this offer
               if (offerData.service_id) {
                 try {
                   const service = await this.models.Service.findByPk(offerData.service_id, {
@@ -1092,7 +1021,6 @@ class OfferBookingController {
                   if (service) {
                     const serviceData = service.toJSON();
 
-                    // Fetch Store for this service
                     if (serviceData.store_id) {
                       try {
                         const store = await this.models.Store.findByPk(serviceData.store_id, {
@@ -1122,7 +1050,6 @@ class OfferBookingController {
           }
         }
 
-        // Manually fetch Payment
         if (bookingData.paymentId) {
           try {
             const payment = await this.models.Payment.findByPk(bookingData.paymentId, {
@@ -1137,7 +1064,6 @@ class OfferBookingController {
           }
         }
 
-        // Manually fetch Store
         if (bookingData.storeId) {
           try {
             const store = await this.models.Store.findByPk(bookingData.storeId, {
@@ -1152,7 +1078,6 @@ class OfferBookingController {
           }
         }
 
-        // Manually fetch Staff if staffId exists
         if (bookingData.staffId) {
           try {
             const staff = await this.models.Staff.findByPk(bookingData.staffId, {
@@ -1167,7 +1092,6 @@ class OfferBookingController {
           }
         }
 
-        // Add helper properties
         bookingData.isOfferBooking = true;
         bookingData.accessFeePaid = !!bookingData.paymentId;
         bookingData.customerName = `${bookingData.User?.firstName || ''} ${bookingData.User?.lastName || ''}`.trim();
@@ -1176,7 +1100,6 @@ class OfferBookingController {
         return bookingData;
       }));
 
-      // Calculate summary
       const summary = {
         total: count,
         pending: bookings.filter(b => b.status === 'pending').length,
@@ -1185,11 +1108,6 @@ class OfferBookingController {
         cancelled: bookings.filter(b => b.status === 'cancelled').length,
         in_progress: bookings.filter(b => b.status === 'in_progress').length
       };
-
-      console.log('📊 Summary:', summary);
-      if (processedBookings.length > 0) {
-        console.log('📋 Sample booking keys:', Object.keys(processedBookings[0]));
-      }
 
       return res.status(200).json({
         success: true,
@@ -1213,6 +1131,7 @@ class OfferBookingController {
       });
     }
   }
+
   async getUserBookings(req, res) {
     try {
       const userId = req.user?.id;
@@ -1227,7 +1146,6 @@ class OfferBookingController {
 
       const offset = (parseInt(page) - 1) * parseInt(limit);
 
-      // Build where clause
       const whereClause = { userId };
       if (status && status !== 'all') {
         whereClause.status = status;
@@ -1277,7 +1195,6 @@ class OfferBookingController {
         offset: offset
       });
 
-      // FIXED: Add the isOfferBooking property to each booking
       const processedBookings = bookings.map(booking => {
         const bookingData = booking.toJSON();
         bookingData.isOfferBooking = !!booking.offerId;
@@ -1289,7 +1206,7 @@ class OfferBookingController {
 
       return res.status(200).json({
         success: true,
-        bookings: processedBookings, // Use processed bookings
+        bookings: processedBookings,
         pagination: {
           currentPage: parseInt(page),
           totalPages,
@@ -1319,7 +1236,6 @@ class OfferBookingController {
       const { bookingId } = req.params;
       const { newStartTime, newStaffId, reason } = req.body;
 
-      // Find existing booking
       const existingBooking = await Booking.findByPk(bookingId, {
         ...(transaction && { transaction })
       });
@@ -1332,7 +1248,6 @@ class OfferBookingController {
         });
       }
 
-      // Validate new time slot availability
       const newDateTime = this.normalizeDateTime(newStartTime);
       const date = newDateTime.format('YYYY-MM-DD');
       const time = newDateTime.format('h:mm A');
@@ -1350,7 +1265,6 @@ class OfferBookingController {
         });
       }
 
-      // Calculate new end time
       const service = existingBooking.offerId
         ? await Offer.findByPk(existingBooking.offerId, { include: [{ model: Service, as: 'service' }] }).then(o => o.service)
         : await Service.findByPk(existingBooking.serviceId);
@@ -1358,7 +1272,6 @@ class OfferBookingController {
       const duration = service?.duration || 60;
       const newEndTime = newDateTime.clone().add(duration, 'minutes').toDate();
 
-      // Update booking
       await existingBooking.update({
         startTime: newDateTime.toDate(),
         endTime: newEndTime,
@@ -1383,7 +1296,6 @@ class OfferBookingController {
       });
     }
   }
-  
 
   async getBookingById(req, res) {
     try {
@@ -1443,14 +1355,13 @@ class OfferBookingController {
         });
       }
 
-      // FIXED: Add helper properties
       const bookingData = booking.toJSON();
       bookingData.isOfferBooking = !!booking.offerId;
       bookingData.accessFeePaid = !!booking.paymentId;
 
       return res.status(200).json({
         success: true,
-        booking: bookingData // Use processed booking data
+        booking: bookingData
       });
 
     } catch (error) {
@@ -1464,76 +1375,9 @@ class OfferBookingController {
   }
 
   // ==========================================
-  // NOTIFICATION METHODS
+  // NOTIFICATION METHODS - ✅ FIXED
   // ==========================================
 
-  /**
-   * Send booking notifications to both merchant and customer
-   */
-  async sendBookingNotifications(booking, offer, service, user, store, staff) {
-    try {
-      const qrCodeUrl = booking.qrCode;
-
-      // Send notification to merchant
-      await this.notificationService.sendOfferBookingNotificationToMerchant(
-        booking,
-        offer,
-        service,
-        store,
-        staff,
-        user
-      );
-
-      // Send confirmation to customer
-      await this.notificationService.sendOfferBookingConfirmationToCustomer(
-        booking,
-        offer,
-        service,
-        user,
-        store,
-        qrCodeUrl
-      );
-
-      console.log(`Offer booking notifications sent for booking ID: ${booking.id}`);
-      return true;
-    } catch (error) {
-      console.error('Error sending offer booking notifications:', error);
-      throw new Error('Failed to send booking notifications');
-    }
-  }
-
-  /**
-   * Send booking confirmation email
-   */
-  async sendBookingConfirmationEmail(booking, offer, service, user, store, staff) {
-    return this.notificationService.sendOfferBookingConfirmationToCustomer(
-      booking,
-      offer,
-      service,
-      user,
-      store,
-      booking.qrCode
-    );
-  }
-
-  /**
-   * Send pending booking email
-   */
-  async sendBookingPendingEmail(booking, offer, service, user, store, staff) {
-    // Use the same method - the status in booking will indicate it's pending
-    return this.notificationService.sendOfferBookingConfirmationToCustomer(
-      booking,
-      offer,
-      service,
-      user,
-      store,
-      booking.qrCode
-    );
-  }
-
-  /**
-   * Send check-in notification
-   */
   async sendCheckInNotification(booking, checkInData) {
     try {
       const offer = await this.models.Offer.findByPk(booking.offerId, {
@@ -1581,9 +1425,6 @@ class OfferBookingController {
     }
   }
 
-  /**
-   * Send completion notification
-   */
   async sendCompletionNotification(booking, completionData) {
     try {
       const offer = await this.models.Offer.findByPk(booking.offerId, {
@@ -1630,9 +1471,6 @@ class OfferBookingController {
     }
   }
 
-  /**
-   * Send cancellation notification
-   */
   async sendCancellationNotification(booking, reason, refundRequested) {
     try {
       const offer = await this.models.Offer.findByPk(booking.offerId, {
@@ -1679,7 +1517,6 @@ class OfferBookingController {
     }
   }
 
-
   async sendBookingConfirmationEmail(booking, offer, user, store, staff) {
     try {
       const emailSubject = `Offer Booking Confirmation - ${offer.title || offer.service?.name}`;
@@ -1687,7 +1524,6 @@ class OfferBookingController {
         ? 'Access fee has been paid. Pay the discounted service price at the venue.'
         : 'Please complete payment to confirm your booking.';
 
-      // Email service implementation would go here
       console.log(`Email would be sent with subject: ${emailSubject}`);
       console.log(`Payment info: ${paymentInfo}`);
 
@@ -1709,9 +1545,6 @@ class OfferBookingController {
   }
 }
 
-
-
-// Create and export instance
 const offerBookingController = new OfferBookingController();
 
 module.exports = {
@@ -1719,7 +1552,7 @@ module.exports = {
   getAvailableSlots: offerBookingController.getAvailableSlots.bind(offerBookingController),
   getPlatformFee: offerBookingController.getPlatformFee.bind(offerBookingController),
   getUserBookings: offerBookingController.getUserBookings.bind(offerBookingController),
-  getBookingById: offerBookingController.getBookingById.bind(offerBookingController), // Add this
+  getBookingById: offerBookingController.getBookingById.bind(offerBookingController),
   getStaff: offerBookingController.getStaff.bind(offerBookingController),
   getBranch: offerBookingController.getBranch.bind(offerBookingController),
   getStores: offerBookingController.getStores.bind(offerBookingController),

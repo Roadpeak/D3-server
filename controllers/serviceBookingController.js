@@ -1,4 +1,4 @@
-// controllers/serviceBookingController.js - Enhanced with merchant action methods
+// controllers/serviceBookingController.js - FIXED VERSION with proper email notifications
 
 const moment = require('moment');
 const QRCode = require('qrcode');
@@ -52,7 +52,6 @@ class ServiceBookingController {
 
     if (typeof dateTimeStr === 'string') {
       let fixedDateTime = dateTimeStr.trim();
-
 
       // Fix single-digit hours: '2025-08-25T9:00' -> '2025-08-25T09:00'
       const singleHourPattern = /T(\d):(\d{2})(?::(\d{2}))?$/;
@@ -136,7 +135,7 @@ class ServiceBookingController {
       if (result.success) {
         result.bookingType = 'service';
         result.requiresPayment = false;
-        result.accessFee = 0; // No access fee for direct service bookings
+        result.accessFee = 0;
       }
 
       const statusCode = result.success ? 200 : (result.message.includes('not found') ? 404 : 400);
@@ -149,63 +148,6 @@ class ServiceBookingController {
         message: 'Error fetching available service slots',
         error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
       });
-    }
-  }
-
-  /**
- * Check staff availability for the booking time
- */
-  async checkStaffAvailability(staffId, bookingDateTime, duration) {
-    try {
-      const staff = await this.Staff.findByPk(staffId);
-      if (!staff) {
-        return { available: false, reason: 'Staff member not found' };
-      }
-
-      if (staff.status !== 'active') {
-        return { available: false, reason: 'Staff member not active' };
-      }
-
-      // Check for overlapping bookings
-      const startTime = moment(bookingDateTime);
-      const endTime = startTime.clone().add(duration, 'minutes');
-
-      const overlappingBookings = await this.Booking.count({
-        where: {
-          staffId: staffId,
-          status: {
-            [Op.in]: ['confirmed', 'in_progress', 'pending']
-          },
-          [Op.or]: [
-            {
-              startTime: {
-                [Op.between]: [startTime.toDate(), endTime.toDate()]
-              }
-            },
-            {
-              endTime: {
-                [Op.between]: [startTime.toDate(), endTime.toDate()]
-              }
-            },
-            {
-              [Op.and]: [
-                { startTime: { [Op.lte]: startTime.toDate() } },
-                { endTime: { [Op.gte]: endTime.toDate() } }
-              ]
-            }
-          ]
-        }
-      });
-
-      if (overlappingBookings > 0) {
-        return { available: false, reason: 'Staff member has conflicting booking' };
-      }
-
-      return { available: true, reason: 'Staff member available' };
-
-    } catch (error) {
-      console.error('Error checking staff availability:', error);
-      return { available: false, reason: 'Error checking staff availability' };
     }
   }
 
@@ -393,7 +335,7 @@ class ServiceBookingController {
         userId,
         startTime: bookingDateTime.toDate(),
         endTime,
-        status: service.auto_confirm_bookings ? 'confirmed' : 'pending', // OLD SIMPLE LOGIC
+        status: service.auto_confirm_bookings ? 'confirmed' : 'pending',
         storeId: bookingStore?.id,
         branchId: bookingBranch?.id,
         staffId: bookingStaff?.id,
@@ -402,9 +344,7 @@ class ServiceBookingController {
         bookingType: 'service'
       };
 
-      const finalBookingData = bookingData;
-
-      const booking = await Booking.create(finalBookingData, {
+      const booking = await Booking.create(bookingData, {
         ...(transaction && { transaction })
       });
 
@@ -420,29 +360,42 @@ class ServiceBookingController {
         console.warn('QR code generation failed:', qrError.message);
       }
 
-      // Send booking notifications to both user and merchant
-      try {
-        await this.sendBookingNotifications(booking, service, user, bookingStore, bookingStaff);
-      } catch (notificationError) {
-        console.warn('Booking notification failed:', notificationError.message);
-        // Don't fail the transaction if notifications fail
-      }
-
-      // Commit transaction
+      // Commit transaction BEFORE sending emails
       if (transaction && !transactionCommitted) {
         await transaction.commit();
         transactionCommitted = true;
       }
 
-      // Send appropriate confirmation email based on status
+      // ✅ FIXED: Send notifications AFTER transaction commit
+      console.log('📧 Sending booking notifications...');
       try {
-        if (booking.status === 'confirmed') {
-          await this.sendBookingConfirmationEmail(booking, service, user, bookingStore, bookingStaff);
-        } else {
-          await this.sendBookingPendingEmail(booking, service, user, bookingStore, bookingStaff);
-        }
-      } catch (emailError) {
-        console.warn('Email sending failed:', emailError.message);
+        // Send to MERCHANT
+        console.log('📧 Sending notification to MERCHANT...');
+        await this.notificationService.sendBookingNotificationToMerchant(
+          booking,
+          service,
+          bookingStore,
+          bookingStaff,
+          user // Add user parameter for merchant notification
+        );
+        console.log('✅ Merchant notification sent successfully');
+
+        // Send to CUSTOMER
+        console.log('📧 Sending confirmation to CUSTOMER...');
+        await this.notificationService.sendBookingConfirmationToCustomer(
+          booking,
+          service,
+          user,
+          bookingStore,
+          booking.qrCode
+        );
+        console.log('✅ Customer confirmation sent successfully');
+
+      } catch (notificationError) {
+        console.error('❌ Booking notification failed:', notificationError);
+        console.error('Error details:', notificationError.message);
+        console.error('Stack trace:', notificationError.stack);
+        // Don't fail the booking if notifications fail, just log the error
       }
 
       // Fetch complete booking data for response
@@ -462,15 +415,11 @@ class ServiceBookingController {
             model: User,
             as: 'bookingUser',
             required: false
-          },
-          // ...(Branch ? [{
-          //   model: Branch,
-          //   required: false
-          // }] : [])
+          }
         ]
       });
 
-      const responseMessage = `Service booking confirmed successfully. ${availabilityCheck.remainingSlots - 1} slots remaining for this time.`;
+      const responseMessage = `Service booking ${booking.status} successfully. ${availabilityCheck.remainingSlots - 1} slots remaining for this time.`;
 
       res.status(201).json({
         success: true,
@@ -503,48 +452,6 @@ class ServiceBookingController {
     }
   }
 
-  // New method to handle both merchant and user notifications
-  async sendBookingNotifications(booking, service, user, store, staff) {
-    try {
-      // Get the QR code URL for the customer notification
-      const qrCodeUrl = booking.qrCode;
-
-      // Send notification to merchant
-      await this.notificationService.sendBookingNotificationToMerchant(
-        booking,
-        service,
-        store,
-        staff
-      );
-
-      // Send confirmation to customer
-      await this.notificationService.sendBookingConfirmationToCustomer(
-        booking,
-        service,
-        user,
-        store,
-        qrCodeUrl
-      );
-
-      console.log(`Booking notifications sent for booking ID: ${booking.id}`);
-      return true;
-    } catch (error) {
-      console.error('Error sending booking notifications:', error);
-      throw new Error('Failed to send booking notifications');
-    }
-  }
-
-  async sendBookingPendingEmail(booking, service, user, store, staff) {
-    // We can use the same method but the status will be 'pending'
-    return this.notificationService.sendBookingConfirmationToCustomer(
-      booking,
-      service,
-      user,
-      store,
-      booking.qrCode
-    );
-  }
-
   // ==========================================
   // USER METHODS
   // ==========================================
@@ -562,7 +469,7 @@ class ServiceBookingController {
       const { status, limit = 50, offset = 0 } = req.query;
       const whereConditions = {
         userId,
-        serviceId: { [Op.ne]: null } // Only service bookings
+        serviceId: { [Op.ne]: null }
       };
 
       if (status) {
@@ -651,7 +558,6 @@ class ServiceBookingController {
         });
       }
 
-      // Only return service bookings from this controller
       if (!booking.serviceId) {
         return res.status(404).json({
           success: false,
@@ -689,7 +595,7 @@ class ServiceBookingController {
       const booking = await Booking.findOne({
         where: {
           id: bookingId,
-          serviceId: { [Op.ne]: null } // Only service bookings
+          serviceId: { [Op.ne]: null }
         },
         include: [
           {
@@ -721,7 +627,6 @@ class ServiceBookingController {
         });
       }
 
-      // Check cancellation policy for services
       if (booking.Service && booking.Service.min_cancellation_hours) {
         const bookingTime = new Date(booking.startTime);
         const now = new Date();
@@ -735,7 +640,6 @@ class ServiceBookingController {
         }
       }
 
-      // Update booking status
       await booking.update({
         status: 'cancelled',
         notes: booking.notes ? `${booking.notes}\n\nCancellation reason: ${reason}` : `Cancellation reason: ${reason}`,
@@ -787,7 +691,7 @@ class ServiceBookingController {
       const booking = await Booking.findOne({
         where: {
           id: bookingId,
-          serviceId: { [Op.ne]: null } // Only service bookings
+          serviceId: { [Op.ne]: null }
         }
       });
 
@@ -826,11 +730,10 @@ class ServiceBookingController {
       const { bookingId } = req.params;
       const { newStartTime, newStaffId, reason } = req.body;
 
-      // Find existing booking - only service bookings
       const existingBooking = await Booking.findOne({
         where: {
           id: bookingId,
-          serviceId: { [Op.ne]: null } // Only service bookings
+          serviceId: { [Op.ne]: null }
         },
         ...(transaction && { transaction })
       });
@@ -843,7 +746,6 @@ class ServiceBookingController {
         });
       }
 
-      // Validate new time slot availability
       const newDateTime = this.normalizeDateTime(newStartTime);
       const date = newDateTime.format('YYYY-MM-DD');
       const time = newDateTime.format('h:mm A');
@@ -858,12 +760,10 @@ class ServiceBookingController {
         });
       }
 
-      // Calculate new end time
       const service = await Service.findByPk(existingBooking.serviceId);
       const duration = service?.duration || 60;
       const newEndTime = newDateTime.clone().add(duration, 'minutes').toDate();
 
-      // Update booking
       await existingBooking.update({
         startTime: newDateTime.toDate(),
         endTime: newEndTime,
@@ -890,12 +790,9 @@ class ServiceBookingController {
   }
 
   // ==========================================
-  // MERCHANT ACTION METHODS - NEW
+  // MERCHANT ACTION METHODS
   // ==========================================
 
-  /**
-   * Check in a service booking (Merchant action)
-   */
   async checkInServiceBooking(req, res) {
     try {
       const { bookingId } = req.params;
@@ -909,7 +806,6 @@ class ServiceBookingController {
         });
       }
 
-      // Find the booking and verify merchant ownership
       const booking = await Booking.findOne({
         where: {
           id: bookingId,
@@ -950,7 +846,6 @@ class ServiceBookingController {
         });
       }
 
-      // Validate booking status
       if (booking.status !== 'confirmed') {
         return res.status(400).json({
           success: false,
@@ -958,7 +853,6 @@ class ServiceBookingController {
         });
       }
 
-      // Check if already checked in
       if (booking.checked_in_at) {
         return res.status(400).json({
           success: false,
@@ -966,12 +860,10 @@ class ServiceBookingController {
         });
       }
 
-      // Validate check-in timing
       const bookingTime = new Date(booking.startTime);
       const now = new Date();
       const service = booking.service;
 
-      // Check if early check-in is allowed
       if (service.allow_early_checkin) {
         const earlyMinutes = (bookingTime - now) / (1000 * 60);
         const maxEarlyMinutes = service.early_checkin_minutes || 15;
@@ -983,7 +875,6 @@ class ServiceBookingController {
           });
         }
       } else {
-        // Only allow check-in at or after scheduled time
         if (now < bookingTime) {
           return res.status(400).json({
             success: false,
@@ -992,36 +883,21 @@ class ServiceBookingController {
         }
       }
 
-      // Calculate end time
       const serviceDuration = service.duration || 60;
-      const endTime = bookingDateTime.clone().add(serviceDuration, 'minutes').toDate();
+      const serviceEndTime = new Date(now.getTime() + serviceDuration * 60 * 1000);
 
-      // ENHANCED: Apply auto-confirmation logic
-      const bookingData = {
-        serviceId,
-        userId,
-        startTime: bookingDateTime.toDate(),
-        storeId: bookingStore?.id,
-        branchId: bookingBranch?.id,
-        staffId: bookingStaff?.id,
-        paymentReceived: paymentReceived || false // Add this parameter
+      const updateData = {
+        status: 'in_progress',
+        checked_in_at: now,
+        service_started_at: now,
+        service_end_time: serviceEndTime,
+        checked_in_by: req.user.name || req.user.email || req.user.firstName || 'Merchant',
+        checkin_notes: notes || 'Customer checked in',
+        updatedBy: merchantId
       };
 
-      const enhancedBookingData = await this.autoConfirmationService.applyAutoConfirmation(bookingData);
+      await booking.update(updateData);
 
-      // Create the service booking with auto-confirmation data
-      const finalBookingData = {
-        ...bookingData,
-        ...enhancedBookingData,
-        endTime,
-        notes: notes || '',
-        accessFee: 0,
-        bookingType: 'service',
-        clientInfo: clientInfo || null
-      };
-      await booking.update(finalBookingData);
-
-      // Send check-in confirmation (optional)
       try {
         await this.sendCheckInNotification(booking, updateData);
       } catch (notificationError) {
@@ -1048,16 +924,12 @@ class ServiceBookingController {
     }
   }
 
-  /**
-   * Confirm a service booking (Merchant action)
-   */
   async confirmServiceBooking(req, res) {
     try {
       const { bookingId } = req.params;
       const { notes } = req.body;
       const merchantId = req.user?.id;
 
-      // Find and verify booking
       const booking = await Booking.findOne({
         where: {
           id: bookingId,
@@ -1100,40 +972,18 @@ class ServiceBookingController {
         });
       }
 
-      // Re-evaluate auto-confirmation rules for audit
-      const reEvaluation = await this.autoConfirmationService.evaluateAutoConfirmationRules(
-        booking.serviceId,
-        booking.startTime,
-        booking.staffId,
-        booking.storeId,
-        false // Assume no payment for now
-      );
-
-      // Update booking with manual confirmation
       const updateData = {
-        service_started_at: new Date(),
-        service_end_time: new Date(Date.now() + (service.duration || 60) * 60 * 1000),
         status: 'confirmed',
         confirmedAt: new Date(),
         confirmed_at: new Date(),
         confirmed_by: req.user.name || req.user.email || req.user.firstName || 'Merchant',
         manually_confirmed: true,
         confirmation_notes: notes || 'Manually confirmed by merchant',
-        updatedBy: merchantId,
-        audit_trail: JSON.stringify({
-          ...JSON.parse(booking.audit_trail || '{}'),
-          manualConfirmation: {
-            timestamp: new Date().toISOString(),
-            confirmedBy: req.user.name || req.user.email || 'Merchant',
-            reason: notes || 'Manual confirmation by merchant',
-            autoRulesAtTimeOfConfirmation: reEvaluation
-          }
-        })
+        updatedBy: merchantId
       };
 
       await booking.update(updateData);
 
-      // Send confirmation notification
       try {
         await this.sendBookingConfirmationEmail(booking, booking.Service, booking.User, booking.Service.store);
       } catch (emailError) {
@@ -1158,16 +1008,13 @@ class ServiceBookingController {
       });
     }
   }
-  /**
-   * Complete a service booking (Merchant action)
-   */
+
   async completeServiceBooking(req, res) {
     try {
       const { bookingId } = req.params;
       const { notes, actualDuration, rating } = req.body;
       const merchantId = req.user?.id;
 
-      // Find and verify booking
       const booking = await Booking.findOne({
         where: {
           id: bookingId,
@@ -1210,7 +1057,6 @@ class ServiceBookingController {
         });
       }
 
-      // Calculate actual duration if not provided
       let calculatedDuration = actualDuration;
       if (!calculatedDuration && booking.service_started_at) {
         const startTime = new Date(booking.service_started_at);
@@ -1218,7 +1064,6 @@ class ServiceBookingController {
         calculatedDuration = Math.round((endTime - startTime) / (1000 * 60));
       }
 
-      // Update booking
       const updateData = {
         status: 'completed',
         completedAt: new Date(),
@@ -1238,7 +1083,6 @@ class ServiceBookingController {
 
       await booking.update(updateData);
 
-      // Send completion notification
       try {
         await this.sendCompletionNotification(booking, updateData);
       } catch (notificationError) {
@@ -1264,16 +1108,12 @@ class ServiceBookingController {
     }
   }
 
-  /**
-   * Cancel a service booking (Merchant action)
-   */
   async cancelServiceBooking(req, res) {
     try {
       const { bookingId } = req.params;
       const { reason, refundRequested = false } = req.body;
       const merchantId = req.user?.id;
 
-      // Find and verify booking
       const booking = await Booking.findOne({
         where: {
           id: bookingId,
@@ -1316,7 +1156,6 @@ class ServiceBookingController {
         });
       }
 
-      // Update booking
       const updateData = {
         status: 'cancelled',
         cancelledAt: new Date(),
@@ -1329,7 +1168,6 @@ class ServiceBookingController {
 
       await booking.update(updateData);
 
-      // Send cancellation notification
       try {
         await this.sendCancellationNotification(booking, reason, refundRequested);
       } catch (notificationError) {
@@ -1355,16 +1193,12 @@ class ServiceBookingController {
     }
   }
 
-  /**
-   * Update service booking status (Generic merchant action)
-   */
   async updateServiceBookingStatus(req, res) {
     try {
       const { bookingId } = req.params;
       const { status, notes } = req.body;
       const merchantId = req.user?.id;
 
-      // Validate status
       const validStatuses = ['pending', 'confirmed', 'in_progress', 'completed', 'cancelled', 'no_show'];
       if (!validStatuses.includes(status)) {
         return res.status(400).json({
@@ -1374,7 +1208,6 @@ class ServiceBookingController {
         });
       }
 
-      // Route to specific methods for complex status changes
       switch (status) {
         case 'confirmed':
           req.body = { notes };
@@ -1390,7 +1223,6 @@ class ServiceBookingController {
           return this.cancelServiceBooking(req, res);
       }
 
-      // Handle simple status updates (pending, no_show)
       const booking = await Booking.findOne({
         where: {
           id: bookingId,
@@ -1419,7 +1251,6 @@ class ServiceBookingController {
         });
       }
 
-      // Update booking
       const updateData = {
         status,
         updatedBy: merchantId
@@ -1473,7 +1304,7 @@ class ServiceBookingController {
       }
 
       const whereConditions = {
-        storeId: storeId, // Keep as string (char(36) in DB)
+        storeId: storeId,
         serviceId: { [Op.ne]: null }
       };
 
@@ -1497,33 +1328,20 @@ class ServiceBookingController {
         include: [
           {
             model: User,
-            as: 'bookingUser', // If this fails, try 'user' or 'bookingUser'
-            attributes: [
-              'id',
-              'firstName',
-              'lastName',
-              'email',
-              'phoneNumber' // CORRECT: matches actual DB column
-            ]
+            as: 'bookingUser',
+            attributes: ['id', 'firstName', 'lastName', 'email', 'phoneNumber']
           },
           {
             model: Service,
-            as: 'service', // If this fails, try 'service'
+            as: 'service',
             required: false,
             attributes: ['id', 'name', 'price', 'duration']
           },
           {
             model: Staff,
-            as: 'staff', // If this fails, try 'staff'
+            as: 'staff',
             required: false,
-            attributes: [
-              'id',
-              'name',
-              'email',
-              'phoneNumber', // CORRECT: matches actual DB column
-              'role',
-              'status'
-            ]
+            attributes: ['id', 'name', 'email', 'phoneNumber', 'role', 'status']
           }
         ],
         order: [['createdAt', 'DESC']],
@@ -1732,7 +1550,6 @@ class ServiceBookingController {
     }
   }
 
-  // Legacy compatibility method
   async getStores(req, res) {
     try {
       const { serviceId } = req.params;
@@ -1801,23 +1618,19 @@ class ServiceBookingController {
     const user = await User.findByPk(booking.userId);
     const store = booking.storeId ? await Store.findByPk(booking.storeId) : null;
 
-    // Customize for check-in notification
     const templateData = {
       userName: user.firstName || user.name || 'Valued Customer',
       serviceName: service.name,
       bookingStartTime: this.notificationService.formatDateTime(booking.startTime),
       bookingEndTime: this.notificationService.formatDateTime(booking.endTime),
-      status: 'Checked In',
-      // Other check-in specific data
+      status: 'Checked In'
     };
 
-    // You could either create a specific check-in template or reuse the confirmation template
     const htmlContent = await this.notificationService.renderTemplate(
       'customerBookingConfirmation',
       templateData
     );
 
-    // Send the notification
     if (user.email) {
       await this.notificationService.sendEmail(
         user.email,
@@ -1832,23 +1645,19 @@ class ServiceBookingController {
     const user = await User.findByPk(booking.userId);
     const store = booking.storeId ? await Store.findByPk(booking.storeId) : null;
 
-    // Customize for completion notification
     const templateData = {
       userName: user.firstName || user.name || 'Valued Customer',
       serviceName: service.name,
       bookingStartTime: this.notificationService.formatDateTime(booking.startTime),
       bookingEndTime: this.notificationService.formatDateTime(booking.endTime),
-      status: 'Completed',
-      // Other completion specific data
+      status: 'Completed'
     };
 
-    // You could either create a specific completion template or reuse the confirmation template
     const htmlContent = await this.notificationService.renderTemplate(
       'customerBookingConfirmation',
       templateData
     );
 
-    // Send the notification
     if (user.email) {
       await this.notificationService.sendEmail(
         user.email,
@@ -1863,7 +1672,6 @@ class ServiceBookingController {
     const user = await User.findByPk(booking.userId);
     const store = booking.storeId ? await Store.findByPk(booking.storeId) : null;
 
-    // Customize for cancellation notification
     const templateData = {
       userName: user.firstName || user.name || 'Valued Customer',
       serviceName: service.name,
@@ -1871,17 +1679,14 @@ class ServiceBookingController {
       bookingEndTime: this.notificationService.formatDateTime(booking.endTime),
       status: 'Cancelled',
       reason: reason || 'No reason provided',
-      refundRequested: refundRequested,
-      // Other cancellation specific data
+      refundRequested: refundRequested
     };
 
-    // You could either create a specific cancellation template or reuse the confirmation template
     const htmlContent = await this.notificationService.renderTemplate(
       'customerBookingConfirmation',
       templateData
     );
 
-    // Send the notification
     if (user.email) {
       await this.notificationService.sendEmail(
         user.email,
@@ -1890,7 +1695,6 @@ class ServiceBookingController {
       );
     }
   }
-
 
   async sendBookingConfirmationEmail(booking, service, user, store, staff) {
     return this.notificationService.sendBookingConfirmationToCustomer(
@@ -1911,9 +1715,9 @@ class ServiceBookingController {
       const qrData = JSON.stringify({
         bookingId: booking.id,
         bookingType: 'service',
-        paymentCode: 'SERVICE_BOOKING', // No payment required for service bookings
+        paymentCode: 'SERVICE_BOOKING',
         verificationCode: this.generateVerificationCode(),
-        accessFeePaid: false, // Services don't have access fees
+        accessFeePaid: false,
         timestamp: new Date().getTime()
       });
 
@@ -1939,11 +1743,9 @@ class ServiceBookingController {
   }
 }
 
-// Create and export instance
 const serviceBookingController = new ServiceBookingController();
 
 module.exports = {
-  // Existing exports
   createBooking: serviceBookingController.createBooking.bind(serviceBookingController),
   getAvailableSlots: serviceBookingController.getAvailableSlots.bind(serviceBookingController),
   getUserBookings: serviceBookingController.getUserBookings.bind(serviceBookingController),
@@ -1955,14 +1757,11 @@ module.exports = {
   getBranch: serviceBookingController.getBranch.bind(serviceBookingController),
   getStores: serviceBookingController.getStores.bind(serviceBookingController),
   getMerchantStoreBookings: serviceBookingController.getMerchantStoreBookings.bind(serviceBookingController),
-
-  // NEW: Merchant action exports
   checkInServiceBooking: serviceBookingController.checkInServiceBooking.bind(serviceBookingController),
   confirmServiceBooking: serviceBookingController.confirmServiceBooking.bind(serviceBookingController),
   completeServiceBooking: serviceBookingController.completeServiceBooking.bind(serviceBookingController),
   cancelServiceBooking: serviceBookingController.cancelServiceBooking.bind(serviceBookingController),
   updateServiceBookingStatus: serviceBookingController.updateServiceBookingStatus.bind(serviceBookingController),
-
   ServiceBookingController,
   default: serviceBookingController
 };
