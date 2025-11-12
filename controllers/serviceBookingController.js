@@ -481,7 +481,7 @@ class ServiceBookingController {
         include: [
           {
             model: Service,
-            as: 'Service',
+            as: 'service',
             required: false,
             include: [{
               model: Store,
@@ -491,7 +491,7 @@ class ServiceBookingController {
           },
           {
             model: Staff,
-            as: 'Staff',
+            as: 'staff',
             required: false,
             attributes: ['id', 'name', 'role']
           }
@@ -529,12 +529,12 @@ class ServiceBookingController {
         include: [
           {
             model: User,
-            as: 'User',
+            as: 'bookingUser',
             attributes: ['id', 'firstName', 'lastName', 'email', 'phone']
           },
           {
             model: Service,
-            as: 'Service',
+            as: 'service',
             required: false,
             include: [{
               model: Store,
@@ -544,7 +544,7 @@ class ServiceBookingController {
           },
           {
             model: Staff,
-            as: 'Staff',
+            as: 'staff',
             required: false,
             attributes: ['id', 'name', 'role']
           }
@@ -600,7 +600,7 @@ class ServiceBookingController {
         include: [
           {
             model: Service,
-            as: 'Service',
+            as: 'service',
             required: false
           }
         ]
@@ -627,15 +627,15 @@ class ServiceBookingController {
         });
       }
 
-      if (booking.Service && booking.Service.min_cancellation_hours) {
+      if (booking.service && booking.service.min_cancellation_hours) {
         const bookingTime = new Date(booking.startTime);
         const now = new Date();
         const hoursUntilBooking = (bookingTime - now) / (1000 * 60 * 60);
 
-        if (hoursUntilBooking < booking.Service.min_cancellation_hours) {
+        if (hoursUntilBooking < booking.service.min_cancellation_hours) {
           return res.status(400).json({
             success: false,
-            message: `Cannot cancel booking less than ${booking.Service.min_cancellation_hours} hours in advance`
+            message: `Cannot cancel booking less than ${booking.service.min_cancellation_hours} hours in advance`
           });
         }
       }
@@ -939,12 +939,12 @@ class ServiceBookingController {
         include: [
           {
             model: User,
-            as: 'User',
+            as: 'bookingUser',
             attributes: ['id', 'firstName', 'lastName', 'email', 'phoneNumber']
           },
           {
             model: Service,
-            as: 'Service',
+            as: 'service',
             required: true,
             include: [{
               model: Store,
@@ -985,7 +985,7 @@ class ServiceBookingController {
       await booking.update(updateData);
 
       try {
-        await this.sendBookingConfirmationEmail(booking, booking.Service, booking.User, booking.Service.store);
+        await this.sendBookingConfirmationEmail(booking, booking.service, booking.bookingUser, booking.service.store);
       } catch (emailError) {
         console.warn('Confirmation email failed:', emailError.message);
       }
