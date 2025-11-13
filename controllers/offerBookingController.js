@@ -1225,6 +1225,154 @@ class OfferBookingController {
     }
   }
 
+  async cancelBooking(req, res) {
+    try {
+      const { bookingId } = req.params;
+      const { reason, refundRequested } = req.body;
+
+      if (!bookingId) {
+        return res.status(400).json({
+          success: false,
+          message: 'Booking ID is required'
+        });
+      }
+
+      const booking = await Booking.findOne({
+        where: {
+          id: bookingId,
+          offerId: { [Op.ne]: null }
+        },
+        include: [
+          {
+            model: Offer,
+            as: 'offer',
+            required: false,
+            include: [{
+              model: Service,
+              as: 'service',
+              required: false,
+              include: [{
+                model: Store,
+                as: 'store',
+                required: false
+              }]
+            }]
+          },
+          {
+            model: User,
+            as: 'bookingUser',
+            required: false
+          },
+          {
+            model: Staff,
+            as: 'staff',
+            required: false
+          }
+        ]
+      });
+
+      if (!booking) {
+        return res.status(404).json({
+          success: false,
+          message: 'Offer booking not found'
+        });
+      }
+
+      if (booking.status === 'cancelled') {
+        return res.status(400).json({
+          success: false,
+          message: 'Booking is already cancelled'
+        });
+      }
+
+      if (booking.status === 'completed') {
+        return res.status(400).json({
+          success: false,
+          message: 'Cannot cancel a completed booking'
+        });
+      }
+
+      // Check cancellation policy
+      const service = booking.offer?.service;
+      if (service && service.min_cancellation_hours) {
+        const bookingTime = new Date(booking.startTime);
+        const now = new Date();
+        const hoursUntilBooking = (bookingTime - now) / (1000 * 60 * 60);
+
+        if (hoursUntilBooking < service.min_cancellation_hours) {
+          return res.status(400).json({
+            success: false,
+            message: `Cannot cancel booking less than ${service.min_cancellation_hours} hours in advance`
+          });
+        }
+      }
+
+      // Calculate refund info if applicable
+      let refundInfo = null;
+      if (refundRequested && booking.paymentId) {
+        refundInfo = {
+          applicable: true,
+          amount: booking.accessFee || 0,
+          currency: 'KES',
+          processingTime: '5-7 business days'
+        };
+      }
+
+      // Update booking status
+      await booking.update({
+        status: 'cancelled',
+        notes: booking.notes ? `${booking.notes}\n\nCancellation reason: ${reason}` : `Cancellation reason: ${reason}`,
+        cancelledAt: new Date(),
+        cancellationReason: reason || 'No reason provided'
+      });
+
+      // ✅ Send email notifications
+      try {
+        // Send to CUSTOMER
+        console.log('📧 Sending cancellation email to CUSTOMER...');
+        await this.notificationService.sendCancellationNotificationToCustomer(
+          booking,
+          service,
+          booking.bookingUser,
+          service?.store || booking.offer?.service?.store,
+          reason,
+          refundInfo
+        );
+        console.log('✅ Customer cancellation email sent');
+
+        // Send to MERCHANT
+        console.log('📧 Sending cancellation notification to MERCHANT...');
+        await this.notificationService.sendCancellationNotificationToMerchant(
+          booking,
+          service,
+          booking.bookingUser,
+          service?.store || booking.offer?.service?.store,
+          booking.staff,
+          reason
+        );
+        console.log('✅ Merchant cancellation notification sent');
+      } catch (emailError) {
+        console.error('❌ Email notification failed:', emailError);
+        // Don't fail the cancellation if emails fail
+      }
+
+      return res.status(200).json({
+        success: true,
+        message: 'Offer booking cancelled successfully',
+        booking,
+        refundInfo
+      });
+
+    } catch (error) {
+      console.error('Error cancelling offer booking:', error);
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to cancel offer booking',
+        error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+      });
+    }
+  }
+
   async rescheduleBooking(req, res) {
     let transaction;
 
@@ -1236,7 +1384,39 @@ class OfferBookingController {
       const { bookingId } = req.params;
       const { newStartTime, newStaffId, reason } = req.body;
 
-      const existingBooking = await Booking.findByPk(bookingId, {
+      // Find existing booking with all associations
+      const existingBooking = await Booking.findOne({
+        where: {
+          id: bookingId,
+          offerId: { [Op.ne]: null }
+        },
+        include: [
+          {
+            model: Offer,
+            as: 'offer',
+            required: false,
+            include: [{
+              model: Service,
+              as: 'service',
+              required: false,
+              include: [{
+                model: Store,
+                as: 'store',
+                required: false
+              }]
+            }]
+          },
+          {
+            model: User,
+            as: 'bookingUser',
+            required: false
+          },
+          {
+            model: Staff,
+            as: 'staff',
+            required: false
+          }
+        ],
         ...(transaction && { transaction })
       });
 
@@ -1244,18 +1424,24 @@ class OfferBookingController {
         if (transaction) await transaction.rollback();
         return res.status(404).json({
           success: false,
-          message: 'Booking not found'
+          message: 'Offer booking not found'
         });
       }
 
+      // Store old date/time for email
+      const oldStartTime = new Date(existingBooking.startTime);
+
+      // Validate new time slot
       const newDateTime = this.normalizeDateTime(newStartTime);
       const date = newDateTime.format('YYYY-MM-DD');
       const time = newDateTime.format('h:mm A');
 
-      const entityId = existingBooking.offerId || existingBooking.serviceId;
-      const entityType = existingBooking.offerId ? 'offer' : 'service';
-
-      const availabilityCheck = await slotService.isSlotAvailable(entityId, entityType, date, time);
+      const availabilityCheck = await slotService.isSlotAvailable(
+        existingBooking.offerId,
+        'offer',
+        date,
+        time
+      );
 
       if (!availabilityCheck.available) {
         if (transaction) await transaction.rollback();
@@ -1265,13 +1451,20 @@ class OfferBookingController {
         });
       }
 
-      const service = existingBooking.offerId
-        ? await Offer.findByPk(existingBooking.offerId, { include: [{ model: Service, as: 'service' }] }).then(o => o.service)
-        : await Service.findByPk(existingBooking.serviceId);
+      // Get new staff if provided
+      let newStaff = null;
+      if (newStaffId && newStaffId !== existingBooking.staffId) {
+        newStaff = await Staff.findByPk(newStaffId, {
+          ...(transaction && { transaction })
+        });
+      }
 
+      // Calculate new end time
+      const service = existingBooking.offer?.service;
       const duration = service?.duration || 60;
       const newEndTime = newDateTime.clone().add(duration, 'minutes').toDate();
 
+      // Update booking
       await existingBooking.update({
         startTime: newDateTime.toDate(),
         endTime: newEndTime,
@@ -1281,18 +1474,56 @@ class OfferBookingController {
 
       if (transaction) await transaction.commit();
 
+      // ✅ Send email notifications
+      try {
+        // Send to CUSTOMER
+        console.log('📧 Sending reschedule email to CUSTOMER...');
+        await this.notificationService.sendRescheduleNotificationToCustomer(
+          existingBooking,
+          service,
+          existingBooking.bookingUser,
+          service?.store || existingBooking.offer?.service?.store,
+          existingBooking.staff,
+          oldStartTime,
+          newDateTime.toDate(),
+          reason
+        );
+        console.log('✅ Customer reschedule email sent');
+
+        // Send to MERCHANT
+        console.log('📧 Sending reschedule notification to MERCHANT...');
+        await this.notificationService.sendRescheduleNotificationToMerchant(
+          existingBooking,
+          service,
+          existingBooking.bookingUser,
+          service?.store || existingBooking.offer?.service?.store,
+          existingBooking.staff,
+          oldStartTime,
+          newDateTime.toDate(),
+          reason,
+          newStaff
+        );
+        console.log('✅ Merchant reschedule notification sent');
+      } catch (emailError) {
+        console.error('❌ Email notification failed:', emailError);
+        // Don't fail the reschedule if emails fail
+      }
+
       return res.status(200).json({
         success: true,
-        message: 'Booking rescheduled successfully',
-        booking: existingBooking
+        message: 'Offer booking rescheduled successfully',
+        booking: existingBooking,
+        oldDateTime: oldStartTime,
+        newDateTime: newDateTime.toDate()
       });
 
     } catch (error) {
       if (transaction) await transaction.rollback();
-      console.error('Error rescheduling booking:', error);
+      console.error('Error rescheduling offer booking:', error);
       return res.status(500).json({
         success: false,
-        message: 'Failed to reschedule booking'
+        message: 'Failed to reschedule offer booking',
+        error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
       });
     }
   }
@@ -1553,6 +1784,8 @@ module.exports = {
   getPlatformFee: offerBookingController.getPlatformFee.bind(offerBookingController),
   getUserBookings: offerBookingController.getUserBookings.bind(offerBookingController),
   getBookingById: offerBookingController.getBookingById.bind(offerBookingController),
+  cancelBooking: offerBookingController.cancelBooking.bind(offerBookingController),
+  rescheduleBooking: offerBookingController.rescheduleBooking.bind(offerBookingController),
   getStaff: offerBookingController.getStaff.bind(offerBookingController),
   getBranch: offerBookingController.getBranch.bind(offerBookingController),
   getStores: offerBookingController.getStores.bind(offerBookingController),
