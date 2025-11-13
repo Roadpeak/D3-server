@@ -45,21 +45,38 @@ class NotificationService {
 
         console.log('📧 Looking for template:', templateName);
 
+        let foundPath = null;
+        let lastError = null;
+
+        // First, find which path exists
         for (const templatePath of possiblePaths) {
             try {
                 await fs.promises.access(templatePath, fs.constants.R_OK);
                 console.log('✅ Found template at:', templatePath);
-
-                const rendered = await ejs.renderFile(templatePath, data);
-                console.log('✅ Template rendered successfully');
-                return rendered;
+                foundPath = templatePath;
+                break;
             } catch (error) {
+                // File doesn't exist, continue to next path
                 continue;
             }
         }
 
-        console.error('❌ Template not found in any of these paths:', possiblePaths);
-        throw new Error(`Failed to find template ${templateName}`);
+        if (!foundPath) {
+            console.error('❌ Template not found in any of these paths:', possiblePaths);
+            throw new Error(`Failed to find template ${templateName}`);
+        }
+
+        // Now try to render the found template
+        try {
+            const rendered = await ejs.renderFile(foundPath, data);
+            console.log('✅ Template rendered successfully');
+            return rendered;
+        } catch (error) {
+            console.error('❌ Error rendering template:', error.message);
+            console.error('Template path:', foundPath);
+            console.error('Data keys provided:', Object.keys(data));
+            throw new Error(`Failed to render template ${templateName}: ${error.message}`);
+        }
     }
 
     async sendEmail(to, subject, htmlContent) {
@@ -133,6 +150,8 @@ class NotificationService {
                 userEmail: user.email,
                 bookingType: 'service',
                 serviceName: service?.name || 'Service',
+                servicePrice: service?.price || 0,
+                additionalFees: 0,
                 bookingDate: this.formatDateTime(booking.startTime).split(' at')[0],
                 bookingStartTime: this.formatDateTime(booking.startTime),
                 bookingEndTime: this.formatDateTime(booking.endTime),
@@ -185,6 +204,10 @@ class NotificationService {
                 merchantEmail: merchantEmail,
                 bookingType: 'service',
                 serviceName: service?.name || 'Service',
+                servicePrice: service?.price || 0,
+                additionalFees: 0,
+                platformCommission: 0,
+                platformCommissionRate: 0,
                 bookingDate: this.formatDateTime(booking.startTime).split(' at')[0],
                 bookingStartTime: this.formatDateTime(booking.startTime),
                 bookingEndTime: this.formatDateTime(booking.endTime),
@@ -231,12 +254,19 @@ class NotificationService {
                 return false;
             }
 
+            const originalPrice = service?.price || 0;
+            const discount = offer?.discount || 0;
+            const accessFee = booking.accessFee || offer?.fee || 0;
+
             const templateData = {
                 userName: user.firstName || user.name || 'Valued Customer',
                 userEmail: user.email,
                 bookingType: 'offer',
                 offerTitle: offer?.title || 'Special Offer',
                 serviceName: service?.name || 'Service',
+                originalPrice: originalPrice,
+                discount: discount,
+                accessFee: accessFee,
                 bookingDate: this.formatDateTime(booking.startTime).split(' at')[0],
                 bookingStartTime: this.formatDateTime(booking.startTime),
                 bookingEndTime: this.formatDateTime(booking.endTime),
@@ -246,8 +276,6 @@ class NotificationService {
                 staffName: booking.Staff?.name || booking.staff?.name || null,
                 bookingId: booking.id,
                 status: booking.status,
-                discount: offer?.discount || 0,
-                accessFee: booking.accessFee || offer?.fee || 0,
                 qrCodeUrl: qrCodeUrl || null,
                 bookingLink: `${process.env.FRONTEND_URL || 'https://discoun3ree.com'}/bookings/${booking.id}`,
                 rescheduleLink: `${process.env.FRONTEND_URL || 'https://discoun3ree.com'}/bookings/${booking.id}/reschedule`,
@@ -286,12 +314,19 @@ class NotificationService {
                 return false;
             }
 
+            const originalPrice = service?.price || 0;
+            const discount = offer?.discount || 0;
+            const accessFee = booking.accessFee || offer?.fee || 0;
+
             const templateData = {
                 merchantName: store?.merchant_name || staff?.name || 'Merchant',
                 merchantEmail: merchantEmail,
                 bookingType: 'offer',
                 offerTitle: offer?.title || 'Special Offer',
                 serviceName: service?.name || 'Service',
+                originalPrice: originalPrice,
+                discount: discount,
+                accessFee: accessFee,
                 bookingDate: this.formatDateTime(booking.startTime).split(' at')[0],
                 bookingStartTime: this.formatDateTime(booking.startTime),
                 bookingEndTime: this.formatDateTime(booking.endTime),
@@ -300,8 +335,6 @@ class NotificationService {
                 staffName: staff?.name || 'Not assigned',
                 bookingId: booking.id,
                 status: booking.status,
-                discount: offer?.discount || 0,
-                accessFee: booking.accessFee || offer?.fee || 0,
                 customerName: user ? `${user.firstName || ''} ${user.lastName || ''}`.trim() : 'Customer',
                 customerEmail: user?.email || 'N/A',
                 customerPhone: user?.phoneNumber || user?.phone || 'N/A',
