@@ -1,518 +1,589 @@
-// services/noShowHandlerService.js
+// services/notificationService.js
+const ejs = require('ejs');
+const path = require('path');
+const fs = require('fs');
+const sgMail = require('@sendgrid/mail');
 const moment = require('moment');
-const { Op } = require('sequelize');
-const cron = require('node-cron');
 
-class NoShowHandlerService {
-  constructor(models) {
-    this.models = models;
-    this.Booking = models.Booking;
-    this.Service = models.Service;
-    this.Store = models.Store;
-    this.User = models.User;
-    this.isRunning = false;
-    this.cronJob = null;
-  }
-
-  /**
-   * Start the no-show monitoring service
-   */
-  start() {
-    if (this.isRunning) {
-      console.log('No-show handler service is already running');
-      return;
-    }
-
-    console.log('Starting no-show handler service...');
-    
-    // Run every 5 minutes
-    this.cronJob = cron.schedule('*/5 * * * *', () => {
-      this.processNoShowBookings();
-    }, {
-      scheduled: true,
-      timezone: "Africa/Nairobi" // Adjust to your timezone
-    });
-
-    this.isRunning = true;
-    console.log('No-show handler service started - checking every 5 minutes');
-
-    // Run immediately on start
-    this.processNoShowBookings();
-  }
-
-  /**
-   * Stop the no-show monitoring service
-   */
-  stop() {
-    if (this.cronJob) {
-      this.cronJob.destroy();
-      this.cronJob = null;
-    }
-    this.isRunning = false;
-    console.log('No-show handler service stopped');
-  }
-
-  /**
-   * Main method to process no-show bookings
-   */
-  async processNoShowBookings() {
-    try {
-      console.log('Processing no-show bookings...');
-
-      const eligibleBookings = await this.findEligibleBookings();
-      
-      if (eligibleBookings.length === 0) {
-        console.log('No eligible bookings found for no-show processing');
-        return;
-      }
-
-      console.log(`Found ${eligibleBookings.length} bookings to process for no-show`);
-
-      const results = await this.processBookings(eligibleBookings);
-      
-      console.log(`No-show processing completed:`, {
-        total: eligibleBookings.length,
-        processed: results.processed,
-        failed: results.failed,
-        skipped: results.skipped
-      });
-
-      return results;
-
-    } catch (error) {
-      console.error('Error processing no-show bookings:', error);
-      return {
-        success: false,
-        error: error.message,
-        processed: 0,
-        failed: 0,
-        skipped: 0
-      };
-    }
-  }
-
-  /**
-   * Find bookings eligible for no-show processing
-   */
-  async findEligibleBookings() {
-    const now = new Date();
-    
-    // Find confirmed bookings that:
-    // 1. Are in 'confirmed' status (not checked in)
-    // 2. Start time + grace period + service duration has passed
-    // 3. Haven't been marked as no-show yet
-    const bookings = await this.Booking.findAll({
-      where: {
-        status: 'confirmed',
-        checked_in_at: null, // Not checked in
-        startTime: {
-          [Op.lt]: now // Start time has passed
-        }
+class NotificationService {
+  constructor(config = {}) {
+    this.config = {
+      email: {
+        enabled: true,
+        from: process.env.EMAIL_FROM || 'noreply@discoun3ree.com',
+        sendgridApiKey: process.env.SENDGRID_API_KEY,
+        ...config.email
       },
-      include: [
-        {
-          model: this.Service,
-          as: 'service', // FIXED: lowercase to match your model association
-          required: false, // Include both service and offer bookings
-          attributes: [
-            'id', 
-            'name', 
-            'duration', 
-            'grace_period_minutes',
-            'auto_complete_on_duration'
-          ]
-        },
-        {
-          model: this.User,
-          as: 'bookingUser', // Check your Booking model - might need lowercase 'user'
-          attributes: ['id', 'firstName', 'lastName', 'email']
-        },
-        {
-          model: this.Store,
-          as: 'store', // Check your Booking model - might need lowercase 'store'
-          attributes: ['id', 'name', 'location']
-        }
-      ]
-    });
-
-    // Filter bookings that have exceeded grace period + service duration
-    const eligibleBookings = bookings.filter(booking => {
-      return this.isBookingEligibleForNoShow(booking, now);
-    });
-
-    return eligibleBookings;
-  }
-
-  /**
-   * Check if a booking is eligible for no-show status
-   */
-  isBookingEligibleForNoShow(booking, currentTime = new Date()) {
-    const startTime = moment(booking.startTime);
-    const now = moment(currentTime);
-    
-    // Get grace period from service or use default
-    const gracePeriod = booking.Service?.grace_period_minutes || 10; // Default 10 minutes
-    
-    // Get service duration or use default
-    const serviceDuration = booking.Service?.duration || 60; // Default 60 minutes
-    
-    // Calculate when the booking should be considered no-show
-    // Start time + grace period + service duration
-    const noShowTime = startTime
-      .clone()
-      .add(gracePeriod, 'minutes')
-      .add(serviceDuration, 'minutes');
-    
-    const isEligible = now.isAfter(noShowTime);
-    
-    if (isEligible) {
-      console.log(`Booking ${booking.id} eligible for no-show:`, {
-        startTime: startTime.format('YYYY-MM-DD HH:mm'),
-        gracePeriod: gracePeriod,
-        serviceDuration: serviceDuration,
-        noShowTime: noShowTime.format('YYYY-MM-DD HH:mm'),
-        currentTime: now.format('YYYY-MM-DD HH:mm'),
-        minutesOverdue: now.diff(noShowTime, 'minutes')
-      });
-    }
-    
-    return isEligible;
-  }
-
-  /**
-   * Process multiple bookings for no-show
-   */
-  async processBookings(bookings) {
-    const results = {
-      processed: 0,
-      failed: 0,
-      skipped: 0,
-      details: []
+      sms: {
+        enabled: false,
+        ...config.sms
+      },
+      templatesPath: path.join(__dirname, '..', 'views', 'emails'),
+      ...config
     };
 
-    for (const booking of bookings) {
+    console.log('📧 NotificationService initialized');
+    console.log('📧 Templates path:', this.config.templatesPath);
+    console.log('📧 SendGrid API key:', this.config.email.sendgridApiKey ? '✅ Set' : '❌ Not set');
+
+    if (this.config.email.enabled && this.config.email.sendgridApiKey) {
+      sgMail.setApiKey(this.config.email.sendgridApiKey);
+      console.log('✅ SendGrid initialized successfully');
+    } else if (this.config.email.enabled) {
+      console.warn('⚠️ SendGrid API key not found. Email notifications may not work.');
+    }
+  }
+
+  async renderTemplate(templateName, data) {
+    const possiblePaths = [
+      path.join(this.config.templatesPath, `${templateName}.ejs`),
+      path.join(__dirname, '..', 'templates', `${templateName}.ejs`),
+      path.join(__dirname, '..', 'views', 'emails', `${templateName}.ejs`),
+      path.join(process.cwd(), 'views', 'emails', `${templateName}.ejs`),
+      path.join(process.cwd(), 'templates', `${templateName}.ejs`)
+    ];
+
+    console.log('📧 Looking for template:', templateName);
+
+    let foundPath = null;
+    let lastError = null;
+
+    // First, find which path exists
+    for (const templatePath of possiblePaths) {
       try {
-        const result = await this.markBookingAsNoShow(booking);
-        
-        if (result.success) {
-          results.processed++;
-          results.details.push({
-            bookingId: booking.id,
-            status: 'processed',
-            reason: result.reason
-          });
-        } else {
-          results.skipped++;
-          results.details.push({
-            bookingId: booking.id,
-            status: 'skipped',
-            reason: result.reason
-          });
-        }
+        await fs.promises.access(templatePath, fs.constants.R_OK);
+        console.log('✅ Found template at:', templatePath);
+        foundPath = templatePath;
+        break;
       } catch (error) {
-        console.error(`Failed to process booking ${booking.id}:`, error);
-        results.failed++;
-        results.details.push({
-          bookingId: booking.id,
-          status: 'failed',
-          reason: error.message
-        });
+        // File doesn't exist, continue to next path
+        continue;
       }
     }
 
-    return results;
-  }
+    if (!foundPath) {
+      console.error('❌ Template not found in any of these paths:', possiblePaths);
+      throw new Error(`Failed to find template ${templateName}`);
+    }
 
-  /**
-   * Mark a specific booking as no-show
-   */
-  async markBookingAsNoShow(booking) {
+    // Now try to render the found template
     try {
-      // Double-check eligibility before processing
-      if (!this.isBookingEligibleForNoShow(booking)) {
-        return {
-          success: false,
-          reason: 'Booking not eligible for no-show status'
-        };
-      }
-
-      // Check if booking is still in confirmed status
-      const currentBooking = await this.Booking.findByPk(booking.id);
-      if (!currentBooking || currentBooking.status !== 'confirmed') {
-        return {
-          success: false,
-          reason: `Booking status changed to ${currentBooking?.status || 'deleted'}`
-        };
-      }
-
-      const gracePeriod = booking.Service?.grace_period_minutes || 10;
-      const serviceDuration = booking.Service?.duration || 60;
-      const startTime = moment(booking.startTime);
-      const now = moment();
-      const minutesOverdue = now.diff(startTime.clone().add(gracePeriod, 'minutes'), 'minutes');
-
-      // Update booking to no-show status
-      const updateData = {
-        status: 'no_show',
-        no_show_marked_at: new Date(),
-        no_show_reason: `Customer did not check in within ${gracePeriod} minutes of scheduled time. Service duration (${serviceDuration} minutes) elapsed.`,
-        no_show_details: JSON.stringify({
-          scheduled_time: booking.startTime,
-          grace_period_minutes: gracePeriod,
-          service_duration_minutes: serviceDuration,
-          marked_at: new Date(),
-          minutes_overdue: minutesOverdue,
-          auto_processed: true
-        }),
-        merchantNotes: booking.merchantNotes 
-          ? `${booking.merchantNotes}\n\n[AUTO] No-show: Customer did not arrive within grace period.`
-          : '[AUTO] No-show: Customer did not arrive within grace period.'
-      };
-
-      await currentBooking.update(updateData);
-
-      // Send no-show notification (optional)
-      try {
-        await this.sendNoShowNotification(currentBooking, booking.User, booking.Service, booking.Store);
-      } catch (notificationError) {
-        console.warn(`Failed to send no-show notification for booking ${booking.id}:`, notificationError.message);
-      }
-
-      console.log(`Booking ${booking.id} marked as no-show:`, {
-        customer: `${booking.User?.firstName} ${booking.User?.lastName}`,
-        service: booking.Service?.name,
-        scheduledTime: startTime.format('YYYY-MM-DD HH:mm'),
-        minutesOverdue: minutesOverdue
-      });
-
-      return {
-        success: true,
-        reason: `Marked as no-show after ${minutesOverdue} minutes overdue`,
-        data: updateData
-      };
-
+      const rendered = await ejs.renderFile(foundPath, data);
+      console.log('✅ Template rendered successfully');
+      return rendered;
     } catch (error) {
-      console.error(`Error marking booking ${booking.id} as no-show:`, error);
-      throw error;
+      console.error('❌ Error rendering template:', error.message);
+      console.error('Template path:', foundPath);
+      console.error('Data keys provided:', Object.keys(data));
+      throw new Error(`Failed to render template ${templateName}: ${error.message}`);
     }
   }
 
-  /**
-   * Send no-show notification to relevant parties
-   */
-  async sendNoShowNotification(booking, user, service, store) {
+  async sendEmail(to, subject, htmlContent) {
+    if (!this.config.email.enabled) {
+      console.log('⚠️ Email notifications are disabled');
+      return false;
+    }
+
+    if (!this.config.email.sendgridApiKey) {
+      console.error('❌ SendGrid API key not configured');
+      return false;
+    }
+
+    if (!to) {
+      console.error('❌ Recipient email is required');
+      return false;
+    }
+
     try {
-      // This would integrate with your email/SMS service
-      console.log(`No-show notification for booking ${booking.id}:`, {
-        customer: user?.email,
-        service: service?.name,
-        store: store?.name,
-        scheduledTime: booking.startTime
-      });
+      console.log('📧 Sending email to:', to);
+      console.log('📧 Subject:', subject);
 
-      // Example notification logic:
-      // - Email to customer about missed appointment
-      // - Notification to merchant about no-show
-      // - Update customer's no-show count
-      // - Apply any no-show penalties if configured
+      const msg = {
+        to,
+        from: this.config.email.from,
+        subject,
+        html: htmlContent,
+      };
 
-      // You can implement actual email/SMS sending here
-      return { success: true };
-
+      const result = await sgMail.send(msg);
+      console.log('✅ Email sent with SendGrid. Status code:', result[0]?.statusCode);
+      return result;
     } catch (error) {
-      console.error('Error sending no-show notification:', error);
-      throw error;
+      console.error('❌ Error sending email with SendGrid:', error);
+
+      if (error.response) {
+        console.error('SendGrid API error:', error.response.body);
+      }
+
+      throw new Error('Failed to send email notification');
     }
   }
 
-  /**
-   * Get no-show statistics
-   */
-  async getNoShowStatistics(storeId = null, period = '30d') {
+  async sendSMS(to, message) {
+    if (!this.config.sms.enabled) {
+      console.log('SMS notifications are disabled');
+      return false;
+    }
+
+    console.log(`SMS would be sent to ${to}: ${message}`);
+    return true;
+  }
+
+  formatDateTime(dateTime) {
+    if (!dateTime) return 'N/A';
+    return moment(dateTime).format('dddd, MMMM D, YYYY [at] h:mm A');
+  }
+
+  async sendBookingConfirmationToCustomer(booking, service, user, store, qrCodeUrl) {
     try {
-      const startDate = this.getDateByPeriod(period);
-      
-      const whereClause = {
-        status: 'no_show',
-        no_show_marked_at: {
-          [Op.gte]: startDate
-        }
-      };
+      console.log('📧 Sending service booking confirmation to customer');
+      console.log('User email:', user?.email);
 
-      if (storeId) {
-        whereClause.storeId = storeId;
+      if (!user?.email) {
+        console.error('❌ User email is required');
+        return false;
       }
 
-      const noShowBookings = await this.Booking.findAll({
-        where: whereClause,
-        include: [
-          {
-            model: this.Service,
-            as: 'Service',
-            attributes: ['id', 'name']
-          },
-          {
-            model: this.User,
-            as: 'User',
-            attributes: ['id', 'firstName', 'lastName', 'email']
-          }
-        ]
-      });
-
-      // Calculate statistics
-      const stats = {
-        total_no_shows: noShowBookings.length,
-        auto_processed: noShowBookings.filter(b => 
-          b.no_show_details && JSON.parse(b.no_show_details).auto_processed
-        ).length,
-        manual_marked: noShowBookings.filter(b => 
-          !b.no_show_details || !JSON.parse(b.no_show_details).auto_processed
-        ).length,
-        by_service: {},
-        repeat_customers: {}
+      const templateData = {
+        userName: user.firstName || user.name || 'Valued Customer',
+        userEmail: user.email,
+        bookingType: 'service',
+        serviceName: service?.name || 'Service',
+        servicePrice: service?.price || 0,
+        additionalFees: 0,
+        bookingDate: this.formatDateTime(booking.startTime).split(' at')[0],
+        bookingStartTime: this.formatDateTime(booking.startTime),
+        bookingEndTime: this.formatDateTime(booking.endTime),
+        duration: service?.duration || 60,
+        storeName: store?.name || 'Our Location',
+        storeAddress: store?.location || store?.address || '',
+        staffName: booking.Staff?.name || booking.staff?.name || null,
+        bookingId: booking.id,
+        status: booking.status,
+        qrCodeUrl: qrCodeUrl || null,
+        bookingLink: `${process.env.FRONTEND_URL || 'https://discoun3ree.com'}/bookings/${booking.id}`,
+        rescheduleLink: `${process.env.FRONTEND_URL || 'https://discoun3ree.com'}/bookings/${booking.id}/reschedule`,
+        cancellationPolicy: service?.cancellation_policy || 'Please cancel at least 24 hours in advance.',
+        supportEmail: process.env.SUPPORT_EMAIL || 'support@discoun3ree.com',
+        supportPhone: process.env.SUPPORT_PHONE || '+254712345678',
+        chatLink: `${process.env.FRONTEND_URL || 'https://discoun3ree.com'}/chat`
       };
 
-      // Group by service
-      noShowBookings.forEach(booking => {
-        const serviceName = booking.Service?.name || 'Unknown Service';
-        stats.by_service[serviceName] = (stats.by_service[serviceName] || 0) + 1;
-      });
+      console.log('📧 Template data prepared with keys:', Object.keys(templateData));
 
-      // Find repeat no-show customers
-      const customerCounts = {};
-      noShowBookings.forEach(booking => {
-        const customerEmail = booking.User?.email;
-        if (customerEmail) {
-          customerCounts[customerEmail] = (customerCounts[customerEmail] || 0) + 1;
-        }
-      });
+      const htmlContent = await this.renderTemplate('customerBookingConfirmation', templateData);
 
-      stats.repeat_customers = Object.entries(customerCounts)
-        .filter(([email, count]) => count > 1)
-        .reduce((acc, [email, count]) => {
-          acc[email] = count;
-          return acc;
-        }, {});
+      await this.sendEmail(
+        user.email,
+        `Booking Confirmed: ${service?.name || 'Service'}`,
+        htmlContent
+      );
 
-      return {
-        success: true,
-        period,
-        statistics: stats
-      };
-
+      console.log('✅ Service booking confirmation email sent successfully');
+      return true;
     } catch (error) {
-      console.error('Error getting no-show statistics:', error);
-      return {
-        success: false,
-        error: error.message
-      };
+      console.error('❌ Failed to send customer booking confirmation:', error);
+      return false;
     }
   }
 
-  /**
-   * Manual no-show processing for specific booking
-   */
-  async manualNoShow(bookingId, reason = '', merchantId = null) {
+  async sendBookingNotificationToMerchant(booking, service, store, staff, user) {
     try {
-      const booking = await this.Booking.findByPk(bookingId, {
-        include: [
-          {
-            model: this.Service,
-            as: 'Service'
-          },
-          {
-            model: this.User,
-            as: 'User'
-          },
-          {
-            model: this.Store,
-            as: 'Store'
-          }
-        ]
-      });
+      console.log('📧 Sending service booking notification to merchant');
 
-      if (!booking) {
-        return {
-          success: false,
-          reason: 'Booking not found'
-        };
+      const merchantEmail = staff?.email || store?.email || store?.merchant_email || store?.contact_email;
+
+      if (!merchantEmail) {
+        console.warn('⚠️ No merchant email found for store:', store?.id);
+        return false;
       }
 
-      if (!['confirmed', 'pending'].includes(booking.status)) {
-        return {
-          success: false,
-          reason: `Cannot mark booking with status '${booking.status}' as no-show`
-        };
-      }
-
-      const updateData = {
-        status: 'no_show',
-        no_show_marked_at: new Date(),
-        no_show_reason: reason || 'Manually marked as no-show by merchant',
-        no_show_details: JSON.stringify({
-          scheduled_time: booking.startTime,
-          marked_at: new Date(),
-          manual_process: true,
-          marked_by: merchantId || 'merchant'
-        }),
-        merchantNotes: booking.merchantNotes 
-          ? `${booking.merchantNotes}\n\n[MANUAL] No-show: ${reason}`
-          : `[MANUAL] No-show: ${reason}`
+      const templateData = {
+        merchantName: store?.merchant_name || staff?.name || 'Merchant',
+        merchantEmail: merchantEmail,
+        bookingType: 'service',
+        serviceName: service?.name || 'Service',
+        servicePrice: service?.price || 0,
+        additionalFees: 0,
+        platformCommission: 0,
+        platformCommissionRate: 0,
+        bookingDate: this.formatDateTime(booking.startTime).split(' at')[0],
+        bookingStartTime: this.formatDateTime(booking.startTime),
+        bookingEndTime: this.formatDateTime(booking.endTime),
+        duration: service?.duration || 60,
+        storeName: store?.name || 'Store',
+        staffName: staff?.name || 'Not assigned',
+        bookingId: booking.id,
+        status: booking.status,
+        customerName: user ? `${user.firstName || ''} ${user.lastName || ''}`.trim() : 'Customer',
+        customerEmail: user?.email || 'N/A',
+        customerPhone: user?.phoneNumber || user?.phone || 'N/A',
+        customerId: user?.id || 'N/A',
+        customerNotes: booking.notes || null,
+        bookingLink: `${process.env.MERCHANT_FRONTEND_URL || 'https://merchants.discoun3ree.com'}/bookings/${booking.id}`,
+        dashboardLink: `${process.env.MERCHANT_FRONTEND_URL || 'https://merchants.discoun3ree.com'}/dashboard`,
+        confirmLink: `${process.env.MERCHANT_FRONTEND_URL || 'https://merchants.discoun3ree.com'}/bookings/${booking.id}/confirm`
       };
 
-      await booking.update(updateData);
+      console.log('📧 Merchant template data prepared');
 
-      // Send notification
-      try {
-        await this.sendNoShowNotification(booking, booking.User, booking.Service, booking.Store);
-      } catch (notificationError) {
-        console.warn('Failed to send no-show notification:', notificationError.message);
-      }
+      const htmlContent = await this.renderTemplate('merchantBookingNotification', templateData);
 
-      return {
-        success: true,
-        reason: 'Manually marked as no-show',
-        booking: booking
-      };
+      await this.sendEmail(
+        merchantEmail,
+        `New Booking: ${service?.name || 'Service'}`,
+        htmlContent
+      );
 
+      console.log('✅ Merchant notification email sent successfully');
+      return true;
     } catch (error) {
-      console.error('Error in manual no-show processing:', error);
-      return {
-        success: false,
-        reason: error.message
+      console.error('❌ Failed to send merchant booking notification:', error);
+      return false;
+    }
+  }
+
+  async sendOfferBookingConfirmationToCustomer(booking, offer, service, user, store, qrCodeUrl) {
+    try {
+      console.log('📧 Sending offer booking confirmation to customer');
+      console.log('User email:', user?.email);
+
+      if (!user?.email) {
+        console.error('❌ User email is required');
+        return false;
+      }
+
+      const originalPrice = service?.price || 0;
+      const discount = offer?.discount || 0;
+      const accessFee = booking.accessFee || offer?.fee || 0;
+
+      const templateData = {
+        userName: user.firstName || user.name || 'Valued Customer',
+        userEmail: user.email,
+        bookingType: 'offer',
+        offerTitle: offer?.title || 'Special Offer',
+        serviceName: service?.name || 'Service',
+        originalPrice: originalPrice,
+        discount: discount,
+        accessFee: accessFee,
+        bookingDate: this.formatDateTime(booking.startTime).split(' at')[0],
+        bookingStartTime: this.formatDateTime(booking.startTime),
+        bookingEndTime: this.formatDateTime(booking.endTime),
+        duration: service?.duration || 90,
+        storeName: store?.name || 'Our Location',
+        storeAddress: store?.location || store?.address || '',
+        staffName: booking.Staff?.name || booking.staff?.name || null,
+        bookingId: booking.id,
+        status: booking.status,
+        qrCodeUrl: qrCodeUrl || null,
+        bookingLink: `${process.env.FRONTEND_URL || 'https://discoun3ree.com'}/bookings/${booking.id}`,
+        rescheduleLink: `${process.env.FRONTEND_URL || 'https://discoun3ree.com'}/bookings/${booking.id}/reschedule`,
+        cancellationPolicy: 'Offer bookings are subject to cancellation terms. Access fee may be non-refundable.',
+        supportEmail: process.env.SUPPORT_EMAIL || 'support@discoun3ree.com',
+        supportPhone: process.env.SUPPORT_PHONE || '+254712345678',
+        chatLink: `${process.env.FRONTEND_URL || 'https://discoun3ree.com'}/chat`
       };
+
+      console.log('📧 Offer template data prepared with keys:', Object.keys(templateData));
+
+      const htmlContent = await this.renderTemplate('customerBookingConfirmation', templateData);
+
+      await this.sendEmail(
+        user.email,
+        `Offer Booking Confirmed: ${offer?.title || 'Special Offer'}`,
+        htmlContent
+      );
+
+      console.log('✅ Offer booking confirmation email sent successfully');
+      return true;
+    } catch (error) {
+      console.error('❌ Failed to send offer booking confirmation:', error);
+      return false;
     }
   }
 
-  /**
-   * Utility method to get date by period
-   */
-  getDateByPeriod(period) {
-    const now = new Date();
-    switch (period) {
-      case '1d':
-        return new Date(now.setDate(now.getDate() - 1));
-      case '7d':
-        return new Date(now.setDate(now.getDate() - 7));
-      case '30d':
-        return new Date(now.setDate(now.getDate() - 30));
-      case '90d':
-        return new Date(now.setDate(now.getDate() - 90));
-      default:
-        return new Date(now.setDate(now.getDate() - 30));
+  async sendOfferBookingNotificationToMerchant(booking, offer, service, store, staff, user) {
+    try {
+      console.log('📧 Sending offer booking notification to merchant');
+
+      const merchantEmail = staff?.email || store?.email || store?.merchant_email || store?.contact_email;
+
+      if (!merchantEmail) {
+        console.warn('⚠️ No merchant email found for store:', store?.id);
+        return false;
+      }
+
+      const originalPrice = service?.price || 0;
+      const discount = offer?.discount || 0;
+      const accessFee = booking.accessFee || offer?.fee || 0;
+
+      const templateData = {
+        merchantName: store?.merchant_name || staff?.name || 'Merchant',
+        merchantEmail: merchantEmail,
+        bookingType: 'offer',
+        offerTitle: offer?.title || 'Special Offer',
+        serviceName: service?.name || 'Service',
+        originalPrice: originalPrice,
+        discount: discount,
+        accessFee: accessFee,
+        bookingDate: this.formatDateTime(booking.startTime).split(' at')[0],
+        bookingStartTime: this.formatDateTime(booking.startTime),
+        bookingEndTime: this.formatDateTime(booking.endTime),
+        duration: service?.duration || 90,
+        storeName: store?.name || 'Store',
+        staffName: staff?.name || 'Not assigned',
+        bookingId: booking.id,
+        status: booking.status,
+        customerName: user ? `${user.firstName || ''} ${user.lastName || ''}`.trim() : 'Customer',
+        customerEmail: user?.email || 'N/A',
+        customerPhone: user?.phoneNumber || user?.phone || 'N/A',
+        customerId: user?.id || 'N/A',
+        customerNotes: booking.notes || null,
+        bookingLink: `${process.env.MERCHANT_FRONTEND_URL || 'https://merchants.discoun3ree.com'}/bookings/${booking.id}`,
+        dashboardLink: `${process.env.MERCHANT_FRONTEND_URL || 'https://merchants.discoun3ree.com'}/dashboard`,
+        confirmLink: `${process.env.MERCHANT_FRONTEND_URL || 'https://merchants.discoun3ree.com'}/bookings/${booking.id}/confirm`
+      };
+
+      console.log('📧 Merchant offer template data prepared');
+
+      const htmlContent = await this.renderTemplate('merchantBookingNotification', templateData);
+
+      await this.sendEmail(
+        merchantEmail,
+        `New Offer Booking: ${offer?.title || 'Special Offer'}`,
+        htmlContent
+      );
+
+      console.log('✅ Merchant offer notification email sent successfully');
+      return true;
+    } catch (error) {
+      console.error('❌ Failed to send merchant offer booking notification:', error);
+      return false;
     }
   }
 
-  /**
-   * Health check for the service
-   */
-  getStatus() {
-    return {
-      isRunning: this.isRunning,
-      cronJob: !!this.cronJob,
-      lastCheck: new Date().toISOString()
-    };
+  async sendCancellationNotificationToCustomer(booking, service, user, store, reason, refundInfo) {
+    try {
+      console.log('📧 Sending cancellation notification to customer');
+      console.log('User email:', user?.email);
+
+      if (!user?.email) {
+        console.error('❌ User email is required');
+        return false;
+      }
+
+      const isOfferBooking = !!booking.offerId;
+      const offer = booking.Offer || booking.offer;
+
+      const templateData = {
+        userName: user.firstName || user.name || 'Valued Customer',
+        bookingId: booking.id,
+        isOfferBooking,
+        offerTitle: offer?.title || 'Special Offer',
+        serviceName: service?.name || 'Service',
+        bookingStartTime: this.formatDateTime(booking.startTime),
+        storeName: store?.name || 'Our Location',
+        storeAddress: store?.location || store?.address || '',
+        cancelledAt: this.formatDateTime(new Date()),
+        reason: reason || 'No reason provided',
+        refundInfo: refundInfo || null,
+        accessFee: booking.accessFee || 0,
+        bookAgainUrl: `${process.env.FRONTEND_URL || 'https://discoun3ree.com'}/services/${service?.id || ''}`,
+        supportEmail: process.env.SUPPORT_EMAIL || 'support@discoun3ree.com',
+        supportPhone: process.env.SUPPORT_PHONE || '+254712345678',
+        companyName: process.env.COMPANY_NAME || 'Discoun3ree',
+        companyAddress: process.env.COMPANY_ADDRESS || 'Nairobi, Kenya'
+      };
+
+      console.log('📧 Cancellation template data prepared');
+
+      const htmlContent = await this.renderTemplate('bookingCancellation', templateData);
+
+      await this.sendEmail(
+        user.email,
+        `Booking Cancelled: ${isOfferBooking ? offer?.title : service?.name}`,
+        htmlContent
+      );
+
+      console.log('✅ Customer cancellation email sent successfully');
+      return true;
+    } catch (error) {
+      console.error('❌ Failed to send customer cancellation notification:', error);
+      return false;
+    }
+  }
+
+  async sendCancellationNotificationToMerchant(booking, service, user, store, staff, reason) {
+    try {
+      console.log('📧 Sending cancellation notification to merchant');
+
+      const merchantEmail = staff?.email || store?.email || store?.merchant_email || store?.contact_email;
+
+      if (!merchantEmail) {
+        console.warn('⚠️ No merchant email found for store:', store?.id);
+        return false;
+      }
+
+      const isOfferBooking = !!booking.offerId;
+      const offer = booking.Offer || booking.offer;
+
+      const templateData = {
+        bookingId: booking.id,
+        customerName: user ? `${user.firstName || ''} ${user.lastName || ''}`.trim() : 'Customer',
+        customerEmail: user?.email || 'N/A',
+        customerPhone: user?.phoneNumber || user?.phone || 'N/A',
+        isOfferBooking,
+        offerTitle: offer?.title || 'Special Offer',
+        serviceName: service?.name || 'Service',
+        bookingStartTime: this.formatDateTime(booking.startTime),
+        staffName: staff?.name || null,
+        storeName: store?.name || 'Store',
+        accessFee: booking.accessFee || 0,
+        cancelledAt: this.formatDateTime(new Date()),
+        reason: reason || 'No reason provided',
+        dashboardUrl: `${process.env.MERCHANT_FRONTEND_URL || 'https://merchants.discoun3ree.com'}/dashboard`,
+        bookingsUrl: `${process.env.MERCHANT_FRONTEND_URL || 'https://merchants.discoun3ree.com'}/bookings`,
+        companyName: process.env.COMPANY_NAME || 'Discoun3ree'
+      };
+
+      console.log('📧 Merchant cancellation template data prepared');
+
+      const htmlContent = await this.renderTemplate('merchantCancellationNotification', templateData);
+
+      await this.sendEmail(
+        merchantEmail,
+        `Booking Cancelled: ${isOfferBooking ? offer?.title : service?.name}`,
+        htmlContent
+      );
+
+      console.log('✅ Merchant cancellation notification sent successfully');
+      return true;
+    } catch (error) {
+      console.error('❌ Failed to send merchant cancellation notification:', error);
+      return false;
+    }
+  }
+
+  async sendRescheduleNotificationToCustomer(booking, service, user, store, staff, oldStartTime, newStartTime, reason) {
+    try {
+      console.log('📧 Sending reschedule notification to customer');
+      console.log('User email:', user?.email);
+
+      if (!user?.email) {
+        console.error('❌ User email is required');
+        return false;
+      }
+
+      const isOfferBooking = !!booking.offerId;
+      const offer = booking.Offer || booking.offer;
+
+      const oldMoment = moment(oldStartTime);
+      const newMoment = moment(newStartTime);
+
+      const templateData = {
+        userName: user.firstName || user.name || 'Valued Customer',
+        bookingId: booking.id,
+        isOfferBooking,
+        offerTitle: offer?.title || 'Special Offer',
+        serviceName: service?.name || 'Service',
+        oldTime: oldMoment.format('h:mm A'),
+        oldDate: oldMoment.format('dddd, MMMM D, YYYY'),
+        newTime: newMoment.format('h:mm A'),
+        newDate: newMoment.format('dddd, MMMM D, YYYY'),
+        newDateTime: this.formatDateTime(newStartTime),
+        duration: service?.duration || 60,
+        storeName: store?.name || 'Our Location',
+        storeAddress: store?.location || store?.address || '',
+        staffName: staff?.name || null,
+        newStaffName: booking.Staff?.name || booking.staff?.name || staff?.name || null,
+        reason: reason || 'Schedule adjustment',
+        calendarUrl: null,
+        bookingDetailsUrl: `${process.env.FRONTEND_URL || 'https://discoun3ree.com'}/bookings/${booking.id}`,
+        qrCode: booking.qrCode || null,
+        supportEmail: process.env.SUPPORT_EMAIL || 'support@discoun3ree.com',
+        supportPhone: process.env.SUPPORT_PHONE || '+254712345678',
+        companyName: process.env.COMPANY_NAME || 'Discoun3ree',
+        companyAddress: process.env.COMPANY_ADDRESS || 'Nairobi, Kenya'
+      };
+
+      console.log('📧 Reschedule template data prepared');
+
+      const htmlContent = await this.renderTemplate('bookingReschedule', templateData);
+
+      await this.sendEmail(
+        user.email,
+        `Booking Rescheduled: ${isOfferBooking ? offer?.title : service?.name}`,
+        htmlContent
+      );
+
+      console.log('✅ Customer reschedule email sent successfully');
+      return true;
+    } catch (error) {
+      console.error('❌ Failed to send customer reschedule notification:', error);
+      return false;
+    }
+  }
+
+  async sendRescheduleNotificationToMerchant(booking, service, user, store, staff, oldStartTime, newStartTime, reason, newStaff) {
+    try {
+      console.log('📧 Sending reschedule notification to merchant');
+
+      const merchantEmail = staff?.email || store?.email || store?.merchant_email || store?.contact_email;
+
+      if (!merchantEmail) {
+        console.warn('⚠️ No merchant email found for store:', store?.id);
+        return false;
+      }
+
+      const isOfferBooking = !!booking.offerId;
+      const offer = booking.Offer || booking.offer;
+
+      const oldMoment = moment(oldStartTime);
+      const newMoment = moment(newStartTime);
+
+      const templateData = {
+        bookingId: booking.id,
+        customerName: user ? `${user.firstName || ''} ${user.lastName || ''}`.trim() : 'Customer',
+        customerEmail: user?.email || 'N/A',
+        customerPhone: user?.phoneNumber || user?.phone || 'N/A',
+        isOfferBooking,
+        offerTitle: offer?.title || 'Special Offer',
+        serviceName: service?.name || 'Service',
+        oldTime: oldMoment.format('h:mm A'),
+        oldDate: oldMoment.format('dddd, MMMM D, YYYY'),
+        newTime: newMoment.format('h:mm A'),
+        newDate: newMoment.format('dddd, MMMM D, YYYY'),
+        newDateTime: this.formatDateTime(newStartTime),
+        duration: service?.duration || 60,
+        storeName: store?.name || 'Store',
+        oldStaffName: staff?.name || null,
+        newStaffName: newStaff?.name || staff?.name || null,
+        reason: reason || 'Schedule adjustment',
+        rescheduledAt: this.formatDateTime(new Date()),
+        dashboardUrl: `${process.env.MERCHANT_FRONTEND_URL || 'https://merchants.discoun3ree.com'}/dashboard`,
+        bookingDetailsUrl: `${process.env.MERCHANT_FRONTEND_URL || 'https://merchants.discoun3ree.com'}/bookings/${booking.id}`,
+        calendarUrl: `${process.env.MERCHANT_FRONTEND_URL || 'https://merchants.discoun3ree.com'}/calendar`,
+        companyName: process.env.COMPANY_NAME || 'Discoun3ree'
+      };
+
+      console.log('📧 Merchant reschedule template data prepared');
+
+      const htmlContent = await this.renderTemplate('merchantRescheduleNotification', templateData);
+
+      await this.sendEmail(
+        merchantEmail,
+        `Booking Rescheduled: ${isOfferBooking ? offer?.title : service?.name}`,
+        htmlContent
+      );
+
+      console.log('✅ Merchant reschedule notification sent successfully');
+      return true;
+    } catch (error) {
+      console.error('❌ Failed to send merchant reschedule notification:', error);
+      return false;
+    }
   }
 }
 
-module.exports = NoShowHandlerService;
+module.exports = NotificationService;
