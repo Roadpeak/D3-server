@@ -18,7 +18,7 @@ class NotificationService {
                 enabled: false,
                 ...config.sms
             },
-            templatesPath: path.join(__dirname, '..', 'views', 'emails'), // ✅ Updated path
+            templatesPath: path.join(__dirname, '..', 'views', 'emails'),
             ...config
         };
 
@@ -26,7 +26,6 @@ class NotificationService {
         console.log('📧 Templates path:', this.config.templatesPath);
         console.log('📧 SendGrid API key:', this.config.email.sendgridApiKey ? '✅ Set' : '❌ Not set');
 
-        // Initialize SendGrid if enabled
         if (this.config.email.enabled && this.config.email.sendgridApiKey) {
             sgMail.setApiKey(this.config.email.sendgridApiKey);
             console.log('✅ SendGrid initialized successfully');
@@ -36,7 +35,6 @@ class NotificationService {
     }
 
     async renderTemplate(templateName, data) {
-        // Try multiple possible paths
         const possiblePaths = [
             path.join(this.config.templatesPath, `${templateName}.ejs`),
             path.join(__dirname, '..', 'templates', `${templateName}.ejs`),
@@ -51,12 +49,11 @@ class NotificationService {
             try {
                 await fs.promises.access(templatePath, fs.constants.R_OK);
                 console.log('✅ Found template at:', templatePath);
-                
+
                 const rendered = await ejs.renderFile(templatePath, data);
                 console.log('✅ Template rendered successfully');
                 return rendered;
             } catch (error) {
-                // Continue to next path
                 continue;
             }
         }
@@ -121,13 +118,6 @@ class NotificationService {
         return moment(dateTime).format('dddd, MMMM D, YYYY [at] h:mm A');
     }
 
-    // ==========================================
-    // SERVICE BOOKING NOTIFICATIONS
-    // ==========================================
-
-    /**
-     * Send booking confirmation to customer (SERVICE)
-     */
     async sendBookingConfirmationToCustomer(booking, service, user, store, qrCodeUrl) {
         try {
             console.log('📧 Sending service booking confirmation to customer');
@@ -164,7 +154,7 @@ class NotificationService {
             console.log('📧 Template data prepared with keys:', Object.keys(templateData));
 
             const htmlContent = await this.renderTemplate('customerBookingConfirmation', templateData);
-            
+
             await this.sendEmail(
                 user.email,
                 `Booking Confirmed: ${service?.name || 'Service'}`,
@@ -179,10 +169,7 @@ class NotificationService {
         }
     }
 
-    /**
-     * Send booking notification to merchant (SERVICE)
-     */
-    async sendBookingNotificationToMerchant(booking, service, store, staff) {
+    async sendBookingNotificationToMerchant(booking, service, store, staff, user) {
         try {
             console.log('📧 Sending service booking notification to merchant');
 
@@ -192,9 +179,6 @@ class NotificationService {
                 console.warn('⚠️ No merchant email found for store:', store?.id);
                 return false;
             }
-
-            // Get user info
-            const user = booking.User || booking.bookingUser;
 
             const templateData = {
                 merchantName: store?.merchant_name || staff?.name || 'Merchant',
@@ -237,13 +221,6 @@ class NotificationService {
         }
     }
 
-    // ==========================================
-    // OFFER BOOKING NOTIFICATIONS
-    // ==========================================
-
-    /**
-     * Send offer booking confirmation to customer (OFFER)
-     */
     async sendOfferBookingConfirmationToCustomer(booking, offer, service, user, store, qrCodeUrl) {
         try {
             console.log('📧 Sending offer booking confirmation to customer');
@@ -298,9 +275,6 @@ class NotificationService {
         }
     }
 
-    /**
-     * Send offer booking notification to merchant (OFFER)
-     */
     async sendOfferBookingNotificationToMerchant(booking, offer, service, store, staff, user) {
         try {
             console.log('📧 Sending offer booking notification to merchant');
@@ -352,6 +326,228 @@ class NotificationService {
             return true;
         } catch (error) {
             console.error('❌ Failed to send merchant offer booking notification:', error);
+            return false;
+        }
+    }
+
+    async sendCancellationNotificationToCustomer(booking, service, user, store, reason, refundInfo) {
+        try {
+            console.log('📧 Sending cancellation notification to customer');
+            console.log('User email:', user?.email);
+
+            if (!user?.email) {
+                console.error('❌ User email is required');
+                return false;
+            }
+
+            const isOfferBooking = !!booking.offerId;
+            const offer = booking.Offer || booking.offer;
+
+            const templateData = {
+                userName: user.firstName || user.name || 'Valued Customer',
+                bookingId: booking.id,
+                isOfferBooking,
+                offerTitle: offer?.title || 'Special Offer',
+                serviceName: service?.name || 'Service',
+                bookingStartTime: this.formatDateTime(booking.startTime),
+                storeName: store?.name || 'Our Location',
+                storeAddress: store?.location || store?.address || '',
+                cancelledAt: this.formatDateTime(new Date()),
+                reason: reason || 'No reason provided',
+                refundInfo: refundInfo || null,
+                accessFee: booking.accessFee || 0,
+                bookAgainUrl: `${process.env.FRONTEND_URL || 'https://discoun3ree.com'}/services/${service?.id || ''}`,
+                supportEmail: process.env.SUPPORT_EMAIL || 'support@discoun3ree.com',
+                supportPhone: process.env.SUPPORT_PHONE || '+254712345678',
+                companyName: process.env.COMPANY_NAME || 'Discoun3ree',
+                companyAddress: process.env.COMPANY_ADDRESS || 'Nairobi, Kenya'
+            };
+
+            console.log('📧 Cancellation template data prepared');
+
+            const htmlContent = await this.renderTemplate('bookingCancellation', templateData);
+
+            await this.sendEmail(
+                user.email,
+                `Booking Cancelled: ${isOfferBooking ? offer?.title : service?.name}`,
+                htmlContent
+            );
+
+            console.log('✅ Customer cancellation email sent successfully');
+            return true;
+        } catch (error) {
+            console.error('❌ Failed to send customer cancellation notification:', error);
+            return false;
+        }
+    }
+
+    async sendCancellationNotificationToMerchant(booking, service, user, store, staff, reason) {
+        try {
+            console.log('📧 Sending cancellation notification to merchant');
+
+            const merchantEmail = staff?.email || store?.email || store?.merchant_email || store?.contact_email;
+
+            if (!merchantEmail) {
+                console.warn('⚠️ No merchant email found for store:', store?.id);
+                return false;
+            }
+
+            const isOfferBooking = !!booking.offerId;
+            const offer = booking.Offer || booking.offer;
+
+            const templateData = {
+                bookingId: booking.id,
+                customerName: user ? `${user.firstName || ''} ${user.lastName || ''}`.trim() : 'Customer',
+                customerEmail: user?.email || 'N/A',
+                customerPhone: user?.phoneNumber || user?.phone || 'N/A',
+                isOfferBooking,
+                offerTitle: offer?.title || 'Special Offer',
+                serviceName: service?.name || 'Service',
+                bookingStartTime: this.formatDateTime(booking.startTime),
+                staffName: staff?.name || null,
+                storeName: store?.name || 'Store',
+                accessFee: booking.accessFee || 0,
+                cancelledAt: this.formatDateTime(new Date()),
+                reason: reason || 'No reason provided',
+                dashboardUrl: `${process.env.MERCHANT_FRONTEND_URL || 'https://merchants.discoun3ree.com'}/dashboard`,
+                bookingsUrl: `${process.env.MERCHANT_FRONTEND_URL || 'https://merchants.discoun3ree.com'}/bookings`,
+                companyName: process.env.COMPANY_NAME || 'Discoun3ree'
+            };
+
+            console.log('📧 Merchant cancellation template data prepared');
+
+            const htmlContent = await this.renderTemplate('merchantCancellationNotification', templateData);
+
+            await this.sendEmail(
+                merchantEmail,
+                `Booking Cancelled: ${isOfferBooking ? offer?.title : service?.name}`,
+                htmlContent
+            );
+
+            console.log('✅ Merchant cancellation notification sent successfully');
+            return true;
+        } catch (error) {
+            console.error('❌ Failed to send merchant cancellation notification:', error);
+            return false;
+        }
+    }
+
+    async sendRescheduleNotificationToCustomer(booking, service, user, store, staff, oldStartTime, newStartTime, reason) {
+        try {
+            console.log('📧 Sending reschedule notification to customer');
+            console.log('User email:', user?.email);
+
+            if (!user?.email) {
+                console.error('❌ User email is required');
+                return false;
+            }
+
+            const isOfferBooking = !!booking.offerId;
+            const offer = booking.Offer || booking.offer;
+
+            const oldMoment = moment(oldStartTime);
+            const newMoment = moment(newStartTime);
+
+            const templateData = {
+                userName: user.firstName || user.name || 'Valued Customer',
+                bookingId: booking.id,
+                isOfferBooking,
+                offerTitle: offer?.title || 'Special Offer',
+                serviceName: service?.name || 'Service',
+                oldTime: oldMoment.format('h:mm A'),
+                oldDate: oldMoment.format('dddd, MMMM D, YYYY'),
+                newTime: newMoment.format('h:mm A'),
+                newDate: newMoment.format('dddd, MMMM D, YYYY'),
+                newDateTime: this.formatDateTime(newStartTime),
+                duration: service?.duration || 60,
+                storeName: store?.name || 'Our Location',
+                storeAddress: store?.location || store?.address || '',
+                staffName: staff?.name || null,
+                newStaffName: booking.Staff?.name || booking.staff?.name || staff?.name || null,
+                reason: reason || 'Schedule adjustment',
+                calendarUrl: null,
+                bookingDetailsUrl: `${process.env.FRONTEND_URL || 'https://discoun3ree.com'}/bookings/${booking.id}`,
+                qrCode: booking.qrCode || null,
+                supportEmail: process.env.SUPPORT_EMAIL || 'support@discoun3ree.com',
+                supportPhone: process.env.SUPPORT_PHONE || '+254712345678',
+                companyName: process.env.COMPANY_NAME || 'Discoun3ree',
+                companyAddress: process.env.COMPANY_ADDRESS || 'Nairobi, Kenya'
+            };
+
+            console.log('📧 Reschedule template data prepared');
+
+            const htmlContent = await this.renderTemplate('bookingReschedule', templateData);
+
+            await this.sendEmail(
+                user.email,
+                `Booking Rescheduled: ${isOfferBooking ? offer?.title : service?.name}`,
+                htmlContent
+            );
+
+            console.log('✅ Customer reschedule email sent successfully');
+            return true;
+        } catch (error) {
+            console.error('❌ Failed to send customer reschedule notification:', error);
+            return false;
+        }
+    }
+
+    async sendRescheduleNotificationToMerchant(booking, service, user, store, staff, oldStartTime, newStartTime, reason, newStaff) {
+        try {
+            console.log('📧 Sending reschedule notification to merchant');
+
+            const merchantEmail = staff?.email || store?.email || store?.merchant_email || store?.contact_email;
+
+            if (!merchantEmail) {
+                console.warn('⚠️ No merchant email found for store:', store?.id);
+                return false;
+            }
+
+            const isOfferBooking = !!booking.offerId;
+            const offer = booking.Offer || booking.offer;
+
+            const oldMoment = moment(oldStartTime);
+            const newMoment = moment(newStartTime);
+
+            const templateData = {
+                bookingId: booking.id,
+                customerName: user ? `${user.firstName || ''} ${user.lastName || ''}`.trim() : 'Customer',
+                customerEmail: user?.email || 'N/A',
+                customerPhone: user?.phoneNumber || user?.phone || 'N/A',
+                isOfferBooking,
+                offerTitle: offer?.title || 'Special Offer',
+                serviceName: service?.name || 'Service',
+                oldTime: oldMoment.format('h:mm A'),
+                oldDate: oldMoment.format('dddd, MMMM D, YYYY'),
+                newTime: newMoment.format('h:mm A'),
+                newDate: newMoment.format('dddd, MMMM D, YYYY'),
+                newDateTime: this.formatDateTime(newStartTime),
+                duration: service?.duration || 60,
+                storeName: store?.name || 'Store',
+                oldStaffName: staff?.name || null,
+                newStaffName: newStaff?.name || staff?.name || null,
+                reason: reason || 'Schedule adjustment',
+                rescheduledAt: this.formatDateTime(new Date()),
+                dashboardUrl: `${process.env.MERCHANT_FRONTEND_URL || 'https://merchants.discoun3ree.com'}/dashboard`,
+                bookingDetailsUrl: `${process.env.MERCHANT_FRONTEND_URL || 'https://merchants.discoun3ree.com'}/bookings/${booking.id}`,
+                calendarUrl: `${process.env.MERCHANT_FRONTEND_URL || 'https://merchants.discoun3ree.com'}/calendar`,
+                companyName: process.env.COMPANY_NAME || 'Discoun3ree'
+            };
+
+            console.log('📧 Merchant reschedule template data prepared');
+
+            const htmlContent = await this.renderTemplate('merchantRescheduleNotification', templateData);
+
+            await this.sendEmail(
+                merchantEmail,
+                `Booking Rescheduled: ${isOfferBooking ? offer?.title : service?.name}`,
+                htmlContent
+            );
+
+            console.log('✅ Merchant reschedule notification sent successfully');
+            return true;
+        } catch (error) {
+            console.error('❌ Failed to send merchant reschedule notification:', error);
             return false;
         }
     }

@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Booking Cancelled</title>
+</head>
+
+<body style="margin: 0; padding: 0; font-family: Arial, sans-serif; background-color: #f4f4f4;">
+    <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f4f4f4; padding: 20px;">
+        <tr>
+            <td align="center">
+                <table width="600" cellpadding="0" cellspacing="0"
+                    style="background-color: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+
+                    <!-- Header -->
+                    <tr>
+                        <td
+                            style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: #ffffff; padding: 40px 30px; text-align: center;">
+                            <h1 style="margin: 0; font-size: 28px;">🚫 Booking Cancelled</h1>
+                            <p style="margin: 10px 0 0; font-size: 16px;">Your booking has been successfully cancelled
+                            </p>
+                        </td>
+                    </tr>
+
+                    <!-- Content -->
+                    <tr>
+                        <td style="padding: 40px 30px;">
+
+                            <!-- Greeting -->
+                            <p style="font-size: 18px; color: #333333; margin-bottom: 20px;">
+                                Hello <%= userName %>,
+                            </p>
+
+                            <!-- Alert Box -->
+                            <div
+                                style="background-color: #f8d7da; border-left: 4px solid #dc3545; padding: 15px 20px; margin: 20px 0; border-radius: 4px;">
+                                <p style="margin: 0; color: #721c24; font-size: 15px;">
+                                    <strong>Your booking has been cancelled.</strong> We're sorry to see you go!
+                                </p>
+                            </div>
+
+                            <!-- Message -->
+                            <p style="font-size: 16px; color: #555555; margin-bottom: 30px;">
+                                This email confirms that your booking for <strong>
+                                    <%= isOfferBooking ? offerTitle : serviceName %>
+                                </strong> has been successfully cancelled.
+                            </p>
+
+                            <!-- Booking Details -->
+                            <div style="background-color: #f8f9fa; border-radius: 8px; padding: 25px; margin: 25px 0;">
+                                <h2
+                                    style="margin: 0 0 20px 0; font-size: 20px; color: #333333; border-bottom: 2px solid #e0e0e0; padding-bottom: 10px;">
+                                    Cancelled Booking Details
+                                </h2>
+
+                                <table width="100%" cellpadding="8" cellspacing="0">
+                                    <tr style="border-bottom: 1px solid #e0e0e0;">
+                                        <td style="font-weight: 600; color: #666666; font-size: 14px;">Booking ID:</td>
+                                        <td style="color: #333333; font-size: 14px; text-align: right;">#<%= bookingId
+                                                %>
+                                        </td>
+                                    </tr>
+
+                                    <% if (isOfferBooking) { %>
+                                        <tr style="border-bottom: 1px solid #e0e0e0;">
+                                            <td style="font-weight: 600; color: #666666; font-size: 14px;">Offer:</td>
+                                            <td style="color: #333333; font-size: 14px; text-align: right;">
+                                                <%= offerTitle %>
+                                            </td>
+                                        </tr>
+                                        <% } %>
+
+                                            <tr style="border-bottom: 1px solid #e0e0e0;">
+                                                <td style="font-weight: 600; color: #666666; font-size: 14px;">Service:
+                                                </td>
+                                                <td style="color: #333333; font-size: 14px; text-align: right;">
+                                                    <%= serviceName %>
+                                                </td>
+                                            </tr>
+
+                                            <tr style="border-bottom: 1px solid #e0e0e0;">
+                                                <td style="font-weight: 600; color: #666666; font-size: 14px;">Original
+                                                    Date & Time:</td>
+                                                <td style="color: #333333; font-size: 14px; text-align: right;">
+                                                    <%= bookingStartTime %>
+                                                </td>
+                                            </tr>
+
+                                            <% if (storeName) { %>
+                                                <tr style="border-bottom: 1px solid #e0e0e0;">
+                                                    <td style="font-weight: 600; color: #666666; font-size: 14px;">
+                                                        Location:</td>
+                                                    <td style="color: #333333; font-size: 14px; text-align: right;">
+                                                        <%= storeName %>
+                                                    </td>
+                                                </tr>
+                                                <% } %>
+
+                                                    <% if (storeAddress) { %>
+                                                        <tr style="border-bottom: 1px solid #e0e0e0;">
+                                                            <td
+                                                                style="font-weight: 600; color: #666666; font-size: 14px;">
+                                                                Address:</td>
+                                                            <td
+                                                                style="color: #333333; font-size: 14px; text-align: right;">
+                                                                <%= storeAddress %>
+                                                            </td>
+                                                        </tr>
+                                                        <% } %>
+
+                                                            <tr style="border-bottom: 1px solid #e0e0e0;">
+                                                                <td
+                                                                    style="font-weight: 600; color: #666666; font-size: 14px;">
+                                                                    Cancelled On:</td>
+                                                                <td
+                                                                    style="color: #333333; font-size: 14px; text-align: right;">
+                                                                    <%= cancelledAt %>
+                                                                </td>
+                                                            </tr>
+
+                                                            <tr>
+                                                                <td
+                                                                    style="font-weight: 600; color: #666666; font-size: 14px;">
+                                                                    Status:</td>
+                                                                <td
+                                                                    style="color: #dc3545; font-size: 14px; text-align: right; font-weight: 600;">
+                                                                    CANCELLED</td>
+                                                            </tr>
+                                </table>
+                            </div>
+
+                            <!-- Cancellation Reason -->
+                            <% if (reason) { %>
+                                <div
+                                    style="background-color: #f8f9fa; padding: 15px 20px; margin: 20px 0; border-radius: 8px; border: 1px solid #dee2e6;">
+                                    <h3 style="margin: 0 0 10px 0; color: #333; font-size: 16px;">Cancellation Reason:
+                                    </h3>
+                                    <p style="margin: 0; color: #555; font-size: 14px; font-style: italic;">"<%= reason
+                                            %>"</p>
+                                </div>
+                                <% } %>
+
+                                    <!-- Refund Information -->
+                                    <% if (refundInfo && refundInfo.applicable) { %>
+                                        <div
+                                            style="background-color: #d1ecf1; border-left: 4px solid #17a2b8; padding: 15px 20px; margin: 20px 0; border-radius: 4px;">
+                                            <h3 style="margin: 0 0 10px 0; color: #0c5460; font-size: 16px;">💰 Refund
+                                                Information</h3>
+                                            <p style="margin: 5px 0; color: #0c5460; font-size: 14px;"><strong>Refund
+                                                    Amount:</strong>
+                                                <%= refundInfo.currency %>
+                                                    <%= refundInfo.amount.toFixed(2) %>
+                                            </p>
+                                            <p style="margin: 5px 0; color: #0c5460; font-size: 14px;">
+                                                <strong>Processing Time:</strong>
+                                                <%= refundInfo.processingTime %>
+                                            </p>
+                                            <p style="margin: 5px 0; color: #0c5460; font-size: 14px;">The refund will
+                                                be processed to your original payment method.</p>
+                                        </div>
+                                        <% } else if (accessFee> 0) { %>
+                                            <div
+                                                style="background-color: #d1ecf1; border-left: 4px solid #17a2b8; padding: 15px 20px; margin: 20px 0; border-radius: 4px;">
+                                                <h3 style="margin: 0 0 10px 0; color: #0c5460; font-size: 16px;">💰
+                                                    Payment Information</h3>
+                                                <p style="margin: 5px 0; color: #0c5460; font-size: 14px;">
+                                                    <strong>Access Fee Paid:</strong> KES <%= accessFee.toFixed(2) %>
+                                                </p>
+                                                <p style="margin: 5px 0; color: #0c5460; font-size: 14px;">Please
+                                                    contact support if you have questions about refund eligibility.</p>
+                                            </div>
+                                            <% } %>
+
+                                                <!-- CTA Button -->
+                                                <div style="text-align: center; margin: 30px 0;">
+                                                    <a href="<%= bookAgainUrl || '#' %>"
+                                                        style="display: inline-block; padding: 14px 35px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 16px;">
+                                                        Book Again
+                                                    </a>
+                                                </div>
+
+                                                <!-- Help Section -->
+                                                <div
+                                                    style="background-color: #f8f9fa; padding: 20px; margin: 30px 0; border-radius: 8px; text-align: center;">
+                                                    <p style="margin: 5px 0; color: #666666; font-size: 14px;">
+                                                        <strong>Need Help?</strong></p>
+                                                    <p style="margin: 5px 0; color: #666666; font-size: 14px;">Contact
+                                                        us at <a
+                                                            href="mailto:<%= supportEmail || 'support@example.com' %>"
+                                                            style="color: #667eea;">
+                                                            <%= supportEmail || 'support@example.com' %>
+                                                        </a></p>
+                                                    <p style="margin: 5px 0; color: #666666; font-size: 14px;">or call
+                                                        <%= supportPhone || '+254 XXX XXX XXX' %>
+                                                    </p>
+                                                </div>
+
+                                                <p style="margin-top: 30px; color: #666; font-size: 14px;">
+                                                    We hope to serve you again soon. If you have any feedback about your
+                                                    cancellation or our services, we'd love to hear from you.
+                                                </p>
+                        </td>
+                    </tr>
+
+                    <!-- Footer -->
+                    <tr>
+                        <td
+                            style="background-color: #2c3e50; color: #ffffff; padding: 30px; text-align: center; font-size: 13px;">
+                            <p style="margin: 8px 0;"><strong>
+                                    <%= companyName || 'Your Company' %>
+                                </strong></p>
+                            <p style="margin: 8px 0;">
+                                <%= companyAddress || 'Company Address' %>
+                            </p>
+                            <p style="margin: 20px 0 10px; font-size: 12px; opacity: 0.7;">
+                                You received this email because you cancelled a booking with us.<br>
+                                © <%= new Date().getFullYear() %>
+                                    <%= companyName || 'Your Company' %>. All rights reserved.
+                            </p>
+                        </td>
+                    </tr>
+
+                </table>
+            </td>
+        </tr>
+    </table>
+</body>
+
+</html>
