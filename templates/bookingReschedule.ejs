@@ -7,55 +7,41 @@
     <title>Booking Rescheduled</title>
 </head>
 
-<body style="margin: 0; padding: 0; font-family: Arial, sans-serif; background-color: #f4f4f4;">
-    <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f4f4f4; padding: 20px;">
+<body style="margin: 0; padding: 0; font-family: 'Segoe UI', Arial, sans-serif; background-color: #f5f5f5;">
+    <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f5f5f5; padding: 20px;">
         <tr>
             <td align="center">
                 <table width="600" cellpadding="0" cellspacing="0"
-                    style="background-color: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+                    style="background-color: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
 
-                    <!-- Header -->
                     <tr>
-                        <td
-                            style="background: linear-gradient(135deg, #17a2b8 0%, #138496 100%); color: #ffffff; padding: 40px 30px; text-align: center;">
-                            <h1 style="margin: 0; font-size: 28px;">🔄 Booking Rescheduled</h1>
-                            <p style="margin: 10px 0 0; font-size: 16px;">Your booking time has been updated</p>
+                        <td style="background-color: #2c3e50; color: #ffffff; padding: 40px 30px; text-align: center;">
+                            <h1 style="margin: 0; font-size: 28px; font-weight: 600;">Booking Rescheduled</h1>
+                            <p style="margin: 10px 0 0; font-size: 16px; opacity: 0.9;">Your booking time has been
+                                updated</p>
                         </td>
                     </tr>
 
-                    <!-- Content -->
                     <tr>
                         <td style="padding: 40px 30px;">
 
-                            <!-- Greeting -->
-                            <p style="font-size: 18px; color: #333333; margin-bottom: 20px;">
+                            <p style="font-size: 16px; color: #333333; margin-bottom: 20px;">
                                 Hello <%= userName %>,
                             </p>
 
-                            <!-- Alert Box -->
-                            <div
-                                style="background-color: #d1ecf1; border-left: 4px solid #17a2b8; padding: 15px 20px; margin: 20px 0; border-radius: 4px;">
-                                <p style="margin: 0; color: #0c5460; font-size: 15px; font-weight: 600;">
-                                    ✅ Your booking has been successfully rescheduled!
-                                </p>
-                            </div>
-
-                            <!-- Message -->
-                            <p style="font-size: 16px; color: #555555; margin-bottom: 30px;">
-                                Good news! Your booking for <strong>
+                            <p style="font-size: 15px; color: #555555; line-height: 1.6; margin-bottom: 25px;">
+                                Your booking for <strong>
                                     <%= isOfferBooking ? offerTitle : serviceName %>
-                                </strong> has been rescheduled to a new date and time.
+                                </strong> has been successfully rescheduled to a new date and time.
                             </p>
 
-                            <!-- Time Comparison -->
                             <table width="100%" cellpadding="10" cellspacing="0" style="margin: 30px 0;">
                                 <tr>
                                     <td width="45%"
-                                        style="background-color: #f8f9fa; border: 2px solid #dee2e6; border-radius: 8px; padding: 20px; text-align: center; opacity: 0.7;">
+                                        style="background-color: #f8f9fa; border: 2px solid #dee2e6; border-radius: 6px; padding: 20px; text-align: center;">
                                         <p
                                             style="font-size: 12px; font-weight: 600; text-transform: uppercase; margin: 0 0 10px; color: #666;">
                                             Previous Time</p>
-                                        <p style="font-size: 32px; margin: 10px 0;">📅</p>
                                         <p style="font-size: 16px; font-weight: 600; color: #333; margin: 5px 0;">
                                             <%= oldTime %>
                                         </p>
@@ -63,27 +49,25 @@
                                             <%= oldDate %>
                                         </p>
                                     </td>
-                                    <td width="10%" style="text-align: center; font-size: 24px; color: #17a2b8;">➜</td>
+                                    <td width="10%" style="text-align: center; font-size: 20px; color: #3498db;">→</td>
                                     <td width="45%"
-                                        style="background-color: #d4edda; border: 2px solid #28a745; border-radius: 8px; padding: 20px; text-align: center;">
+                                        style="background-color: #e8f4f8; border: 2px solid #3498db; border-radius: 6px; padding: 20px; text-align: center;">
                                         <p
-                                            style="font-size: 12px; font-weight: 600; text-transform: uppercase; margin: 0 0 10px; color: #155724;">
+                                            style="font-size: 12px; font-weight: 600; text-transform: uppercase; margin: 0 0 10px; color: #2c3e50;">
                                             New Time</p>
-                                        <p style="font-size: 32px; margin: 10px 0;">✨</p>
-                                        <p style="font-size: 16px; font-weight: 600; color: #155724; margin: 5px 0;">
+                                        <p style="font-size: 16px; font-weight: 600; color: #2c3e50; margin: 5px 0;">
                                             <%= newTime %>
                                         </p>
-                                        <p style="font-size: 14px; color: #155724; margin: 0;">
+                                        <p style="font-size: 14px; color: #34495e; margin: 0;">
                                             <%= newDate %>
                                         </p>
                                     </td>
                                 </tr>
                             </table>
 
-                            <!-- Booking Details -->
-                            <div style="background-color: #f8f9fa; border-radius: 8px; padding: 25px; margin: 25px 0;">
-                                <h2
-                                    style="margin: 0 0 20px 0; font-size: 20px; color: #333333; border-bottom: 2px solid #e0e0e0; padding-bottom: 10px;">
+                            <div
+                                style="background-color: #f8f9fa; border-radius: 6px; padding: 25px; margin: 25px 0; border-left: 4px solid #3498db;">
+                                <h2 style="margin: 0 0 20px 0; font-size: 18px; color: #2c3e50; font-weight: 600;">
                                     Updated Booking Details
                                 </h2>
 
@@ -115,11 +99,9 @@
                                             <tr style="border-bottom: 1px solid #e0e0e0;">
                                                 <td style="font-weight: 600; color: #666666; font-size: 14px;">New Date
                                                     & Time:</td>
-                                                <td style="color: #333333; font-size: 14px; text-align: right;">
-                                                    <span
-                                                        style="background-color: #fff3cd; padding: 2px 6px; border-radius: 3px; font-weight: 600;">
-                                                        <%= newDateTime %>
-                                                    </span>
+                                                <td
+                                                    style="color: #333333; font-size: 14px; text-align: right; font-weight: 600;">
+                                                    <%= newDateTime %>
                                                 </td>
                                             </tr>
 
@@ -177,11 +159,8 @@
                                                                                         style="font-weight: 600; color: #666666; font-size: 14px;">
                                                                                         New Staff Assigned:</td>
                                                                                     <td
-                                                                                        style="color: #333333; font-size: 14px; text-align: right;">
-                                                                                        <span
-                                                                                            style="background-color: #fff3cd; padding: 2px 6px; border-radius: 3px; font-weight: 600;">
-                                                                                            <%= newStaffName %>
-                                                                                        </span>
+                                                                                        style="color: #333333; font-size: 14px; text-align: right; font-weight: 600;">
+                                                                                        <%= newStaffName %>
                                                                                     </td>
                                                                                 </tr>
                                                                                 <% } %>
@@ -191,98 +170,60 @@
                                                                                             style="font-weight: 600; color: #666666; font-size: 14px;">
                                                                                             Status:</td>
                                                                                         <td
-                                                                                            style="color: #28a745; font-size: 14px; text-align: right; font-weight: 600;">
+                                                                                            style="color: #27ae60; font-size: 14px; text-align: right; font-weight: 600;">
                                                                                             CONFIRMED</td>
                                                                                     </tr>
                                 </table>
                             </div>
 
-                            <!-- Reschedule Reason -->
                             <% if (reason) { %>
                                 <div
-                                    style="background-color: #f8f9fa; padding: 15px 20px; margin: 20px 0; border-radius: 8px; border: 1px solid #dee2e6;">
-                                    <h3 style="margin: 0 0 10px 0; color: #333; font-size: 16px;">📝 Reason for
-                                        Reschedule:</h3>
-                                    <p style="margin: 0; color: #555; font-size: 14px; font-style: italic;">"<%= reason
-                                            %>"</p>
+                                    style="background-color: #f8f9fa; padding: 15px 20px; margin: 20px 0; border-radius: 6px; border: 1px solid #dee2e6;">
+                                    <p style="margin: 0; color: #666; font-size: 14px; font-weight: 600;">Reason for
+                                        Reschedule:</p>
+                                    <p style="margin: 5px 0 0; color: #333; font-size: 14px;">"<%= reason %>"</p>
                                 </div>
                                 <% } %>
 
-                                    <!-- Calendar Section -->
-                                    <div
-                                        style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 25px; border-radius: 8px; margin: 30px 0; text-align: center;">
-                                        <h3 style="margin: 0 0 15px 0; font-size: 18px;">📆 Add to Your Calendar</h3>
-                                        <p style="margin: 8px 0; font-size: 14px;">Don't forget your new appointment
-                                            time!</p>
-                                        <p style="margin: 8px 0; font-size: 16px; font-weight: 600;">
-                                            <%= newDateTime %>
-                                        </p>
-                                        <% if (calendarUrl) { %>
-                                            <a href="<%= calendarUrl %>"
-                                                style="display: inline-block; padding: 12px 30px; background-color: white; color: #667eea; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 14px; margin-top: 15px;">
-                                                Add to Calendar
-                                            </a>
-                                            <% } %>
-                                    </div>
-
-                                    <!-- Important Notes -->
-                                    <div
-                                        style="background-color: #fff3cd; border-left: 4px solid #ffc107; padding: 15px 20px; margin: 20px 0; border-radius: 4px;">
-                                        <p style="margin: 0; color: #856404; font-size: 15px;">
-                                            ⏰ Please arrive 10-15 minutes before your new appointment time.
-                                        </p>
-                                    </div>
-
-                                    <!-- CTA Buttons -->
                                     <div style="text-align: center; margin: 30px 0;">
-                                        <a href="<%= bookingDetailsUrl || '#' %>"
-                                            style="display: inline-block; padding: 14px 35px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 16px; margin: 5px;">
-                                            View Booking Details
+                                        <a href="https://discoun3ree.com"
+                                            style="display: inline-block; padding: 14px 35px; background-color: #3498db; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 15px; margin: 5px;">
+                                            View My Bookings
                                         </a>
-                                        <% if (qrCode) { %>
-                                            <a href="<%= qrCode %>"
-                                                style="display: inline-block; padding: 14px 35px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 16px; margin: 5px;">
-                                                Download QR Code
-                                            </a>
-                                            <% } %>
                                     </div>
 
-                                    <!-- Help Section -->
                                     <div
-                                        style="background-color: #f8f9fa; padding: 20px; margin: 30px 0; border-radius: 8px; text-align: center;">
-                                        <p style="margin: 5px 0; color: #666666; font-size: 14px;"><strong>Need to Make
-                                                Changes?</strong></p>
-                                        <p style="margin: 5px 0; color: #666666; font-size: 14px;">Contact us at <a
-                                                href="mailto:<%= supportEmail || 'support@example.com' %>"
-                                                style="color: #667eea;">
-                                                <%= supportEmail || 'support@example.com' %>
+                                        style="background-color: #f8f9fa; padding: 20px; margin: 30px 0; border-radius: 6px; text-align: center;">
+                                        <p style="margin: 5px 0; color: #666666; font-size: 14px; font-weight: 600;">
+                                            Need to Make Changes?</p>
+                                        <p style="margin: 8px 0; color: #666666; font-size: 14px;">Contact us at <a
+                                                href="mailto:<%= supportEmail || 'support@discoun3ree.com' %>"
+                                                style="color: #3498db; text-decoration: none;">
+                                                <%= supportEmail || 'support@discoun3ree.com' %>
                                             </a></p>
                                         <p style="margin: 5px 0; color: #666666; font-size: 14px;">or call <%=
                                                 supportPhone || '+254 XXX XXX XXX' %>
                                         </p>
                                     </div>
 
-                                    <p style="margin-top: 30px; color: #666; font-size: 14px;">
-                                        We look forward to serving you at your new appointment time. If you have any
-                                        questions or concerns about the reschedule, please don't hesitate to reach out.
+                                    <p style="margin-top: 25px; color: #666; font-size: 14px; line-height: 1.5;">
+                                        We look forward to serving you at your new appointment time.
                                     </p>
                         </td>
                     </tr>
 
-                    <!-- Footer -->
                     <tr>
                         <td
-                            style="background-color: #2c3e50; color: #ffffff; padding: 30px; text-align: center; font-size: 13px;">
-                            <p style="margin: 8px 0;"><strong>
-                                    <%= companyName || 'Your Company' %>
+                            style="background-color: #2c3e50; color: #ffffff; padding: 25px 30px; text-align: center; font-size: 13px;">
+                            <p style="margin: 5px 0;"><strong>
+                                    <%= companyName || 'Discoun3ree' %>
                                 </strong></p>
-                            <p style="margin: 8px 0;">
-                                <%= companyAddress || 'Company Address' %>
+                            <p style="margin: 5px 0;">
+                                <%= companyAddress || 'Nairobi, Kenya' %>
                             </p>
-                            <p style="margin: 20px 0 10px; font-size: 12px; opacity: 0.7;">
-                                You received this email because your booking was rescheduled.<br>
+                            <p style="margin: 15px 0 5px; font-size: 12px; opacity: 0.8;">
                                 © <%= new Date().getFullYear() %>
-                                    <%= companyName || 'Your Company' %>. All rights reserved.
+                                    <%= companyName || 'Discoun3ree' %>. All rights reserved.
                             </p>
                         </td>
                     </tr>
