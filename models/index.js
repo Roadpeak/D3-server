@@ -1,4 +1,4 @@
-// models/index.js - FIXED VERSION with Booking-Staff association
+// models/index.js - UPDATED WITH PUSHSUBSCRIPTION MODEL
 
 'use strict';
 
@@ -39,16 +39,16 @@ const Category = require('./category')(sequelize, DataTypes);
 const Chat = require('./chat')(sequelize, DataTypes);
 const Message = require('./message')(sequelize, DataTypes);
 const Favorite = require('./Favorite')(sequelize, DataTypes);
-const StoreSubscription = require('./StoreSubscription')(sequelize, 
-DataTypes);
-
-// ADD NEW BRANCH MODEL
+const StoreSubscription = require('./StoreSubscription')(sequelize, DataTypes);
 const Branch = require('./Branch')(sequelize, DataTypes);
 
-// NEW SERVICE MARKETPLACE MODELS
+// SERVICE MARKETPLACE MODELS
 const ServiceRequest = require('./ServiceRequest')(sequelize, DataTypes);
 const ServiceOffer = require('./ServiceOffer')(sequelize, DataTypes);
 const Notification = require('./notification')(sequelize, DataTypes);
+
+// NEW: WEB PUSH MODEL
+const PushSubscription = require('./PushSubscription')(sequelize, DataTypes);
 
 // ==========================================
 // MODEL ASSOCIATIONS
@@ -95,17 +95,16 @@ User.hasMany(Booking, { foreignKey: 'userId', as: 'bookings' });
 
 Booking.belongsTo(Payment, { foreignKey: 'paymentId', as: 'payment' });
 
-// CRITICAL FIX: Booking-Staff association (THIS WAS MISSING!)
-Booking.belongsTo(Staff, { 
-  foreignKey: 'staffId', 
-  as: 'staff', 
-  onDelete: 'SET NULL' 
+// Booking-Staff association
+Booking.belongsTo(Staff, {
+  foreignKey: 'staffId',
+  as: 'staff',
+  onDelete: 'SET NULL'
 });
-Staff.hasMany(Booking, { 
-  foreignKey: 'staffId', 
-  as: 'bookings' 
+Staff.hasMany(Booking, {
+  foreignKey: 'staffId',
+  as: 'bookings'
 });
-
 
 // Review-Store
 Review.belongsTo(Store, { foreignKey: 'store_id', as: 'store', onDelete: 'CASCADE' });
@@ -181,37 +180,33 @@ User.hasMany(Message, { foreignKey: 'sender_id', as: 'sentMessages' });
 Message.belongsTo(Message, { foreignKey: 'replyTo', as: 'replyToMessage' });
 Message.hasMany(Message, { foreignKey: 'replyTo', as: 'replies' });
 
-// Follow-User (FIXED)
-Follow.belongsTo(User, { 
-  foreignKey: 'user_id', 
-  as: 'user', 
-  onDelete: 'CASCADE' 
+// Follow-User
+Follow.belongsTo(User, {
+  foreignKey: 'user_id',
+  as: 'user',
+  onDelete: 'CASCADE'
+});
+User.hasMany(Follow, {
+  foreignKey: 'user_id',
+  as: 'follows'
 });
 
-User.hasMany(Follow, { 
-  foreignKey: 'user_id', 
-  as: 'follows' 
+// Follow-Store
+Follow.belongsTo(Store, {
+  foreignKey: 'store_id',
+  as: 'store',
+  onDelete: 'CASCADE'
 });
-
-// Follow-Store (ADD THIS - it's missing!)
-Follow.belongsTo(Store, { 
-  foreignKey: 'store_id', 
-  as: 'store', 
-  onDelete: 'CASCADE' 
+Store.hasMany(Follow, {
+  foreignKey: 'store_id',
+  as: 'followers'
 });
-
-Store.hasMany(Follow, { 
-  foreignKey: 'store_id', 
-  as: 'followers' 
-});
-
 
 // Category-Service
 Category.hasMany(Service, {
   foreignKey: 'category_id',
   as: 'services',
 });
-
 Service.belongsTo(Category, {
   foreignKey: 'category_id',
   as: 'serviceCategory',
@@ -254,47 +249,47 @@ Offer.hasMany(Favorite, {
 // ==========================================
 
 // Branch-Store
-Branch.belongsTo(Store, { 
+Branch.belongsTo(Store, {
   foreignKey: 'storeId',
   as: 'Store',
   onDelete: 'CASCADE'
 });
-Store.hasMany(Branch, { 
+Store.hasMany(Branch, {
   foreignKey: 'storeId',
   as: 'Branches'
 });
 
 // Branch-Merchant  
-Branch.belongsTo(Merchant, { 
+Branch.belongsTo(Merchant, {
   foreignKey: 'merchantId',
   as: 'Merchant',
   onDelete: 'CASCADE'
 });
-Merchant.hasMany(Branch, { 
+Merchant.hasMany(Branch, {
   foreignKey: 'merchantId',
   as: 'Branches'
 });
 
-// ADDITIONAL FIX: Staff-Branch association (if your staff table has branchId)
-Staff.belongsTo(Branch, { 
-  foreignKey: 'branchId', 
-  as: 'branch', 
-  onDelete: 'SET NULL' 
+// Staff-Branch association
+Staff.belongsTo(Branch, {
+  foreignKey: 'branchId',
+  as: 'branch',
+  onDelete: 'SET NULL'
 });
-Branch.hasMany(Staff, { 
-  foreignKey: 'branchId', 
-  as: 'staff' 
+Branch.hasMany(Staff, {
+  foreignKey: 'branchId',
+  as: 'staff'
 });
 
-// Service-Branch association (if your services table has branch_id)
-Service.belongsTo(Branch, { 
-  foreignKey: 'branch_id', 
-  as: 'branch', 
-  onDelete: 'SET NULL' 
+// Service-Branch association
+Service.belongsTo(Branch, {
+  foreignKey: 'branch_id',
+  as: 'branch',
+  onDelete: 'SET NULL'
 });
-Branch.hasMany(Service, { 
-  foreignKey: 'branch_id', 
-  as: 'services' 
+Branch.hasMany(Service, {
+  foreignKey: 'branch_id',
+  as: 'services'
 });
 
 // ==========================================
@@ -302,89 +297,123 @@ Branch.hasMany(Service, {
 // ==========================================
 
 // ServiceRequest-User
-ServiceRequest.belongsTo(User, { 
-  foreignKey: 'postedBy', 
+ServiceRequest.belongsTo(User, {
+  foreignKey: 'postedBy',
   as: 'postedByUser',
-  onDelete: 'CASCADE' 
+  onDelete: 'CASCADE'
 });
-User.hasMany(ServiceRequest, { 
-  foreignKey: 'postedBy', 
-  as: 'serviceRequests' 
+User.hasMany(ServiceRequest, {
+  foreignKey: 'postedBy',
+  as: 'serviceRequests'
 });
 
 // ServiceOffer-ServiceRequest
-ServiceOffer.belongsTo(ServiceRequest, { 
-  foreignKey: 'requestId', 
+ServiceOffer.belongsTo(ServiceRequest, {
+  foreignKey: 'requestId',
   as: 'request',
-  onDelete: 'CASCADE' 
+  onDelete: 'CASCADE'
 });
-ServiceRequest.hasMany(ServiceOffer, { 
-  foreignKey: 'requestId', 
+ServiceRequest.hasMany(ServiceOffer, {
+  foreignKey: 'requestId',
   as: 'offers'
 });
 
 // ServiceOffer-User (provider)
-ServiceOffer.belongsTo(User, { 
-  foreignKey: 'providerId', 
+ServiceOffer.belongsTo(User, {
+  foreignKey: 'providerId',
   as: 'provider',
-  onDelete: 'CASCADE' 
+  onDelete: 'CASCADE'
 });
-User.hasMany(ServiceOffer, { 
-  foreignKey: 'providerId', 
-  as: 'sentOffers' 
+User.hasMany(ServiceOffer, {
+  foreignKey: 'providerId',
+  as: 'sentOffers'
 });
 
 // ServiceOffer-Store
-ServiceOffer.belongsTo(Store, { 
-  foreignKey: 'storeId', 
-  as: 'store', 
-  onDelete: 'CASCADE' 
+ServiceOffer.belongsTo(Store, {
+  foreignKey: 'storeId',
+  as: 'store',
+  onDelete: 'CASCADE'
 });
-Store.hasMany(ServiceOffer, { 
-  foreignKey: 'storeId', 
-  as: 'serviceOffers' 
+Store.hasMany(ServiceOffer, {
+  foreignKey: 'storeId',
+  as: 'serviceOffers'
 });
 
 // Handle acceptedOffer relationship
-ServiceRequest.belongsTo(ServiceOffer, { 
-  foreignKey: 'acceptedOfferId', 
-  as: 'acceptedOffer', 
+ServiceRequest.belongsTo(ServiceOffer, {
+  foreignKey: 'acceptedOfferId',
+  as: 'acceptedOffer',
   constraints: false
 });
-ServiceOffer.hasOne(ServiceRequest, { 
-  foreignKey: 'acceptedOfferId', 
+ServiceOffer.hasOne(ServiceRequest, {
+  foreignKey: 'acceptedOfferId',
   as: 'acceptedRequest',
   constraints: false
 });
 
 // ServiceOffer self-reference for revisions
-ServiceOffer.belongsTo(ServiceOffer, { 
-  foreignKey: 'originalOfferId', 
-  as: 'originalOffer', 
+ServiceOffer.belongsTo(ServiceOffer, {
+  foreignKey: 'originalOfferId',
+  as: 'originalOffer',
   constraints: false
 });
-ServiceOffer.hasMany(ServiceOffer, { 
-  foreignKey: 'originalOfferId', 
+ServiceOffer.hasMany(ServiceOffer, {
+  foreignKey: 'originalOfferId',
   as: 'revisions',
   constraints: false
 });
 
+// ==========================================
+// NOTIFICATION ASSOCIATIONS
+// ==========================================
+
 // Notification-User (recipient)
-Notification.belongsTo(User, { foreignKey: 'userId', as: 'recipient', onDelete: 'CASCADE' });
-User.hasMany(Notification, { foreignKey: 'userId', as: 'notifications' });
+Notification.belongsTo(User, {
+  foreignKey: 'userId',
+  as: 'recipient',
+  onDelete: 'CASCADE'
+});
+User.hasMany(Notification, {
+  foreignKey: 'userId',
+  as: 'notifications'
+});
 
 // Notification-User (sender)
-Notification.belongsTo(User, { foreignKey: 'senderId', as: 'sender', onDelete: 'SET NULL' });
-User.hasMany(Notification, { foreignKey: 'senderId', as: 'sentNotifications' });
-
-Notification.belongsTo(Store, { 
-  foreignKey: 'storeId', 
-  as: 'store', 
-  onDelete: 'CASCADE' 
+Notification.belongsTo(User, {
+  foreignKey: 'senderId',
+  as: 'sender',
+  onDelete: 'SET NULL'
 });
-Store.hasMany(Notification, { 
-  foreignKey: 'storeId', 
-  as: 'notifications' 
+User.hasMany(Notification, {
+  foreignKey: 'senderId',
+  as: 'sentNotifications'
+});
+
+// Notification-Store
+Notification.belongsTo(Store, {
+  foreignKey: 'storeId',
+  as: 'store',
+  onDelete: 'CASCADE'
+});
+Store.hasMany(Notification, {
+  foreignKey: 'storeId',
+  as: 'notifications'
+});
+
+// ==========================================
+// WEB PUSH ASSOCIATIONS (NEW)
+// ==========================================
+
+// PushSubscription-User
+PushSubscription.belongsTo(User, {
+  foreignKey: 'userId',
+  as: 'user',
+  onDelete: 'CASCADE'
+});
+User.hasMany(PushSubscription, {
+  foreignKey: 'userId',
+  as: 'pushSubscriptions'
 });
 
 // ==========================================
@@ -420,5 +449,7 @@ module.exports = {
   ServiceRequest,
   ServiceOffer,
   Notification,
+  // WEB PUSH MODEL (NEW)
+  PushSubscription,
   sequelize,
 };

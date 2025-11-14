@@ -1,5 +1,13 @@
-// controllers/notificationController.js - Fixed for merchant auth
+// controllers/notificationController.js - COMPLETE WITH WEB PUSH INTEGRATION
 const { Op } = require('sequelize');
+const webpush = require('web-push');
+
+// Configure VAPID
+webpush.setVapidDetails(
+  'mailto:your-email@discoun3ree.com',
+  'BKejhBqZqa4GnoAc7nFnQXtCTTbQBpMXjABBS_cMyk4RRpRkgOB6_52y2VQxObMi9XBvRyim7seUpvUm1HaoFms',
+  'vZYL5Wpd6wK74jj_ElqqD9Mxxui2GyWOouRfUgyB-SQ'
+);
 
 let models = {};
 try {
@@ -13,21 +21,272 @@ const {
   Notification,
   User,
   Store,
+  PushSubscription,
   sequelize
 } = models;
 
 class NotificationController {
-  
+
   // Helper method to extract userId from req.user (handles both user and merchant auth)
   getUserId(reqUser) {
     return reqUser.id || reqUser.merchant_id || reqUser.userId;
   }
-  
-  // Get all notifications for a user with enhanced context
+
+  // ============================================
+  // WEB PUSH HELPER METHODS (NEW)
+  // ============================================
+
+  /**
+   * Send web push notification to user's devices
+   */
+  async sendWebPushNotification(userId, notification) {
+    try {
+      if (!PushSubscription) {
+        console.log('PushSubscription model not available, skipping web push');
+        return { sent: 0, skipped: true };
+      }
+
+      // Get user's push subscriptions
+      const subscriptions = await PushSubscription.findAll({
+        where: { userId },
+        attributes: ['endpoint', 'p256dhKey', 'authKey']
+      });
+
+      if (subscriptions.length === 0) {
+        console.log(`No push subscriptions for user ${userId}`);
+        return { sent: 0 };
+      }
+
+      const payload = JSON.stringify({
+        title: notification.title,
+        body: notification.message || notification.body,
+        icon: notification.icon || '/icon-192x192.png',
+        badge: '/badge-96x96.png',
+        url: notification.actionUrl || '/',
+        data: {
+          notificationId: notification.id,
+          type: notification.type,
+          relatedId: notification.relatedId
+        }
+      });
+
+      // Send to all user's devices
+      const results = await Promise.allSettled(
+        subscriptions.map(sub =>
+          webpush.sendNotification({
+            endpoint: sub.endpoint,
+            keys: {
+              p256dh: sub.p256dhKey,
+              auth: sub.authKey
+            }
+          }, payload)
+            .catch(async (error) => {
+              // Clean up expired subscriptions
+              if (error.statusCode === 410) {
+                console.log(`Removing expired push subscription: ${sub.endpoint}`);
+                await PushSubscription.destroy({
+                  where: { endpoint: sub.endpoint }
+                });
+              }
+              throw error;
+            })
+        )
+      );
+
+      const sent = results.filter(r => r.status === 'fulfilled').length;
+      const failed = results.filter(r => r.status === 'rejected').length;
+
+      console.log(`📱 Web push: sent ${sent}, failed ${failed} to user ${userId}`);
+
+      return { sent, failed };
+    } catch (error) {
+      console.error('Web push error:', error);
+      return { sent: 0, error: error.message };
+    }
+  }
+
+  /**
+   * Get VAPID public key for frontend subscription
+   */
+  async getVapidPublicKey(req, res) {
+    try {
+      return res.json({
+        success: true,
+        publicKey: 'BKejhBqZqa4GnoAc7nFnQXtCTTbQBpMXjABBS_cMyk4RRpRkgOB6_52y2VQxObMi9XBvRyim7seUpvUm1HaoFms'
+      });
+    } catch (error) {
+      console.error('Error getting VAPID key:', error);
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to get VAPID key'
+      });
+    }
+  }
+
+  /**
+   * Subscribe to web push notifications
+   */
+  async subscribePushNotifications(req, res) {
+    try {
+      const userId = this.getUserId(req.user);
+      const userType = req.user.type || req.user.userType || 'user';
+      const subscription = req.body;
+
+      if (!userId) {
+        return res.status(400).json({
+          success: false,
+          message: 'User ID not found in request'
+        });
+      }
+
+      if (!subscription || !subscription.endpoint) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid subscription data'
+        });
+      }
+
+      if (!PushSubscription) {
+        return res.status(503).json({
+          success: false,
+          message: 'Push notifications not available'
+        });
+      }
+
+      // Save subscription to database
+      await PushSubscription.upsert({
+        userId,
+        userType,
+        endpoint: subscription.endpoint,
+        p256dhKey: subscription.keys.p256dh,
+        authKey: subscription.keys.auth,
+        userAgent: req.headers['user-agent'],
+        lastUsedAt: new Date()
+      });
+
+      console.log(`✅ User ${userId} (${userType}) subscribed to web push notifications`);
+
+      return res.status(201).json({
+        success: true,
+        message: 'Successfully subscribed to push notifications'
+      });
+
+    } catch (error) {
+      console.error('Push subscription error:', error);
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to subscribe to push notifications',
+        error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
+    }
+  }
+
+  /**
+   * Unsubscribe from web push notifications
+   */
+  async unsubscribePushNotifications(req, res) {
+    try {
+      const { endpoint } = req.body;
+
+      if (!endpoint) {
+        return res.status(400).json({
+          success: false,
+          message: 'Endpoint is required'
+        });
+      }
+
+      if (!PushSubscription) {
+        return res.status(503).json({
+          success: false,
+          message: 'Push notifications not available'
+        });
+      }
+
+      await PushSubscription.destroy({
+        where: { endpoint }
+      });
+
+      console.log(`✅ Unsubscribed from push notifications`);
+
+      return res.json({
+        success: true,
+        message: 'Successfully unsubscribed'
+      });
+
+    } catch (error) {
+      console.error('Push unsubscribe error:', error);
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to unsubscribe'
+      });
+    }
+  }
+
+  /**
+   * Get push notification statistics
+   */
+  async getPushStats(req, res) {
+    try {
+      const userId = this.getUserId(req.user);
+
+      if (!userId) {
+        return res.status(400).json({
+          success: false,
+          message: 'User ID not found in request'
+        });
+      }
+
+      if (!PushSubscription) {
+        return res.json({
+          success: true,
+          data: {
+            subscribed: false,
+            deviceCount: 0,
+            available: false
+          }
+        });
+      }
+
+      const subscriptions = await PushSubscription.findAll({
+        where: { userId },
+        attributes: ['endpoint', 'userAgent', 'lastUsedAt', 'createdAt']
+      });
+
+      return res.json({
+        success: true,
+        data: {
+          subscribed: subscriptions.length > 0,
+          deviceCount: subscriptions.length,
+          devices: subscriptions.map(sub => ({
+            id: sub.endpoint.slice(-20),
+            userAgent: sub.userAgent,
+            lastUsed: sub.lastUsedAt,
+            subscribedAt: sub.createdAt
+          })),
+          available: true
+        }
+      });
+
+    } catch (error) {
+      console.error('Error getting push stats:', error);
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to get push statistics'
+      });
+    }
+  }
+
+  // ============================================
+  // EXISTING METHODS (ENHANCED WITH WEB PUSH)
+  // ============================================
+
+  /**
+   * Get all notifications for a user with enhanced context
+   */
   async getNotifications(req, res) {
     try {
       const userId = this.getUserId(req.user);
-      
+
       if (!userId) {
         console.error('No userId found in req.user:', req.user);
         return res.status(400).json({
@@ -36,9 +295,9 @@ class NotificationController {
         });
       }
 
-      const { 
-        page = 1, 
-        limit = 20, 
+      const {
+        page = 1,
+        limit = 20,
         type = 'all',
         unreadOnly = false,
         storeId = null,
@@ -49,7 +308,7 @@ class NotificationController {
 
       // Build where clause with enhanced filtering
       const whereClause = { userId };
-      
+
       if (type !== 'all') {
         whereClause.type = type;
       }
@@ -90,19 +349,19 @@ class NotificationController {
         limit: parseInt(limit),
         offset: parseInt(offset),
         attributes: [
-          'id', 
-          'userId', 
-          'senderId', 
+          'id',
+          'userId',
+          'senderId',
           'storeId',
-          'type', 
-          'title', 
-          'message', 
-          'data', 
-          'read', 
-          'readAt', 
+          'type',
+          'title',
+          'message',
+          'data',
+          'read',
+          'readAt',
           'actionUrl',
           'actionType',
-          'priority', 
+          'priority',
           'channels',
           'deliveryStatus',
           'relatedEntityType',
@@ -110,7 +369,7 @@ class NotificationController {
           'groupKey',
           'scheduledFor',
           'expiresAt',
-          'createdAt', 
+          'createdAt',
           'updatedAt'
         ]
       });
@@ -186,11 +445,13 @@ class NotificationController {
     }
   }
 
-  // Enhanced notification counts with better grouping
+  /**
+   * Enhanced notification counts with better grouping
+   */
   async getNotificationCounts(req, res) {
     try {
       const userId = this.getUserId(req.user);
-      
+
       if (!userId) {
         console.error('No userId found in req.user for counts:', req.user);
         return res.status(400).json({
@@ -256,7 +517,7 @@ class NotificationController {
           high: 0,
           urgent: 0
         },
-        byStore: {} // Will be populated if storeId filtering is used
+        byStore: {}
       };
 
       counts.forEach(count => {
@@ -264,17 +525,17 @@ class NotificationController {
         const unread = parseInt(count.unread);
         const scheduled = parseInt(count.scheduled);
         const urgent = parseInt(count.urgent);
-        
+
         result.total += total;
         result.unread += unread;
         result.scheduled += scheduled;
         result.urgent += urgent;
-        
+
         // Count by type
         if (result.byType.hasOwnProperty(count.type)) {
           result.byType[count.type] += unread;
         }
-        
+
         // Count by priority
         if (result.byPriority.hasOwnProperty(count.priority)) {
           result.byPriority[count.priority] += unread;
@@ -290,7 +551,7 @@ class NotificationController {
 
     } catch (error) {
       console.error('Error fetching enhanced notification counts:', error);
-      
+
       // Return enhanced empty counts on error
       return res.status(200).json({
         success: true,
@@ -324,7 +585,10 @@ class NotificationController {
     }
   }
 
-  // Enhanced notification creation with smart defaults
+  /**
+   * Enhanced notification creation with web push delivery
+   * THIS IS THE KEY METHOD - ENHANCED TO SEND WEB PUSH
+   */
   async createNotification(req, res) {
     try {
       const notificationData = req.body;
@@ -367,7 +631,9 @@ class NotificationController {
         expiresAt: notificationData.expiresAt || this.getDefaultExpiry()
       };
 
+      // 1. Create in-app notification
       const notification = await Notification.create(enhancedData);
+      console.log(`✅ Created in-app notification ${notification.id} for user ${notification.userId}`);
 
       // Load with associations for complete response
       const fullNotification = await Notification.findByPk(notification.id, {
@@ -385,7 +651,7 @@ class NotificationController {
         ]
       });
 
-      // Emit real-time notification event (if socket.io is available)
+      // 2. Emit real-time Socket.IO notification
       if (global.io) {
         global.io.to(`user_${notification.userId}`).emit('new_notification', {
           id: fullNotification.id,
@@ -399,16 +665,46 @@ class NotificationController {
           sender: fullNotification.sender,
           store: fullNotification.store
         });
+        console.log(`✅ Sent Socket.IO notification to user ${notification.userId}`);
+      }
+
+      // 3. NEW: Send web push notification
+      const pushResult = await this.sendWebPushNotification(notification.userId, {
+        id: notification.id,
+        title: notification.title,
+        message: notification.message,
+        type: notification.type,
+        actionUrl: notification.actionUrl,
+        icon: notificationData.icon
+      });
+
+      // Update delivery status based on push result
+      if (pushResult.sent > 0) {
+        await notification.update({
+          deliveryStatus: {
+            ...notification.deliveryStatus,
+            push: 'delivered'
+          }
+        });
       }
 
       return res.status(201).json({
         success: true,
-        message: 'Enhanced notification created successfully',
-        data: fullNotification
+        message: 'Notification created and delivered',
+        data: {
+          notification: fullNotification,
+          delivery: {
+            inApp: true,
+            socketIO: !!global.io,
+            webPush: pushResult.sent > 0,
+            pushDevices: pushResult.sent || 0,
+            pushFailed: pushResult.failed || 0
+          }
+        }
       });
 
     } catch (error) {
-      console.error('Error creating enhanced notification:', error);
+      console.error('Error creating notification:', error);
       return res.status(500).json({
         success: false,
         message: 'Failed to create notification',
@@ -417,7 +713,9 @@ class NotificationController {
     }
   }
 
-  // Enhanced mark as read with context
+  /**
+   * Enhanced mark as read with context
+   */
   async markAsRead(req, res) {
     try {
       const { id } = req.params;
@@ -454,8 +752,8 @@ class NotificationController {
       }
 
       // Update with enhanced tracking
-      await notification.update({ 
-        read: true, 
+      await notification.update({
+        read: true,
         readAt: new Date(),
         deliveryStatus: {
           ...notification.deliveryStatus,
@@ -487,7 +785,9 @@ class NotificationController {
     }
   }
 
-  // Enhanced mark all as read with filtering
+  /**
+   * Enhanced mark all as read with filtering
+   */
   async markAllAsRead(req, res) {
     try {
       const userId = this.getUserId(req.user);
@@ -498,12 +798,12 @@ class NotificationController {
           message: 'User ID not found in request'
         });
       }
-      
+
       const { type, storeId, priority } = req.query;
 
-      const whereClause = { 
+      const whereClause = {
         userId,
-        read: false 
+        read: false
       };
 
       if (type) {
@@ -519,7 +819,7 @@ class NotificationController {
       }
 
       const [updatedCount] = await Notification.update(
-        { 
+        {
           read: true,
           readAt: new Date(),
           deliveryStatus: sequelize.literal(`JSON_SET(deliveryStatus, '$.inApp', 'read')`)
@@ -553,7 +853,9 @@ class NotificationController {
     }
   }
 
-  // Get notifications by store (for merchants)
+  /**
+   * Get notifications by store (for merchants)
+   */
   async getNotificationsByStore(req, res) {
     try {
       const userId = this.getUserId(req.user);
@@ -580,9 +882,9 @@ class NotificationController {
       }
 
       const offset = (parseInt(page) - 1) * parseInt(limit);
-      const whereClause = { 
+      const whereClause = {
         userId,
-        storeId 
+        storeId
       };
 
       if (unreadOnly === 'true') {
@@ -629,7 +931,9 @@ class NotificationController {
     }
   }
 
-  // Get notification analytics
+  /**
+   * Get notification analytics
+   */
   async getNotificationAnalytics(req, res) {
     try {
       const userId = this.getUserId(req.user);
@@ -690,7 +994,9 @@ class NotificationController {
     }
   }
 
-  // Delete notification with enhanced checking
+  /**
+   * Delete notification with enhanced checking
+   */
   async deleteNotification(req, res) {
     try {
       const { id } = req.params;
@@ -737,7 +1043,9 @@ class NotificationController {
     }
   }
 
-  // Get notification settings (enhanced)
+  /**
+   * Get notification settings (enhanced)
+   */
   async getNotificationSettings(req, res) {
     try {
       const userId = this.getUserId(req.user);
@@ -753,7 +1061,7 @@ class NotificationController {
       const user = await User.findByPk(userId, {
         attributes: [
           'chatNotifications',
-          'emailNotifications', 
+          'emailNotifications',
           'smsNotifications',
           'pushNotifications',
           'marketingEmails'
@@ -807,7 +1115,9 @@ class NotificationController {
     }
   }
 
-  // Update notification settings (enhanced)
+  /**
+   * Update notification settings (enhanced)
+   */
   async updateNotificationSettings(req, res) {
     try {
       const userId = this.getUserId(req.user);
@@ -859,7 +1169,10 @@ class NotificationController {
     }
   }
 
-  // Helper methods for enhanced functionality
+  // ============================================
+  // HELPER METHODS
+  // ============================================
+
   generateActionUrl(notificationData) {
     const urlMap = {
       new_message: `/chat/${notificationData.relatedEntityId}`,
@@ -882,21 +1195,21 @@ class NotificationController {
       offer_accepted: { inApp: true, email: true, push: true }
     };
 
-    return channelMap[type] || { inApp: true, email: false, sms: false, push: false };
+    return channelMap[type] || { inApp: true, email: false, sms: false, push: true };
   }
 
   getInitialDeliveryStatus() {
     return {
       inApp: 'delivered',
       email: 'pending',
-      sms: 'pending', 
+      sms: 'pending',
       push: 'pending'
     };
   }
 
   generateGroupKey(notificationData) {
     if (notificationData.groupKey) return notificationData.groupKey;
-    
+
     const baseKey = `${notificationData.type}_${notificationData.userId}`;
     if (notificationData.storeId) {
       return `${baseKey}_${notificationData.storeId}`;
@@ -965,8 +1278,9 @@ class NotificationController {
 // Create controller instance
 const notificationController = new NotificationController();
 
-  // Export methods with enhanced functionality
+// Export methods with enhanced functionality
 module.exports = {
+  // Existing exports
   getNotifications: notificationController.getNotifications.bind(notificationController),
   getNotificationCounts: notificationController.getNotificationCounts.bind(notificationController),
   markAsRead: notificationController.markAsRead.bind(notificationController),
@@ -975,10 +1289,15 @@ module.exports = {
   deleteNotification: notificationController.deleteNotification.bind(notificationController),
   getNotificationSettings: notificationController.getNotificationSettings.bind(notificationController),
   updateNotificationSettings: notificationController.updateNotificationSettings.bind(notificationController),
-  
-  // Enhanced methods
   getNotificationsByStore: notificationController.getNotificationsByStore.bind(notificationController),
   getNotificationAnalytics: notificationController.getNotificationAnalytics.bind(notificationController),
-  
+
+  // NEW: Web push exports
+  getVapidPublicKey: notificationController.getVapidPublicKey.bind(notificationController),
+  subscribePushNotifications: notificationController.subscribePushNotifications.bind(notificationController),
+  unsubscribePushNotifications: notificationController.unsubscribePushNotifications.bind(notificationController),
+  getPushStats: notificationController.getPushStats.bind(notificationController),
+  sendWebPushNotification: notificationController.sendWebPushNotification.bind(notificationController),
+
   NotificationController
 };

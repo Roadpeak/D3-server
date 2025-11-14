@@ -1,9 +1,9 @@
-// routes/notificationRoutes.js - Complete fixed notification routes with dual auth
+// routes/notificationRoutes.js - COMPLETE WITH WEB PUSH
 const express = require('express');
 const router = express.Router();
 const { body, param, query, validationResult } = require('express-validator');
 
-// Import the enhanced controller
+// Import the enhanced controller with web push
 const {
   getNotifications,
   getNotificationCounts,
@@ -14,7 +14,12 @@ const {
   getNotificationSettings,
   updateNotificationSettings,
   getNotificationsByStore,
-  getNotificationAnalytics
+  getNotificationAnalytics,
+  // NEW: Web push methods
+  getVapidPublicKey,
+  subscribePushNotifications,
+  unsubscribePushNotifications,
+  getPushStats
 } = require('../controllers/notificationController');
 
 // Import both auth methods
@@ -24,23 +29,23 @@ const { authenticateMerchant } = require('../middleware/Merchantauth');
 // Fixed dual auth that actually works
 const workingDualAuth = (req, res, next) => {
   console.log('🔐 Trying dual auth for notifications...');
-  
+
   // Try merchant auth first since that's what your current frontend uses
   authenticateMerchant(req, res, (merchantErr) => {
     if (!merchantErr) {
       console.log('✅ Merchant auth successful for notifications');
       return next();
     }
-    
+
     console.log('❌ Merchant auth failed, trying user auth...');
-    
+
     // Fallback to user auth for your user side
     authenticateUser(req, res, (userErr) => {
       if (!userErr) {
         console.log('✅ User auth successful for notifications');
         return next();
       }
-      
+
       console.log('❌ Both auth methods failed');
       return res.status(401).json({
         success: false,
@@ -64,10 +69,46 @@ const handleValidationErrors = (req, res, next) => {
   next();
 };
 
-// Use the working dual auth for all routes
-router.use(workingDualAuth);
+// ============================================
+// WEB PUSH NOTIFICATION ROUTES (NEW)
+// ============================================
 
-// CORE NOTIFICATION ROUTES
+/**
+ * @route   GET /api/v1/notifications/push/vapid-public-key
+ * @desc    Get VAPID public key for push notification subscription
+ * @access  Public (needed before auth for subscription)
+ */
+router.get('/push/vapid-public-key', getVapidPublicKey);
+
+/**
+ * @route   POST /api/v1/notifications/push/subscribe
+ * @desc    Subscribe to web push notifications
+ * @access  Private
+ * @body    subscription object from browser
+ */
+router.post('/push/subscribe', workingDualAuth, subscribePushNotifications);
+
+/**
+ * @route   POST /api/v1/notifications/push/unsubscribe
+ * @desc    Unsubscribe from web push notifications
+ * @access  Private
+ * @body    endpoint
+ */
+router.post('/push/unsubscribe', workingDualAuth, unsubscribePushNotifications);
+
+/**
+ * @route   GET /api/v1/notifications/push/stats
+ * @desc    Get push notification subscription stats for user
+ * @access  Private
+ */
+router.get('/push/stats', workingDualAuth, getPushStats);
+
+// ============================================
+// CORE NOTIFICATION ROUTES (EXISTING)
+// ============================================
+
+// Use the working dual auth for all routes below
+router.use(workingDualAuth);
 
 /**
  * @route   GET /api/v1/notifications
@@ -127,7 +168,7 @@ router.get('/store/:storeId', [
 
 /**
  * @route   POST /api/v1/notifications
- * @desc    Create a new notification
+ * @desc    Create a new notification (enhanced with web push)
  * @access  Private
  * @body    userId, type, title, message, storeId, relatedEntityType, relatedEntityId, priority, etc.
  */
@@ -188,7 +229,9 @@ router.delete('/:id', [
   handleValidationErrors
 ], deleteNotification);
 
+// ============================================
 // NOTIFICATION SETTINGS ROUTES
+// ============================================
 
 /**
  * @route   GET /api/v1/notifications/settings
@@ -212,7 +255,10 @@ router.put('/settings', [
   handleValidationErrors
 ], updateNotificationSettings);
 
+// ============================================
 // DEBUG ROUTES (development only)
+// ============================================
+
 if (process.env.NODE_ENV === 'development') {
   /**
    * @route   GET /api/v1/notifications/debug-auth
@@ -232,9 +278,42 @@ if (process.env.NODE_ENV === 'development') {
       timestamp: new Date().toISOString()
     });
   });
+
+  /**
+   * @route   GET /api/v1/notifications/debug-push
+   * @desc    Debug web push configuration
+   * @access  Private
+   */
+  router.get('/debug-push', async (req, res) => {
+    try {
+      const { PushSubscription } = require('../models');
+
+      const totalSubs = PushSubscription ? await PushSubscription.count() : 0;
+
+      res.json({
+        success: true,
+        message: 'Web push system status',
+        data: {
+          configured: true,
+          vapidPublicKey: 'BKejhBqZqa4GnoAc7nFnQXtCTTbQBpMXjABBS_cMyk4RRpRkgOB6_52y2VQxObMi9XBvRyim7seUpvUm1HaoFms',
+          modelAvailable: !!PushSubscription,
+          totalSubscriptions: totalSubs,
+          timestamp: new Date().toISOString()
+        }
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        message: 'Web push debug failed',
+        error: error.message
+      });
+    }
+  });
 }
 
+// ============================================
 // BULK OPERATIONS
+// ============================================
 
 /**
  * @route   PUT /api/v1/notifications/bulk/mark-read
@@ -252,9 +331,9 @@ router.put('/bulk/mark-read', [
     const { notificationIds } = req.body;
 
     const { Notification } = require('../models');
-    
+
     const [updatedCount] = await Notification.update(
-      { 
+      {
         read: true,
         readAt: new Date(),
         deliveryStatus: require('sequelize').literal(`JSON_SET(deliveryStatus, '$.inApp', 'read')`)
@@ -307,7 +386,7 @@ router.delete('/bulk', [
     const { notificationIds } = req.body;
 
     const { Notification } = require('../models');
-    
+
     const deletedCount = await Notification.destroy({
       where: {
         id: notificationIds,
@@ -338,29 +417,36 @@ router.delete('/bulk', [
   }
 });
 
+// ============================================
 // HEALTH CHECK ROUTE
+// ============================================
 
 /**
  * @route   GET /api/v1/notifications/health
- * @desc    Health check for notification system
+ * @desc    Health check for notification system (including web push)
  * @access  Private
  */
 router.get('/health', async (req, res) => {
   try {
-    const { Notification, sequelize } = require('../models');
-    
+    const { Notification, PushSubscription, sequelize } = require('../models');
+
     // Test database connection
     await sequelize.authenticate();
-    
+
     // Test notification table access
-    const count = await Notification.count({ limit: 1 });
-    
+    const notificationCount = await Notification.count({ limit: 1 });
+
+    // Test push subscription table access
+    const pushCount = PushSubscription ? await PushSubscription.count({ limit: 1 }) : 0;
+
     return res.status(200).json({
       success: true,
       message: 'Notification system is healthy',
       data: {
         database: 'connected',
         notifications: 'accessible',
+        webPush: PushSubscription ? 'available' : 'unavailable',
+        pushSubscriptions: pushCount,
         userType: req.user.type || 'unknown',
         userId: req.user.id,
         timestamp: new Date().toISOString()
@@ -377,10 +463,13 @@ router.get('/health', async (req, res) => {
   }
 });
 
+// ============================================
 // ERROR HANDLING MIDDLEWARE
+// ============================================
+
 router.use((error, req, res, next) => {
   console.error('Notification route error:', error);
-  
+
   if (error.name === 'ValidationError') {
     return res.status(400).json({
       success: false,
@@ -388,7 +477,7 @@ router.use((error, req, res, next) => {
       errors: error.errors
     });
   }
-  
+
   if (error.name === 'SequelizeValidationError') {
     return res.status(400).json({
       success: false,
@@ -396,13 +485,12 @@ router.use((error, req, res, next) => {
       errors: error.errors.map(e => ({ field: e.path, message: e.message }))
     });
   }
-  
+
   return res.status(500).json({
     success: false,
     message: 'Internal server error',
     error: process.env.NODE_ENV === 'development' ? error.message : 'Something went wrong'
   });
 });
-
 
 module.exports = router;
