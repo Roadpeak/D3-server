@@ -1,4 +1,4 @@
-// models/PushSubscription.js
+// models/PushSubscription.js - CORRECTED FOR UUID
 'use strict';
 
 module.exports = (sequelize, DataTypes) => {
@@ -10,10 +10,10 @@ module.exports = (sequelize, DataTypes) => {
             allowNull: false
         },
         userId: {
-            type: DataTypes.INTEGER,
+            type: DataTypes.CHAR(36), // CHANGED: UUID instead of INTEGER
             allowNull: false,
             field: 'user_id',
-            comment: 'References User.id - the user who subscribed'
+            comment: 'References User.id (UUID) - the user who subscribed'
         },
         userType: {
             type: DataTypes.ENUM('user', 'merchant', 'admin'),
@@ -69,7 +69,7 @@ module.exports = (sequelize, DataTypes) => {
             {
                 unique: true,
                 name: 'idx_push_endpoint',
-                fields: ['endpoint(255)'] // Index only first 255 chars of TEXT field
+                fields: ['endpoint(255)']
             },
             {
                 name: 'idx_push_last_used',
@@ -80,7 +80,7 @@ module.exports = (sequelize, DataTypes) => {
 
     // Define associations
     PushSubscription.associate = (models) => {
-        // Association with User model
+        // Association with User model (UUID)
         PushSubscription.belongsTo(models.User, {
             foreignKey: 'userId',
             as: 'user',
