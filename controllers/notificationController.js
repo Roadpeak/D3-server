@@ -4,9 +4,9 @@ const webpush = require('web-push');
 
 // Configure VAPID
 webpush.setVapidDetails(
-  'mailto:your-email@discoun3ree.com',
-  'BKejhBqZqa4GnoAc7nFnQXtCTTbQBpMXjABBS_cMyk4RRpRkgOB6_52y2VQxObMi9XBvRyim7seUpvUm1HaoFms',
-  'vZYL5Wpd6wK74jj_ElqqD9Mxxui2GyWOouRfUgyB-SQ'
+  process.env.VAPID_SUBJECT || 'mailto:info@discoun3ree.com',
+  process.env.VAPID_PUBLIC_KEY || 'BKejhBqZqa4GnoAc7nFnQXtCTTbQBpMXjABBS_cMyk4RRpRkgOB6_52y2VQxObMi9XBvRyim7seUpvUm1HaoFms',
+  process.env.VAPID_PRIVATE_KEY || 'vZYL5Wpd6wK74jj_ElqqD9Mxxui2GyWOouRfUgyB-SQ'
 );
 
 let models = {};
@@ -112,7 +112,7 @@ class NotificationController {
     try {
       return res.json({
         success: true,
-        publicKey: 'BKejhBqZqa4GnoAc7nFnQXtCTTbQBpMXjABBS_cMyk4RRpRkgOB6_52y2VQxObMi9XBvRyim7seUpvUm1HaoFms'
+        publicKey: process.env.VAPID_PUBLIC_KEY || 'BKejhBqZqa4GnoAc7nFnQXtCTTbQBpMXjABBS_cMyk4RRpRkgOB6_52y2VQxObMi9XBvRyim7seUpvUm1HaoFms'
       });
     } catch (error) {
       console.error('Error getting VAPID key:', error);
