@@ -1,15 +1,14 @@
-// controllers/chatController.js - FIXED with Proper Merchant/Customer Notification Handling
+// controllers/chatController.js - FIXED with Web Push Notifications
 const { sequelize } = require('../models/index');
 const { socketManager } = require('../socket/websocket');
 const { Op } = require('sequelize');
+const { createNotification } = require('./notificationController');
 
 class ChatController {
-  // ENHANCED: Centralized notification creation method
+  // ENHANCED: Centralized notification creation method with WEB PUSH support
   async createChatNotification(notificationData) {
     try {
-      const { Notification } = sequelize.models;
-
-      console.log('🔔 Creating chat notification:', {
+      console.log('🔔 Creating chat notification with web push:', {
         type: notificationData.type,
         recipient: notificationData.userId,
         recipientType: notificationData.recipientType,
@@ -18,68 +17,69 @@ class ChatController {
         title: notificationData.title
       });
 
-      // Enhanced notification with smart defaults
-      const enhancedData = {
-        userId: notificationData.userId,
-        recipientType: notificationData.recipientType || 'user', // ✅ NEW
-        senderId: notificationData.senderId, // Can be null for merchant senders
-        storeId: notificationData.storeId,
-        type: notificationData.type || 'new_message',
-        title: notificationData.title,
-        message: notificationData.message,
-        data: {
-          chatId: notificationData.chatId,
-          messageId: notificationData.messageId,
-          senderType: notificationData.senderType,
-          senderName: notificationData.senderName,
-          storeName: notificationData.storeName,
-          messageType: notificationData.messageType || 'text',
-          ...notificationData.data
+      // Use the notification controller's createNotification which includes web push
+      const req = {
+        user: {
+          id: notificationData.senderId || 'system',
+          type: notificationData.senderType || 'system'
         },
-        relatedEntityType: 'message',
-        relatedEntityId: notificationData.messageId || notificationData.chatId,
-        priority: notificationData.priority || 'normal',
-        actionUrl: notificationData.actionUrl || `/dashboard/chat/${notificationData.chatId}`,
-        actionType: 'navigate',
-        channels: {
-          inApp: true,
-          email: notificationData.channels?.email || false,
-          sms: false,
-          push: notificationData.channels?.push || true
-        },
-        deliveryStatus: {
-          inApp: 'delivered',
-          email: 'pending',
-          sms: 'pending',
-          push: 'pending'
-        },
-        read: false,
-        scheduledFor: null,
-        expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) // 30 days
+        body: {
+          userId: notificationData.userId,
+          recipientType: notificationData.recipientType || 'user',
+          senderId: notificationData.senderId,
+          storeId: notificationData.storeId,
+          type: notificationData.type || 'new_message',
+          title: notificationData.title,
+          message: notificationData.message,
+          data: {
+            chatId: notificationData.chatId,
+            messageId: notificationData.messageId,
+            senderType: notificationData.senderType,
+            senderName: notificationData.senderName,
+            storeName: notificationData.storeName,
+            messageType: notificationData.messageType || 'text',
+            ...notificationData.data
+          },
+          relatedEntityType: 'message',
+          relatedEntityId: notificationData.messageId || notificationData.chatId,
+          priority: notificationData.priority || 'normal',
+          actionUrl: notificationData.actionUrl || `/dashboard/chat/${notificationData.chatId}`,
+          actionType: 'navigate',
+          channels: notificationData.channels || { inApp: true, push: true },
+          icon: notificationData.icon || '/logo192.png'
+        }
       };
 
-      const notification = await Notification.create(enhancedData);
-      console.log('✅ Chat notification created successfully:', notification.id);
+      // Create a mock response object to capture the result
+      let result;
+      const res = {
+        status: (code) => ({
+          json: (data) => {
+            result = data;
+            return res;
+          }
+        }),
+        json: (data) => {
+          result = data;
+          return res;
+        }
+      };
 
-      // Emit socket event for real-time updates
-      if (global.io) {
-        global.io.to(`user_${notificationData.userId}`).emit('new_notification', {
-          id: notification.id,
-          type: notification.type,
-          title: notification.title,
-          message: notification.message,
-          priority: notification.priority,
-          actionUrl: notification.actionUrl,
-          data: notification.data,
-          createdAt: notification.createdAt
+      // Call the notification controller's createNotification (includes web push)
+      await createNotification(req, res);
+
+      if (result && result.success) {
+        console.log('✅ Chat notification created with web push:', {
+          notificationId: result.data?.notification?.id,
+          delivery: result.data?.delivery
         });
-
-        console.log('📡 Real-time notification emitted to user:', notificationData.userId);
+        return result.data?.notification;
+      } else {
+        throw new Error('Failed to create notification via controller');
       }
 
-      return notification;
     } catch (error) {
-      console.error('❌ Failed to create chat notification:', error);
+      console.error('❌ Failed to create chat notification with web push:', error);
       throw error;
     }
   }
@@ -308,7 +308,7 @@ class ChatController {
       const { conversationId: chatId, content, messageType = 'text' } = req.body;
       const senderId = req.user.id;
       const userType = req.user.type || req.user.userType;
-      const { Chat, Message, User, Store, Notification } = sequelize.models;
+      const { Chat, Message, User, Store } = sequelize.models;
 
       console.log('🚀 === CUSTOMER↔STORE MESSAGE SENDING ===');
       console.log('📤 Message details:', {
@@ -350,7 +350,7 @@ class ChatController {
 
       let message;
       let recipientId, recipientType, senderName, notificationTitle, notificationPriority, senderInfo;
-      let notificationSenderId = null; // CRITICAL: This will be set based on sender type
+      let notificationSenderId = null;
 
       if (userType === 'user' || userType === 'customer') {
         // ========================================
@@ -368,8 +368,8 @@ class ChatController {
         });
 
         const customer = chat.chatUser;
-        recipientId = chat.store.merchant_id; // Merchant receives notification
-        recipientType = 'merchant'; // ✅ NEW: Merchant recipient
+        recipientId = chat.store.merchant_id;
+        recipientType = 'merchant';
         senderName = `${customer.firstName || ''} ${customer.lastName || ''}`.trim() || 'Customer';
         senderInfo = {
           id: customer.id,
@@ -378,9 +378,7 @@ class ChatController {
           avatar: customer.avatar
         };
         notificationTitle = `New message from ${senderName}`;
-        notificationPriority = 'high'; // Customer messages are high priority for merchants
-
-        // ✅ CRITICAL FIX: Customer is in users table, so we can use their ID
+        notificationPriority = 'high';
         notificationSenderId = senderId;
 
       } else if (userType === 'merchant') {
@@ -398,8 +396,8 @@ class ChatController {
           status: 'sent'
         });
 
-        recipientId = chat.userId; // Customer receives notification
-        recipientType = 'user'; // ✅ NEW: User recipient
+        recipientId = chat.userId;
+        recipientType = 'user';
         senderName = chat.store.name;
         senderInfo = {
           id: chat.store.id,
@@ -409,8 +407,6 @@ class ChatController {
         };
         notificationTitle = `New message from ${senderName}`;
         notificationPriority = 'normal';
-
-        // ✅ CRITICAL FIX: Merchant is NOT in users table, so senderId must be NULL
         notificationSenderId = null;
 
       } else {
@@ -423,9 +419,9 @@ class ChatController {
       // Update chat last message time
       await chat.update({ lastMessageAt: new Date() });
 
-      // GUARANTEED notification creation with proper senderId handling
+      // Create notification with WEB PUSH
       try {
-        console.log('🔔 Creating notification for recipient:', {
+        console.log('🔔 Creating notification with web push for recipient:', {
           recipientId,
           recipientType,
           notificationSenderId,
@@ -435,8 +431,8 @@ class ChatController {
 
         await this.createChatNotification({
           userId: recipientId,
-          recipientType: recipientType, // ✅ NEW: Specify recipient type
-          senderId: notificationSenderId, // ✅ NULL for merchants, user ID for customers
+          recipientType: recipientType,
+          senderId: notificationSenderId,
           storeId: chat.store.id,
           chatId: chatId,
           messageId: message.id,
@@ -459,11 +455,10 @@ class ChatController {
           }
         });
 
-        console.log('✅ Notification created successfully');
+        console.log('✅ Notification with web push created successfully');
 
       } catch (notificationError) {
-        console.error('❌ CRITICAL: Failed to create notification:', notificationError);
-        // Log detailed error for debugging
+        console.error('❌ CRITICAL: Failed to create notification with web push:', notificationError);
         console.error('Notification error details:', {
           recipientId,
           notificationSenderId,
@@ -472,8 +467,6 @@ class ChatController {
           error: notificationError.message,
           stack: notificationError.stack
         });
-
-        // Don't fail the message send, but ensure we track this
         console.error('⚠️ Message sent but notification failed - this needs investigation');
       }
 
@@ -503,10 +496,8 @@ class ChatController {
           customer: senderInfo.isStore ? null : senderInfo
         };
 
-        // Send to recipient
         socketManager.emitToUser(recipientId, 'new_message', socketPayload);
 
-        // Also send conversation-specific event
         socketManager.emitToConversation &&
           socketManager.emitToConversation(chatId, 'message_sent', socketPayload);
 
@@ -522,7 +513,6 @@ class ChatController {
     } catch (error) {
       console.error('💥 Error sending message:', error);
 
-      // Handle specific validation errors
       if (error.message.includes('not found in users table') ||
         error.message.includes('not found in merchants table')) {
         return res.status(400).json({
@@ -554,7 +544,7 @@ class ChatController {
       const { page = 1, limit = 50 } = req.query;
       const userId = req.user.id;
       const userType = req.user.type || req.user.userType;
-      const { Chat, Message, User, Store, Notification } = sequelize.models;
+      const { Chat, Message, User, Store } = sequelize.models;
 
       console.log('📨 Getting messages for chat:', {
         chatId,
@@ -616,7 +606,7 @@ class ChatController {
             model: User,
             as: 'sender',
             attributes: ['id', 'firstName', 'lastName', 'avatar'],
-            required: false // Important: make this optional since store messages have sender_id = null
+            required: false
           }
         ],
         order: [['createdAt', 'DESC']],
@@ -640,14 +630,12 @@ class ChatController {
         };
 
         if (msg.sender_type === 'user' && msg.sender) {
-          // Customer message - use sender info
           senderInfo = {
             id: msg.sender.id,
             name: `${msg.sender.firstName || ''} ${msg.sender.lastName || ''}`.trim() || 'Customer',
             avatar: msg.sender.avatar || null
           };
         } else if (msg.sender_type === 'store') {
-          // Store message - use store info from chat relationship
           senderInfo = {
             id: chat.store.id,
             name: chat.store.name,
@@ -655,7 +643,6 @@ class ChatController {
             isStore: true
           };
         } else if (msg.sender) {
-          // Fallback for other message types
           senderInfo = {
             id: msg.sender.id,
             name: `${msg.sender.firstName || ''} ${msg.sender.lastName || ''}`.trim() || 'Unknown',
@@ -666,7 +653,7 @@ class ChatController {
         return {
           id: msg.id,
           text: msg.content,
-          sender: msg.sender_type, // 'user' or 'store'
+          sender: msg.sender_type,
           senderInfo: senderInfo,
           timestamp: this.formatTime(msg.createdAt),
           status: msg.status,
@@ -700,12 +687,9 @@ class ChatController {
         status: { [Op.ne]: 'read' }
       };
 
-      // Mark based on who is reading
       if (userType === 'user' || userType === 'customer') {
-        // Customer reading → mark store messages as read
         updateCondition.sender_type = 'store';
       } else if (userType === 'merchant') {
-        // Merchant reading → mark customer messages as read
         updateCondition.sender_type = 'user';
       }
 
@@ -718,7 +702,6 @@ class ChatController {
 
       // Mark related notifications as read
       try {
-        // Method 1: Direct chat ID match
         const notificationUpdate1 = await Notification.update(
           {
             read: true,
@@ -731,9 +714,7 @@ class ChatController {
               type: 'new_message',
               read: false,
               [Op.or]: [
-                // Try to match by data field
                 sequelize.literal(`JSON_EXTRACT(data, '$.chatId') = '${chatId}'`),
-                // Try to match by related entity
                 {
                   relatedEntityType: 'message',
                   relatedEntityId: chatId
@@ -743,7 +724,6 @@ class ChatController {
           }
         );
 
-        // Method 2: Match by store ID if available
         const chat = await sequelize.models.Chat.findByPk(chatId, {
           include: [{ model: sequelize.models.Store, as: 'store' }]
         });
@@ -762,7 +742,7 @@ class ChatController {
                 type: 'new_message',
                 read: false,
                 createdAt: {
-                  [Op.gte]: new Date(Date.now() - 24 * 60 * 60 * 1000) // Last 24 hours
+                  [Op.gte]: new Date(Date.now() - 24 * 60 * 60 * 1000)
                 }
               }
             }
@@ -773,7 +753,6 @@ class ChatController {
 
         console.log(`📖 Marked ${notificationUpdate1[0]} notifications as read by chat`);
 
-        // Emit notification update via socket
         if (global.io) {
           global.io.to(`user_${userId}`).emit('notifications_bulk_read', {
             chatId: chatId,
@@ -786,7 +765,6 @@ class ChatController {
         console.error('⚠️ Failed to update notifications:', notifError);
       }
 
-      // Emit read receipt
       if (socketManager && socketManager.emitToConversation) {
         socketManager.emitToConversation(chatId, 'messages_read', {
           readBy: userId,
@@ -806,12 +784,11 @@ class ChatController {
       const { storeId, initialMessage = '' } = req.body;
       const userId = req.user.id;
       const userType = req.user.type || req.user.userType;
-      const { Chat, Message, Store, User, Notification } = sequelize.models;
+      const { Chat, Message, Store, User } = sequelize.models;
 
       console.log('🆕 === START CUSTOMER↔STORE CONVERSATION ===');
       console.log('🆕 Details:', { userId, userType, storeId });
 
-      // Only customers can start conversations with stores
       if (userType !== 'user' && userType !== 'customer') {
         return res.status(403).json({
           success: false,
@@ -847,11 +824,10 @@ class ChatController {
         storeOwner: store.merchant_id
       });
 
-      // Find or create customer↔store chat
       let chat = await Chat.findOne({
         where: {
-          userId, // Customer ID
-          storeId: store.id // Store ID
+          userId,
+          storeId: store.id
         }
       });
 
@@ -859,22 +835,21 @@ class ChatController {
       if (!chat) {
         console.log('🆕 Creating new customer↔store chat...');
         chat = await Chat.create({
-          userId, // Customer
-          storeId: store.id, // Store
+          userId,
+          storeId: store.id,
           lastMessageAt: new Date()
         });
         created = true;
         console.log('✅ New customer↔store chat created:', chat.id);
       }
 
-      // Send initial message if provided
       if (initialMessage && initialMessage.trim()) {
         console.log('📨 Sending initial customer→store message...');
 
         const message = await Message.create({
           chat_id: chat.id,
           sender_id: userId,
-          sender_type: 'user', // Customer message
+          sender_type: 'user',
           content: initialMessage.trim(),
           messageType: 'text',
           status: 'sent'
@@ -883,21 +858,19 @@ class ChatController {
         await chat.update({ lastMessageAt: new Date() });
         console.log('✅ Initial customer→store message sent');
 
-        // GUARANTEED notification creation for the merchant
         const customerName = `${customer.firstName || ''} ${customer.lastName || ''}`.trim() || 'Customer';
 
         try {
-          console.log('🔔 Creating notification for merchant:', {
+          console.log('🔔 Creating notification with web push for merchant:', {
             merchantId: store.merchant_id,
             customerId: userId,
             customerName
           });
 
-          // ✅ CRITICAL FIX: Customer is in users table, so we CAN use their ID as senderId
           await this.createChatNotification({
             userId: store.merchant_id,
-            recipientType: 'merchant', // ✅ NEW: Merchant recipient
-            senderId: userId, // ✅ Customer ID is valid (exists in users table)
+            recipientType: 'merchant',
+            senderId: userId,
             storeId: store.id,
             chatId: chat.id,
             messageId: message.id,
@@ -911,7 +884,7 @@ class ChatController {
             messageType: 'text',
             actionUrl: `/dashboard/chat/${chat.id}`,
             channels: {
-              email: created, // Email only for new conversations
+              email: created,
               push: true
             },
             data: {
@@ -928,9 +901,8 @@ class ChatController {
             }
           });
 
-          console.log('✅ Notification created for merchant successfully');
+          console.log('✅ Notification with web push created for merchant successfully');
 
-          // Socket notification for real-time updates
           if (socketManager && socketManager.isInitialized() && store.merchant_id) {
             const notificationEvent = {
               conversationId: chat.id,
@@ -962,8 +934,6 @@ class ChatController {
             messageId: message.id,
             error: notifError.message
           });
-
-          // Don't fail the conversation start, but log this as critical
           console.error('⚠️ Conversation started but notification failed - merchant will not be notified');
         }
       }
