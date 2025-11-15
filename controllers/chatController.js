@@ -444,7 +444,7 @@ class ChatController {
           senderName: senderName,
           storeName: chat.store.name,
           messageType: messageType,
-          actionUrl: `/dashboard/chat/${chatId}`,
+          actionUrl: '/chat',
           channels: {
             email: false,
             push: true
@@ -882,7 +882,7 @@ class ChatController {
             senderName: customerName,
             storeName: store.name,
             messageType: 'text',
-            actionUrl: `/dashboard/chat/${chat.id}`,
+            actionUrl: '/chat',
             channels: {
               email: created,
               push: true
