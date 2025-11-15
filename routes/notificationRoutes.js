@@ -1,4 +1,4 @@
-// routes/notificationRoutes.js - COMPLETE WITH WEB PUSH
+// routes/notificationRoutes.js - UPDATED WITH USER AUTH FIRST
 const express = require('express');
 const router = express.Router();
 const { body, param, query, validationResult } = require('express-validator');
@@ -26,23 +26,23 @@ const {
 const { authenticateUser } = require('../middleware/auth');
 const { authenticateMerchant } = require('../middleware/Merchantauth');
 
-// Fixed dual auth that actually works
+// FIXED: User auth first, then merchant auth
 const workingDualAuth = (req, res, next) => {
   console.log('🔐 Trying dual auth for notifications...');
 
-  // Try merchant auth first since that's what your current frontend uses
-  authenticateMerchant(req, res, (merchantErr) => {
-    if (!merchantErr) {
-      console.log('✅ Merchant auth successful for notifications');
+  // Try USER auth first (for customer app)
+  authenticateUser(req, res, (userErr) => {
+    if (!userErr) {
+      console.log('✅ User auth successful for notifications');
       return next();
     }
 
-    console.log('❌ Merchant auth failed, trying user auth...');
+    console.log('❌ User auth failed, trying merchant auth...');
 
-    // Fallback to user auth for your user side
-    authenticateUser(req, res, (userErr) => {
-      if (!userErr) {
-        console.log('✅ User auth successful for notifications');
+    // Fallback to merchant auth
+    authenticateMerchant(req, res, (merchantErr) => {
+      if (!merchantErr) {
+        console.log('✅ Merchant auth successful for notifications');
         return next();
       }
 
