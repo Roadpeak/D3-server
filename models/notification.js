@@ -1,4 +1,4 @@
-// models/notification.js - Enhanced with optimized indexes
+// models/notification.js - UNIFIED SYSTEM (Enhanced with recipientType)
 module.exports = (sequelize, DataTypes) => {
   const Notification = sequelize.define('Notification', {
     id: {
@@ -6,48 +6,41 @@ module.exports = (sequelize, DataTypes) => {
       defaultValue: DataTypes.UUIDV4,
       primaryKey: true,
     },
-    
+
     // RECIPIENT: Who receives the notification
     userId: {
       type: DataTypes.UUID,
-      allowNull: false,
-      references: {
-        model: 'users',
-        key: 'id',
-      },
-      onDelete: 'CASCADE',
-      comment: 'The user who will receive this notification (customer, merchant, or admin)'
+      allowNull: true, // ✅ CHANGED: Nullable for unified system
+      comment: 'The recipient ID - can be user or merchant depending on recipientType'
     },
-    
+
+    // ✅ NEW: Recipient Type - Enables unified notification system
+    recipientType: {
+      type: DataTypes.ENUM('user', 'merchant', 'admin'),
+      allowNull: false,
+      defaultValue: 'user',
+      comment: 'Type of recipient - determines which table userId references'
+    },
+
     // SENDER: Who triggered the notification (optional for system notifications)
     senderId: {
       type: DataTypes.UUID,
-      allowNull: true,
-      references: {
-        model: 'users',
-        key: 'id',
-      },
-      onDelete: 'SET NULL',
-      comment: 'The user who triggered this notification (can be null for system notifications)'
+      allowNull: true, // ✅ CHANGED: Nullable (merchants can't be senders)
+      comment: 'The user who triggered this notification (null for merchant/system senders)'
     },
-    
+
     // CONTEXT: What store/business context this notification relates to
     storeId: {
       type: DataTypes.UUID,
       allowNull: true,
-      references: {
-        model: 'stores',
-        key: 'id',
-      },
-      onDelete: 'CASCADE',
       comment: 'The store context for this notification (chat, booking, offer, etc.)'
     },
-    
+
     // ENTITY REFERENCES: What specific entities this notification relates to
     relatedEntityType: {
       type: DataTypes.ENUM(
         'chat',
-        'message', 
+        'message',
         'booking',
         'offer',
         'service_request',
@@ -61,13 +54,13 @@ module.exports = (sequelize, DataTypes) => {
       allowNull: true,
       comment: 'The type of entity this notification relates to'
     },
-    
+
     relatedEntityId: {
       type: DataTypes.UUID,
       allowNull: true,
       comment: 'The ID of the related entity (chatId, bookingId, offerId, etc.)'
     },
-    
+
     // NOTIFICATION DETAILS
     type: {
       type: DataTypes.ENUM(
@@ -77,14 +70,14 @@ module.exports = (sequelize, DataTypes) => {
         'chat_started',
         'store_online',
         'store_offline',
-        
+
         // Booking & Service Related
         'booking_created',
         'booking_confirmed',
         'booking_cancelled',
         'booking_completed',
         'booking_reminder',
-        
+
         // Service Marketplace
         'new_service_request',
         'service_request_offer',
@@ -92,7 +85,7 @@ module.exports = (sequelize, DataTypes) => {
         'offer_rejected',
         'offer_withdrawn',
         'service_completed',
-        
+
         // Store & Merchant Management
         'store_follow',
         'store_unfollow',
@@ -100,29 +93,32 @@ module.exports = (sequelize, DataTypes) => {
         'review_response',
         'store_approved',
         'store_suspended',
-        
+
         // Payment & Financial
         'payment_received',
         'payment_pending',
         'payment_failed',
         'payment_refunded',
-        
+
         // Account & Verification
         'account_verified',
         'merchant_approved',
         'merchant_rejected',
         'profile_updated',
-        
+
         // System & Marketing
         'system_announcement',
         'promotional_offer',
         'reminder',
-        'warning'
+        'warning',
+
+        // ✅ NEW: Additional types for unified system
+        'new_conversation'
       ),
       allowNull: false,
       comment: 'Specific type of notification for proper handling and routing'
     },
-    
+
     title: {
       type: DataTypes.STRING(100),
       allowNull: false,
@@ -131,7 +127,7 @@ module.exports = (sequelize, DataTypes) => {
         notEmpty: true,
       },
     },
-    
+
     message: {
       type: DataTypes.STRING(500),
       allowNull: false,
@@ -140,44 +136,44 @@ module.exports = (sequelize, DataTypes) => {
         notEmpty: true,
       },
     },
-    
+
     // STRUCTURED DATA: Context-specific information
     data: {
       type: DataTypes.JSON,
       defaultValue: {},
       comment: 'Structured data specific to notification type (amounts, IDs, etc.)'
     },
-    
+
     // READ STATUS
     read: {
       type: DataTypes.BOOLEAN,
       defaultValue: false,
     },
-    
+
     readAt: {
       type: DataTypes.DATE,
       allowNull: true,
     },
-    
+
     // NAVIGATION
     actionUrl: {
       type: DataTypes.STRING(255),
       allowNull: true,
       comment: 'Deep link URL for notification action'
     },
-    
+
     actionType: {
       type: DataTypes.ENUM('navigate', 'modal', 'external', 'none'),
       defaultValue: 'navigate',
       comment: 'How the frontend should handle the notification action'
     },
-    
+
     // PRIORITY & DELIVERY
     priority: {
       type: DataTypes.ENUM('low', 'normal', 'high', 'urgent'),
       defaultValue: 'normal',
     },
-    
+
     channels: {
       type: DataTypes.JSON,
       defaultValue: {
@@ -188,43 +184,53 @@ module.exports = (sequelize, DataTypes) => {
       },
       comment: 'Which delivery channels to use for this notification'
     },
-    
+
     deliveryStatus: {
       type: DataTypes.JSON,
       defaultValue: {
         inApp: 'pending',
-        email: 'pending', 
+        email: 'pending',
         sms: 'pending',
         push: 'pending',
       },
       comment: 'Delivery status for each channel'
     },
-    
+
     // LIFECYCLE
     expiresAt: {
       type: DataTypes.DATE,
       defaultValue: () => new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days
       comment: 'When this notification expires and can be cleaned up'
     },
-    
+
     scheduledFor: {
       type: DataTypes.DATE,
       allowNull: true,
       comment: 'For scheduled notifications (reminders, follow-ups, etc.)'
     },
-    
+
     // GROUPING: For batching similar notifications
     groupKey: {
       type: DataTypes.STRING(100),
       allowNull: true,
       comment: 'Key for grouping similar notifications (e.g., "chat_messages_user123_store456")'
     }
-    
+
   }, {
     tableName: 'notifications',
     timestamps: true,
     indexes: [
-      // OPTIMIZED: Core composite indexes for main queries
+      // ✅ NEW: Composite index with recipientType
+      {
+        fields: ['userId', 'recipientType', 'read', 'createdAt'],
+        name: 'idx_notifications_recipient_read_created'
+      },
+      {
+        fields: ['userId', 'recipientType', 'type', 'createdAt'],
+        name: 'idx_notifications_recipient_type_created'
+      },
+
+      // OPTIMIZED: Core composite indexes
       {
         fields: ['userId', 'read', 'createdAt'],
         name: 'idx_notifications_user_read_created'
@@ -237,7 +243,13 @@ module.exports = (sequelize, DataTypes) => {
         fields: ['userId', 'storeId'],
         name: 'idx_notifications_user_store'
       },
-      
+
+      // ✅ NEW: recipientType index
+      {
+        fields: ['recipientType'],
+        name: 'idx_notifications_recipient_type'
+      },
+
       // Foreign key indexes
       {
         fields: ['senderId'],
@@ -247,13 +259,13 @@ module.exports = (sequelize, DataTypes) => {
         fields: ['storeId'],
         name: 'idx_notifications_store_id'
       },
-      
+
       // Entity reference lookup
       {
         fields: ['relatedEntityType', 'relatedEntityId'],
         name: 'idx_notifications_entity_type_id'
       },
-      
+
       // Lifecycle and cleanup
       {
         fields: ['expiresAt'],
@@ -263,7 +275,7 @@ module.exports = (sequelize, DataTypes) => {
         fields: ['scheduledFor'],
         name: 'idx_notifications_scheduled_for'
       },
-      
+
       // Grouping
       {
         fields: ['groupKey'],
@@ -287,7 +299,10 @@ module.exports = (sequelize, DataTypes) => {
         }
       },
       forUser: (userId) => ({
-        where: { userId }
+        where: { userId, recipientType: 'user' } // ✅ UPDATED
+      }),
+      forMerchant: (userId) => ({ // ✅ NEW
+        where: { userId, recipientType: 'merchant' }
       }),
       forStore: (storeId) => ({
         where: { storeId }
@@ -300,36 +315,43 @@ module.exports = (sequelize, DataTypes) => {
 
   // ASSOCIATIONS
   Notification.associate = (models) => {
-    // Recipient (who gets the notification)
+    // ✅ UPDATED: Recipient (no FK constraint for unified system)
     Notification.belongsTo(models.User, {
       foreignKey: 'userId',
       as: 'recipient',
-      onDelete: 'CASCADE'
+      constraints: false // ✅ No FK - userId can be merchant ID
     });
 
-    // Sender (who triggered the notification)
+    // ✅ NEW: Merchant recipient association
+    Notification.belongsTo(models.Merchant, {
+      foreignKey: 'userId',
+      as: 'merchantRecipient',
+      constraints: false
+    });
+
+    // ✅ UPDATED: Sender (no FK constraint)
     Notification.belongsTo(models.User, {
-      foreignKey: 'senderId', 
+      foreignKey: 'senderId',
       as: 'sender',
-      onDelete: 'SET NULL'
+      constraints: false // ✅ No FK - senderId can be null
     });
 
     // Store context
     Notification.belongsTo(models.Store, {
       foreignKey: 'storeId',
       as: 'store',
-      onDelete: 'CASCADE'
+      constraints: false // ✅ No FK for flexibility
     });
   };
 
   // VIRTUAL FIELDS
-  Notification.prototype.isRead = function() {
+  Notification.prototype.isRead = function () {
     return this.read;
   };
 
   // INSTANCE METHODS
-  
-  Notification.prototype.markAsRead = async function() {
+
+  Notification.prototype.markAsRead = async function () {
     if (!this.read) {
       this.read = true;
       this.readAt = new Date();
@@ -338,13 +360,13 @@ module.exports = (sequelize, DataTypes) => {
     return this;
   };
 
-  Notification.prototype.getRelatedEntity = async function() {
+  Notification.prototype.getRelatedEntity = async function () {
     if (!this.relatedEntityType || !this.relatedEntityId) return null;
-    
+
     const modelMap = {
       chat: 'Chat',
       message: 'Message',
-      booking: 'Booking', 
+      booking: 'Booking',
       offer: 'Offer',
       service_request: 'ServiceRequest',
       service_offer: 'ServiceOffer',
@@ -353,60 +375,62 @@ module.exports = (sequelize, DataTypes) => {
       store: 'Store',
       user: 'User'
     };
-    
+
     const modelName = modelMap[this.relatedEntityType];
     if (!modelName || !sequelize.models[modelName]) return null;
-    
+
     return await sequelize.models[modelName].findByPk(this.relatedEntityId);
   };
 
-  // Determine the notification context (customer, merchant, admin)
-  Notification.prototype.getRecipientContext = async function() {
-    const recipient = await this.getRecipient();
-    if (!recipient) return 'unknown';
-    
-    return recipient.userType; // 'customer', 'merchant', 'admin'
+  // ✅ UPDATED: Get recipient context
+  Notification.prototype.getRecipientContext = function () {
+    return this.recipientType; // Returns 'user', 'merchant', or 'admin'
   };
 
   // Generate appropriate action URL based on context
-  Notification.prototype.generateActionUrl = function() {
-    const { type, storeId, relatedEntityId, data } = this;
-    
+  Notification.prototype.generateActionUrl = function () {
+    const { type, storeId, relatedEntityId, data, recipientType } = this;
+
+    // ✅ UPDATED: Context-aware URLs based on recipient type
+    const baseUrl = recipientType === 'merchant' ? '/dashboard' : '';
+
     const urlMap = {
       // Chat notifications
-      new_message: `/chat/${data.chatId || relatedEntityId}`,
-      chat_started: `/chat/${data.chatId || relatedEntityId}`,
-      
+      new_message: `${baseUrl}/chat/${data.chatId || relatedEntityId}`,
+      chat_started: `${baseUrl}/chat/${data.chatId || relatedEntityId}`,
+      new_conversation: `${baseUrl}/chat/${data.chatId || relatedEntityId}`,
+
       // Booking notifications  
-      booking_created: `/bookings/${relatedEntityId}`,
-      booking_confirmed: `/bookings/${relatedEntityId}`,
-      booking_cancelled: `/bookings/${relatedEntityId}`,
-      
+      booking_created: `${baseUrl}/bookings/${relatedEntityId}`,
+      booking_confirmed: `${baseUrl}/bookings/${relatedEntityId}`,
+      booking_cancelled: `${baseUrl}/bookings/${relatedEntityId}`,
+
       // Store notifications
       store_follow: `/stores/${storeId}`,
-      new_review: `/stores/${storeId}/reviews`,
-      
+      new_review: recipientType === 'merchant' ? `/dashboard/reviews` : `/stores/${storeId}/reviews`,
+
       // Service marketplace
       new_service_request: `/marketplace/requests/${relatedEntityId}`,
       service_request_offer: `/marketplace/offers/${relatedEntityId}`,
-      
+
       // Account notifications
       account_verified: '/profile',
       merchant_approved: '/dashboard',
-      
+
       // Default
-      default: '/notifications'
+      default: `${baseUrl}/notifications`
     };
-    
+
     return urlMap[type] || urlMap.default;
   };
 
   // CLASS METHODS
 
-  // Create notification with smart defaults
-  Notification.createSmart = async function(params) {
+  // ✅ UPDATED: Create notification with recipientType support
+  Notification.createSmart = async function (params) {
     const {
       userId,
+      recipientType = 'user', // ✅ NEW parameter
       senderId,
       storeId,
       type,
@@ -423,6 +447,7 @@ module.exports = (sequelize, DataTypes) => {
     // Auto-generate action URL if not provided
     const notification = this.build({
       userId,
+      recipientType, // ✅ NEW
       senderId,
       storeId,
       type,
@@ -444,31 +469,32 @@ module.exports = (sequelize, DataTypes) => {
   };
 
   // Get default notification channels based on type
-  Notification.getDefaultChannelsForType = async function(type) {
+  Notification.getDefaultChannelsForType = async function (type) {
     const channelMap = {
       // High priority - multiple channels
       booking_confirmed: { inApp: true, email: true, sms: true, push: true },
       payment_received: { inApp: true, email: true, push: true },
       booking_cancelled: { inApp: true, email: true, sms: true, push: true },
-      
-      // Medium priority - app + email
+
+      // Medium priority - app + push
       new_message: { inApp: true, email: false, push: true },
+      new_conversation: { inApp: true, email: true, push: true }, // ✅ NEW
       booking_created: { inApp: true, email: true, push: true },
       offer_accepted: { inApp: true, email: true, push: true },
-      
+
       // Low priority - app only
       store_follow: { inApp: true, email: false, push: false },
       new_review: { inApp: true, email: false, push: false },
-      
+
       // Default
       default: { inApp: true, email: false, sms: false, push: false }
     };
-    
+
     return channelMap[type] || channelMap.default;
   };
 
-  // Get notifications for a user with context
-  Notification.getForUser = async function(userId, options = {}) {
+  // ✅ UPDATED: Get notifications for a user/merchant with recipientType
+  Notification.getForUser = async function (userId, recipientType = 'user', options = {}) {
     const {
       limit = 50,
       offset = 0,
@@ -479,8 +505,11 @@ module.exports = (sequelize, DataTypes) => {
       groupSimilar = true
     } = options;
 
-    let whereClause = { userId };
-    
+    let whereClause = {
+      userId,
+      recipientType // ✅ NEW: Filter by recipient type
+    };
+
     if (unreadOnly) whereClause.read = false;
     if (type) whereClause.type = type;
     if (storeId) whereClause.storeId = storeId;
@@ -499,12 +528,14 @@ module.exports = (sequelize, DataTypes) => {
         {
           model: sequelize.models.User,
           as: 'sender',
-          attributes: ['id', 'firstName', 'lastName', 'avatar', 'userType']
+          attributes: ['id', 'firstName', 'lastName', 'avatar', 'userType'],
+          required: false // ✅ Optional since senderId can be null
         },
         {
           model: sequelize.models.Store,
           as: 'store',
-          attributes: ['id', 'name', 'logo_url', 'category']
+          attributes: ['id', 'name', 'logo_url', 'category'],
+          required: false
         }
       ],
       order: [
@@ -516,10 +547,11 @@ module.exports = (sequelize, DataTypes) => {
     });
   };
 
-  // Get unread count for user
-  Notification.getUnreadCount = async function(userId, storeId = null) {
-    let whereClause = { 
-      userId, 
+  // ✅ UPDATED: Get unread count with recipientType
+  Notification.getUnreadCount = async function (userId, recipientType = 'user', storeId = null) {
+    let whereClause = {
+      userId,
+      recipientType, // ✅ NEW
       read: false,
       expiresAt: {
         [sequelize.Sequelize.Op.or]: [
@@ -528,30 +560,34 @@ module.exports = (sequelize, DataTypes) => {
         ]
       }
     };
-    
+
     if (storeId) whereClause.storeId = storeId;
-    
+
     return await this.count({ where: whereClause });
   };
 
-  // Mark multiple notifications as read
-  Notification.markAllAsRead = async function(userId, filters = {}) {
-    let whereClause = { userId, read: false };
-    
+  // ✅ UPDATED: Mark all as read with recipientType
+  Notification.markAllAsRead = async function (userId, recipientType = 'user', filters = {}) {
+    let whereClause = {
+      userId,
+      recipientType, // ✅ NEW
+      read: false
+    };
+
     if (filters.type) whereClause.type = filters.type;
     if (filters.storeId) whereClause.storeId = filters.storeId;
-    
+
     return await this.update(
-      { 
-        read: true, 
-        readAt: new Date() 
+      {
+        read: true,
+        readAt: new Date()
       },
       { where: whereClause }
     );
   };
 
   // Clean up expired notifications
-  Notification.cleanupExpired = async function() {
+  Notification.cleanupExpired = async function () {
     return await this.destroy({
       where: {
         expiresAt: {
@@ -565,7 +601,7 @@ module.exports = (sequelize, DataTypes) => {
   Notification.beforeCreate(async (notification) => {
     // Auto-generate groupKey for similar notifications
     if (!notification.groupKey && notification.type && notification.userId) {
-      const baseKey = `${notification.type}_${notification.userId}`;
+      const baseKey = `${notification.type}_${notification.userId}_${notification.recipientType}`; // ✅ UPDATED
       if (notification.storeId) {
         notification.groupKey = `${baseKey}_${notification.storeId}`;
       } else if (notification.senderId) {
@@ -574,7 +610,7 @@ module.exports = (sequelize, DataTypes) => {
         notification.groupKey = baseKey;
       }
     }
-    
+
     // Auto-generate actionUrl if not provided
     if (!notification.actionUrl) {
       notification.actionUrl = notification.generateActionUrl();
@@ -582,4 +618,4 @@ module.exports = (sequelize, DataTypes) => {
   });
 
   return Notification;
-};
+};  

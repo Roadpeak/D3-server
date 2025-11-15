@@ -12,6 +12,7 @@ class ChatController {
       console.log('🔔 Creating chat notification:', {
         type: notificationData.type,
         recipient: notificationData.userId,
+        recipientType: notificationData.recipientType,
         sender: notificationData.senderId,
         senderType: notificationData.senderType,
         title: notificationData.title
@@ -20,6 +21,7 @@ class ChatController {
       // Enhanced notification with smart defaults
       const enhancedData = {
         userId: notificationData.userId,
+        recipientType: notificationData.recipientType || 'user', // ✅ NEW
         senderId: notificationData.senderId, // Can be null for merchant senders
         storeId: notificationData.storeId,
         type: notificationData.type || 'new_message',
@@ -347,7 +349,7 @@ class ChatController {
       }
 
       let message;
-      let recipientId, senderName, notificationTitle, notificationPriority, senderInfo;
+      let recipientId, recipientType, senderName, notificationTitle, notificationPriority, senderInfo;
       let notificationSenderId = null; // CRITICAL: This will be set based on sender type
 
       if (userType === 'user' || userType === 'customer') {
@@ -367,6 +369,7 @@ class ChatController {
 
         const customer = chat.chatUser;
         recipientId = chat.store.merchant_id; // Merchant receives notification
+        recipientType = 'merchant'; // ✅ NEW: Merchant recipient
         senderName = `${customer.firstName || ''} ${customer.lastName || ''}`.trim() || 'Customer';
         senderInfo = {
           id: customer.id,
@@ -396,6 +399,7 @@ class ChatController {
         });
 
         recipientId = chat.userId; // Customer receives notification
+        recipientType = 'user'; // ✅ NEW: User recipient
         senderName = chat.store.name;
         senderInfo = {
           id: chat.store.id,
@@ -423,6 +427,7 @@ class ChatController {
       try {
         console.log('🔔 Creating notification for recipient:', {
           recipientId,
+          recipientType,
           notificationSenderId,
           senderType: userType,
           senderName
@@ -430,6 +435,7 @@ class ChatController {
 
         await this.createChatNotification({
           userId: recipientId,
+          recipientType: recipientType, // ✅ NEW: Specify recipient type
           senderId: notificationSenderId, // ✅ NULL for merchants, user ID for customers
           storeId: chat.store.id,
           chatId: chatId,
@@ -890,6 +896,7 @@ class ChatController {
           // ✅ CRITICAL FIX: Customer is in users table, so we CAN use their ID as senderId
           await this.createChatNotification({
             userId: store.merchant_id,
+            recipientType: 'merchant', // ✅ NEW: Merchant recipient
             senderId: userId, // ✅ Customer ID is valid (exists in users table)
             storeId: store.id,
             chatId: chat.id,

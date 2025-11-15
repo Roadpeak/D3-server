@@ -1,4 +1,4 @@
-// controllers/notificationController.js - COMPLETE WITH WEB PUSH INTEGRATION
+// controllers/notificationController.js - COMPLETE WITH UNIFIED SYSTEM + WEB PUSH
 const { Op } = require('sequelize');
 const webpush = require('web-push');
 
@@ -21,6 +21,7 @@ const {
   Notification,
   User,
   Store,
+  Merchant,
   PushSubscription,
   sequelize
 } = models;
@@ -32,28 +33,42 @@ class NotificationController {
     return reqUser.id || reqUser.merchant_id || reqUser.userId;
   }
 
+  // ✅ NEW: Get recipient type from user
+  getRecipientType(reqUser) {
+    const userType = reqUser.type || reqUser.userType;
+    if (userType === 'merchant') {
+      return 'merchant';
+    } else if (userType === 'admin') {
+      return 'admin';
+    }
+    return 'user';
+  }
+
   // ============================================
-  // WEB PUSH HELPER METHODS (NEW)
+  // WEB PUSH HELPER METHODS
   // ============================================
 
   /**
-   * Send web push notification to user's devices
+   * Send web push notification to user's devices (supports both users and merchants)
    */
-  async sendWebPushNotification(userId, notification) {
+  async sendWebPushNotification(userId, userType, notification) {
     try {
       if (!PushSubscription) {
         console.log('PushSubscription model not available, skipping web push');
         return { sent: 0, skipped: true };
       }
 
-      // Get user's push subscriptions
+      // Get push subscriptions for this user/merchant
       const subscriptions = await PushSubscription.findAll({
-        where: { userId },
+        where: {
+          userId,
+          userType: userType || 'user' // ✅ NEW: Filter by user type
+        },
         attributes: ['endpoint', 'p256dhKey', 'authKey']
       });
 
       if (subscriptions.length === 0) {
-        console.log(`No push subscriptions for user ${userId}`);
+        console.log(`No push subscriptions for ${userType} ${userId}`);
         return { sent: 0 };
       }
 
@@ -96,7 +111,7 @@ class NotificationController {
       const sent = results.filter(r => r.status === 'fulfilled').length;
       const failed = results.filter(r => r.status === 'rejected').length;
 
-      console.log(`📱 Web push: sent ${sent}, failed ${failed} to user ${userId}`);
+      console.log(`📱 Web push: sent ${sent}, failed ${failed} to ${userType} ${userId}`);
 
       return { sent, failed };
     } catch (error) {
@@ -164,7 +179,7 @@ class NotificationController {
         lastUsedAt: new Date()
       });
 
-      console.log(`✅ User ${userId} (${userType}) subscribed to web push notifications`);
+      console.log(`✅ ${userType} ${userId} subscribed to web push notifications`);
 
       return res.status(201).json({
         success: true,
@@ -228,6 +243,7 @@ class NotificationController {
   async getPushStats(req, res) {
     try {
       const userId = this.getUserId(req.user);
+      const userType = this.getRecipientType(req.user); // ✅ NEW
 
       if (!userId) {
         return res.status(400).json({
@@ -248,7 +264,10 @@ class NotificationController {
       }
 
       const subscriptions = await PushSubscription.findAll({
-        where: { userId },
+        where: {
+          userId,
+          userType // ✅ NEW
+        },
         attributes: ['endpoint', 'userAgent', 'lastUsedAt', 'createdAt']
       });
 
@@ -277,7 +296,7 @@ class NotificationController {
   }
 
   // ============================================
-  // EXISTING METHODS (ENHANCED WITH WEB PUSH)
+  // NOTIFICATION CRUD METHODS (WITH UNIFIED SYSTEM)
   // ============================================
 
   /**
@@ -286,6 +305,7 @@ class NotificationController {
   async getNotifications(req, res) {
     try {
       const userId = this.getUserId(req.user);
+      const recipientType = this.getRecipientType(req.user); // ✅ NEW
 
       if (!userId) {
         console.error('No userId found in req.user:', req.user);
@@ -307,7 +327,10 @@ class NotificationController {
       const offset = (parseInt(page) - 1) * parseInt(limit);
 
       // Build where clause with enhanced filtering
-      const whereClause = { userId };
+      const whereClause = {
+        userId,
+        recipientType // ✅ NEW: Filter by recipient type
+      };
 
       if (type !== 'all') {
         whereClause.type = type;
@@ -351,6 +374,7 @@ class NotificationController {
         attributes: [
           'id',
           'userId',
+          'recipientType', // ✅ NEW
           'senderId',
           'storeId',
           'type',
@@ -378,6 +402,7 @@ class NotificationController {
       const transformedNotifications = notifications.map(notification => ({
         id: notification.id,
         userId: notification.userId,
+        recipientType: notification.recipientType, // ✅ NEW
         senderId: notification.senderId,
         storeId: notification.storeId,
         type: notification.type,
@@ -451,6 +476,7 @@ class NotificationController {
   async getNotificationCounts(req, res) {
     try {
       const userId = this.getUserId(req.user);
+      const recipientType = this.getRecipientType(req.user); // ✅ NEW
 
       if (!userId) {
         console.error('No userId found in req.user for counts:', req.user);
@@ -462,11 +488,11 @@ class NotificationController {
 
       const { storeId } = req.query;
 
-      console.log('Getting enhanced notification counts for user:', userId);
+      console.log('Getting enhanced notification counts for:', { userId, recipientType });
 
       // Build base where clause
-      let whereClause = 'WHERE userId = :userId';
-      const replacements = { userId };
+      let whereClause = 'WHERE userId = :userId AND recipientType = :recipientType'; // ✅ UPDATED
+      const replacements = { userId, recipientType }; // ✅ UPDATED
 
       if (storeId) {
         whereClause += ' AND storeId = :storeId';
@@ -500,6 +526,7 @@ class NotificationController {
         scheduled: 0,
         byType: {
           new_message: 0,
+          new_conversation: 0, // ✅ NEW
           booking_created: 0,
           booking_confirmed: 0,
           booking_cancelled: 0,
@@ -562,6 +589,7 @@ class NotificationController {
           scheduled: 0,
           byType: {
             new_message: 0,
+            new_conversation: 0,
             booking_created: 0,
             booking_confirmed: 0,
             booking_cancelled: 0,
@@ -586,8 +614,7 @@ class NotificationController {
   }
 
   /**
-   * Enhanced notification creation with web push delivery
-   * THIS IS THE KEY METHOD - ENHANCED TO SEND WEB PUSH
+   * Enhanced notification creation with web push delivery + unified system
    */
   async createNotification(req, res) {
     try {
@@ -609,9 +636,13 @@ class NotificationController {
         });
       }
 
+      // ✅ NEW: Determine recipient type
+      const recipientType = notificationData.recipientType || 'user';
+
       // Enhanced notification data with smart defaults
       const enhancedData = {
         userId: notificationData.userId,
+        recipientType: recipientType, // ✅ NEW
         senderId: notificationData.senderId || createdBy,
         storeId: notificationData.storeId,
         type: notificationData.type,
@@ -633,7 +664,7 @@ class NotificationController {
 
       // 1. Create in-app notification
       const notification = await Notification.create(enhancedData);
-      console.log(`✅ Created in-app notification ${notification.id} for user ${notification.userId}`);
+      console.log(`✅ Created in-app notification ${notification.id} for ${recipientType} ${notification.userId}`);
 
       // Load with associations for complete response
       const fullNotification = await Notification.findByPk(notification.id, {
@@ -641,12 +672,14 @@ class NotificationController {
           {
             model: User,
             as: 'sender',
-            attributes: ['id', 'firstName', 'lastName', 'avatar', 'userType']
+            attributes: ['id', 'firstName', 'lastName', 'avatar', 'userType'],
+            required: false
           },
           {
             model: Store,
             as: 'store',
-            attributes: ['id', 'name', 'logo_url', 'category']
+            attributes: ['id', 'name', 'logo_url', 'category'],
+            required: false
           }
         ]
       });
@@ -665,18 +698,22 @@ class NotificationController {
           sender: fullNotification.sender,
           store: fullNotification.store
         });
-        console.log(`✅ Sent Socket.IO notification to user ${notification.userId}`);
+        console.log(`✅ Sent Socket.IO notification to ${recipientType} ${notification.userId}`);
       }
 
-      // 3. NEW: Send web push notification
-      const pushResult = await this.sendWebPushNotification(notification.userId, {
-        id: notification.id,
-        title: notification.title,
-        message: notification.message,
-        type: notification.type,
-        actionUrl: notification.actionUrl,
-        icon: notificationData.icon
-      });
+      // 3. Send web push notification (supports both users and merchants)
+      const pushResult = await this.sendWebPushNotification(
+        notification.userId,
+        recipientType, // ✅ NEW: Pass recipient type
+        {
+          id: notification.id,
+          title: notification.title,
+          message: notification.message,
+          type: notification.type,
+          actionUrl: notification.actionUrl,
+          icon: notificationData.icon
+        }
+      );
 
       // Update delivery status based on push result
       if (pushResult.sent > 0) {
@@ -698,7 +735,8 @@ class NotificationController {
             socketIO: !!global.io,
             webPush: pushResult.sent > 0,
             pushDevices: pushResult.sent || 0,
-            pushFailed: pushResult.failed || 0
+            pushFailed: pushResult.failed || 0,
+            recipientType: recipientType // ✅ NEW
           }
         }
       });
@@ -720,6 +758,7 @@ class NotificationController {
     try {
       const { id } = req.params;
       const userId = this.getUserId(req.user);
+      const recipientType = this.getRecipientType(req.user); // ✅ NEW
 
       if (!userId) {
         return res.status(400).json({
@@ -729,17 +768,23 @@ class NotificationController {
       }
 
       const notification = await Notification.findOne({
-        where: { id, userId },
+        where: {
+          id,
+          userId,
+          recipientType // ✅ NEW
+        },
         include: [
           {
             model: User,
             as: 'sender',
-            attributes: ['id', 'firstName', 'lastName']
+            attributes: ['id', 'firstName', 'lastName'],
+            required: false
           },
           {
             model: Store,
             as: 'store',
-            attributes: ['id', 'name']
+            attributes: ['id', 'name'],
+            required: false
           }
         ]
       });
@@ -791,6 +836,7 @@ class NotificationController {
   async markAllAsRead(req, res) {
     try {
       const userId = this.getUserId(req.user);
+      const recipientType = this.getRecipientType(req.user); // ✅ NEW
 
       if (!userId) {
         return res.status(400).json({
@@ -803,6 +849,7 @@ class NotificationController {
 
       const whereClause = {
         userId,
+        recipientType, // ✅ NEW
         read: false
       };
 
@@ -859,6 +906,7 @@ class NotificationController {
   async getNotificationsByStore(req, res) {
     try {
       const userId = this.getUserId(req.user);
+      const recipientType = this.getRecipientType(req.user); // ✅ NEW
       const { storeId } = req.params;
       const { page = 1, limit = 20, unreadOnly = false } = req.query;
 
@@ -869,21 +917,24 @@ class NotificationController {
         });
       }
 
-      // Verify user has access to this store
-      const store = await Store.findOne({
-        where: { id: storeId, merchant_id: userId }
-      });
-
-      if (!store) {
-        return res.status(403).json({
-          success: false,
-          message: 'Access denied to this store'
+      // Verify user has access to this store (for merchants)
+      if (recipientType === 'merchant') {
+        const store = await Store.findOne({
+          where: { id: storeId, merchant_id: userId }
         });
+
+        if (!store) {
+          return res.status(403).json({
+            success: false,
+            message: 'Access denied to this store'
+          });
+        }
       }
 
       const offset = (parseInt(page) - 1) * parseInt(limit);
       const whereClause = {
         userId,
+        recipientType, // ✅ NEW
         storeId
       };
 
@@ -897,7 +948,14 @@ class NotificationController {
           {
             model: User,
             as: 'sender',
-            attributes: ['id', 'firstName', 'lastName', 'avatar', 'userType']
+            attributes: ['id', 'firstName', 'lastName', 'avatar', 'userType'],
+            required: false
+          },
+          {
+            model: Store,
+            as: 'store',
+            attributes: ['id', 'name', 'logo_url'],
+            required: false
           }
         ],
         order: [['priority', 'DESC'], ['createdAt', 'DESC']],
@@ -905,14 +963,19 @@ class NotificationController {
         offset: parseInt(offset)
       });
 
+      // Get store info
+      const store = notifications.length > 0 && notifications[0].store
+        ? notifications[0].store
+        : await Store.findByPk(storeId, { attributes: ['id', 'name', 'logo_url'] });
+
       return res.status(200).json({
         success: true,
         data: {
-          store: {
+          store: store ? {
             id: store.id,
             name: store.name,
             logo: store.logo_url
-          },
+          } : null,
           notifications,
           pagination: {
             currentPage: parseInt(page),
@@ -937,6 +1000,7 @@ class NotificationController {
   async getNotificationAnalytics(req, res) {
     try {
       const userId = this.getUserId(req.user);
+      const recipientType = this.getRecipientType(req.user); // ✅ NEW
       const { period = '7d', storeId } = req.query;
 
       if (!userId) {
@@ -947,8 +1011,8 @@ class NotificationController {
       }
 
       const startDate = this.getDateByPeriod(period);
-      let whereClause = 'WHERE userId = :userId AND createdAt >= :startDate';
-      const replacements = { userId, startDate };
+      let whereClause = 'WHERE userId = :userId AND recipientType = :recipientType AND createdAt >= :startDate'; // ✅ UPDATED
+      const replacements = { userId, recipientType, startDate }; // ✅ UPDATED
 
       if (storeId) {
         whereClause += ' AND storeId = :storeId';
@@ -976,6 +1040,7 @@ class NotificationController {
         success: true,
         data: {
           period,
+          recipientType, // ✅ NEW
           analytics,
           summary: {
             totalNotifications: analytics.reduce((sum, a) => sum + parseInt(a.total), 0),
@@ -1001,6 +1066,7 @@ class NotificationController {
     try {
       const { id } = req.params;
       const userId = this.getUserId(req.user);
+      const recipientType = this.getRecipientType(req.user); // ✅ NEW
 
       if (!userId) {
         return res.status(400).json({
@@ -1010,7 +1076,11 @@ class NotificationController {
       }
 
       const notification = await Notification.findOne({
-        where: { id, userId }
+        where: {
+          id,
+          userId,
+          recipientType // ✅ NEW
+        }
       });
 
       if (!notification) {
@@ -1049,6 +1119,7 @@ class NotificationController {
   async getNotificationSettings(req, res) {
     try {
       const userId = this.getUserId(req.user);
+      const userType = this.getRecipientType(req.user);
 
       if (!userId) {
         return res.status(400).json({
@@ -1057,39 +1128,73 @@ class NotificationController {
         });
       }
 
-      // Get user's notification preferences from User model
-      const user = await User.findByPk(userId, {
-        attributes: [
-          'chatNotifications',
-          'emailNotifications',
-          'smsNotifications',
-          'pushNotifications',
-          'marketingEmails'
-        ]
-      });
+      // Get user's notification preferences from appropriate model
+      let settings;
 
-      const settings = user ? {
-        chat: user.chatNotifications,
-        email: user.emailNotifications,
-        sms: user.smsNotifications,
-        push: user.pushNotifications,
-        marketing: user.marketingEmails,
-        // Enhanced settings
-        messages: user.chatNotifications,
-        bookings: user.emailNotifications,
-        offers: user.pushNotifications,
-        storeUpdates: user.emailNotifications
-      } : {
-        chat: true,
-        email: true,
-        sms: true,
-        push: true,
-        marketing: false,
-        messages: true,
-        bookings: true,
-        offers: true,
-        storeUpdates: true
-      };
+      if (userType === 'merchant' && Merchant) {
+        const merchant = await Merchant.findByPk(userId, {
+          attributes: [
+            'chatNotifications',
+            'emailNotifications',
+            'smsNotifications',
+            'pushNotifications',
+            'marketingEmails'
+          ]
+        });
+
+        if (merchant) {
+          settings = {
+            chat: merchant.chatNotifications,
+            email: merchant.emailNotifications,
+            sms: merchant.smsNotifications,
+            push: merchant.pushNotifications,
+            marketing: merchant.marketingEmails,
+            messages: merchant.chatNotifications,
+            bookings: merchant.emailNotifications,
+            offers: merchant.pushNotifications,
+            storeUpdates: merchant.emailNotifications
+          };
+        }
+      } else {
+        const user = await User.findByPk(userId, {
+          attributes: [
+            'chatNotifications',
+            'emailNotifications',
+            'smsNotifications',
+            'pushNotifications',
+            'marketingEmails'
+          ]
+        });
+
+        if (user) {
+          settings = {
+            chat: user.chatNotifications,
+            email: user.emailNotifications,
+            sms: user.smsNotifications,
+            push: user.pushNotifications,
+            marketing: user.marketingEmails,
+            messages: user.chatNotifications,
+            bookings: user.emailNotifications,
+            offers: user.pushNotifications,
+            storeUpdates: user.emailNotifications
+          };
+        }
+      }
+
+      // Default settings if not found
+      if (!settings) {
+        settings = {
+          chat: true,
+          email: true,
+          sms: true,
+          push: true,
+          marketing: false,
+          messages: true,
+          bookings: true,
+          offers: true,
+          storeUpdates: true
+        };
+      }
 
       return res.status(200).json({
         success: true,
@@ -1121,6 +1226,7 @@ class NotificationController {
   async updateNotificationSettings(req, res) {
     try {
       const userId = this.getUserId(req.user);
+      const userType = this.getRecipientType(req.user);
       const settings = req.body;
 
       if (!userId) {
@@ -1130,15 +1236,7 @@ class NotificationController {
         });
       }
 
-      const user = await User.findByPk(userId);
-      if (!user) {
-        return res.status(404).json({
-          success: false,
-          message: 'User not found'
-        });
-      }
-
-      // Map frontend settings to user model fields
+      // Map frontend settings to model fields
       const updateData = {};
       if (typeof settings.chat === 'boolean') updateData.chatNotifications = settings.chat;
       if (typeof settings.email === 'boolean') updateData.emailNotifications = settings.email;
@@ -1146,17 +1244,39 @@ class NotificationController {
       if (typeof settings.push === 'boolean') updateData.pushNotifications = settings.push;
       if (typeof settings.marketing === 'boolean') updateData.marketingEmails = settings.marketing;
 
-      await user.update(updateData);
+      let updatedEntity;
+
+      if (userType === 'merchant' && Merchant) {
+        const merchant = await Merchant.findByPk(userId);
+        if (!merchant) {
+          return res.status(404).json({
+            success: false,
+            message: 'Merchant not found'
+          });
+        }
+        await merchant.update(updateData);
+        updatedEntity = merchant;
+      } else {
+        const user = await User.findByPk(userId);
+        if (!user) {
+          return res.status(404).json({
+            success: false,
+            message: 'User not found'
+          });
+        }
+        await user.update(updateData);
+        updatedEntity = user;
+      }
 
       return res.status(200).json({
         success: true,
         message: 'Notification settings updated successfully',
         data: {
-          chat: user.chatNotifications,
-          email: user.emailNotifications,
-          sms: user.smsNotifications,
-          push: user.pushNotifications,
-          marketing: user.marketingEmails
+          chat: updatedEntity.chatNotifications,
+          email: updatedEntity.emailNotifications,
+          sms: updatedEntity.smsNotifications,
+          push: updatedEntity.pushNotifications,
+          marketing: updatedEntity.marketingEmails
         }
       });
 
@@ -1176,6 +1296,7 @@ class NotificationController {
   generateActionUrl(notificationData) {
     const urlMap = {
       new_message: `/chat/${notificationData.relatedEntityId}`,
+      new_conversation: `/chat/${notificationData.relatedEntityId}`, // ✅ NEW
       booking_created: `/bookings/${notificationData.relatedEntityId}`,
       booking_confirmed: `/bookings/${notificationData.relatedEntityId}`,
       new_review: `/stores/${notificationData.storeId}/reviews`,
@@ -1192,6 +1313,7 @@ class NotificationController {
       booking_cancelled: { inApp: true, email: true, sms: true, push: true },
       payment_received: { inApp: true, email: true, push: true },
       new_message: { inApp: true, push: true },
+      new_conversation: { inApp: true, email: true, push: true }, // ✅ NEW
       offer_accepted: { inApp: true, email: true, push: true }
     };
 
@@ -1292,7 +1414,7 @@ module.exports = {
   getNotificationsByStore: notificationController.getNotificationsByStore.bind(notificationController),
   getNotificationAnalytics: notificationController.getNotificationAnalytics.bind(notificationController),
 
-  // NEW: Web push exports
+  // Web push exports
   getVapidPublicKey: notificationController.getVapidPublicKey.bind(notificationController),
   subscribePushNotifications: notificationController.subscribePushNotifications.bind(notificationController),
   unsubscribePushNotifications: notificationController.unsubscribePushNotifications.bind(notificationController),
