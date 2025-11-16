@@ -1,4 +1,4 @@
-// controllers/customer/reelController.js - Customer Reel Controller (Sequelize)
+// controllers/customer/reelController.js - FIXED
 const { Reel, ReelLike, ReelView, Service, Store, User, sequelize } = require('../../models');
 const { Op } = require('sequelize');
 
@@ -74,7 +74,7 @@ class CustomerReelController {
                 })),
             });
 
-            // Format reels
+            // ✅ FIXED: Bind this context or use arrow function
             const formattedReels = await Promise.all(
                 reels.map(async (reel) => {
                     let isLiked = false;
@@ -97,7 +97,7 @@ class CustomerReelController {
                             id: reel.store.id,
                             name: reel.store.name,
                             avatar: reel.store.logo_url,
-                            verified: false, // Store model doesn't have verified field
+                            verified: false,
                         },
                         service: {
                             id: reel.service.id,
@@ -109,7 +109,8 @@ class CustomerReelController {
                         likes: reel.likes,
                         shares: reel.shares,
                         isLiked: isLiked,
-                        createdAt: this.formatTimeAgo(reel.created_at),
+                        // ✅ FIXED: Use static helper function instead of this.formatTimeAgo
+                        createdAt: formatTimeAgo(reel.created_at),
                     };
                 })
             );
@@ -190,7 +191,7 @@ class CustomerReelController {
                         id: reel.store.id,
                         name: reel.store.name,
                         avatar: reel.store.logo_url,
-                        verified: false, // Store model doesn't have verified field
+                        verified: false,
                     },
                     service: {
                         id: reel.service.id,
@@ -202,7 +203,8 @@ class CustomerReelController {
                     likes: reel.likes,
                     shares: reel.shares,
                     isLiked: isLiked,
-                    createdAt: this.formatTimeAgo(reel.created_at),
+                    // ✅ FIXED: Use static helper function
+                    createdAt: formatTimeAgo(reel.created_at),
                 },
             });
         } catch (error) {
@@ -368,42 +370,40 @@ class CustomerReelController {
             });
         }
     }
+}
 
-    /**
-     * Format time ago
-     */
-    formatTimeAgo(date) {
-        const now = new Date();
-        const then = new Date(date);
-        const diffInSeconds = Math.floor((now - then) / 1000);
+// ✅ FIXED: Move formatTimeAgo outside the class as a helper function
+function formatTimeAgo(date) {
+    const now = new Date();
+    const then = new Date(date);
+    const diffInSeconds = Math.floor((now - then) / 1000);
 
-        if (diffInSeconds < 60) {
-            return 'Just now';
-        }
-
-        const diffInMinutes = Math.floor(diffInSeconds / 60);
-        if (diffInMinutes < 60) {
-            return `${diffInMinutes}m ago`;
-        }
-
-        const diffInHours = Math.floor(diffInMinutes / 60);
-        if (diffInHours < 24) {
-            return `${diffInHours}h ago`;
-        }
-
-        const diffInDays = Math.floor(diffInHours / 24);
-        if (diffInDays < 7) {
-            return `${diffInDays}d ago`;
-        }
-
-        const diffInWeeks = Math.floor(diffInDays / 7);
-        if (diffInWeeks < 4) {
-            return `${diffInWeeks}w ago`;
-        }
-
-        const diffInMonths = Math.floor(diffInDays / 30);
-        return `${diffInMonths}mo ago`;
+    if (diffInSeconds < 60) {
+        return 'Just now';
     }
+
+    const diffInMinutes = Math.floor(diffInSeconds / 60);
+    if (diffInMinutes < 60) {
+        return `${diffInMinutes}m ago`;
+    }
+
+    const diffInHours = Math.floor(diffInMinutes / 60);
+    if (diffInHours < 24) {
+        return `${diffInHours}h ago`;
+    }
+
+    const diffInDays = Math.floor(diffInHours / 24);
+    if (diffInDays < 7) {
+        return `${diffInDays}d ago`;
+    }
+
+    const diffInWeeks = Math.floor(diffInDays / 7);
+    if (diffInWeeks < 4) {
+        return `${diffInWeeks}w ago`;
+    }
+
+    const diffInMonths = Math.floor(diffInDays / 30);
+    return `${diffInMonths}mo ago`;
 }
 
 module.exports = new CustomerReelController();
