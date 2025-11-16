@@ -1,15 +1,17 @@
 // models/reel.js - Reel Sequelize Model
+const { v4: uuidv4 } = require('uuid');
+
 module.exports = (sequelize, DataTypes) => {
     const Reel = sequelize.define(
         'Reel',
         {
             id: {
-                type: DataTypes.INTEGER,
+                type: DataTypes.CHAR(36),
                 primaryKey: true,
-                autoIncrement: true,
+                defaultValue: () => uuidv4(),
             },
             merchant_id: {
-                type: DataTypes.INTEGER,
+                type: DataTypes.CHAR(36),
                 allowNull: false,
                 references: {
                     model: 'merchants',
@@ -18,7 +20,7 @@ module.exports = (sequelize, DataTypes) => {
                 onDelete: 'CASCADE',
             },
             store_id: {
-                type: DataTypes.INTEGER,
+                type: DataTypes.CHAR(36),
                 allowNull: false,
                 references: {
                     model: 'stores',
@@ -27,7 +29,7 @@ module.exports = (sequelize, DataTypes) => {
                 onDelete: 'CASCADE',
             },
             service_id: {
-                type: DataTypes.INTEGER,
+                type: DataTypes.CHAR(36),
                 allowNull: false,
                 references: {
                     model: 'services',
@@ -99,6 +101,34 @@ module.exports = (sequelize, DataTypes) => {
             ],
         }
     );
+
+    // Define associations
+    Reel.associate = (models) => {
+        Reel.belongsTo(models.Merchant, {
+            foreignKey: 'merchant_id',
+            as: 'merchant',
+        });
+
+        Reel.belongsTo(models.Store, {
+            foreignKey: 'store_id',
+            as: 'store',
+        });
+
+        Reel.belongsTo(models.Service, {
+            foreignKey: 'service_id',
+            as: 'service',
+        });
+
+        Reel.hasMany(models.ReelView, {
+            foreignKey: 'reel_id',
+            as: 'reel_views',
+        });
+
+        Reel.hasMany(models.ReelLike, {
+            foreignKey: 'reel_id',
+            as: 'reel_likes',
+        });
+    };
 
     return Reel;
 };

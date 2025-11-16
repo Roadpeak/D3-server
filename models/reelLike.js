@@ -1,9 +1,9 @@
-// models/reelView.js - ReelView Sequelize Model
+// models/reelLike.js - ReelLike Sequelize Model
 const { v4: uuidv4 } = require('uuid');
 
 module.exports = (sequelize, DataTypes) => {
-    const ReelView = sequelize.define(
-        'ReelView',
+    const ReelLike = sequelize.define(
+        'ReelLike',
         {
             id: {
                 type: DataTypes.CHAR(36),
@@ -21,56 +21,45 @@ module.exports = (sequelize, DataTypes) => {
             },
             user_id: {
                 type: DataTypes.CHAR(36),
-                allowNull: true,
+                allowNull: false,
                 references: {
                     model: 'users',
                     key: 'id',
                 },
-                onDelete: 'SET NULL',
-                comment: 'NULL for anonymous views',
-            },
-            ip_address: {
-                type: DataTypes.STRING(45),
-                allowNull: true,
-                comment: 'IPv4 or IPv6',
-            },
-            user_agent: {
-                type: DataTypes.TEXT,
-                allowNull: true,
-            },
-            view_duration: {
-                type: DataTypes.INTEGER,
-                defaultValue: 0,
-                comment: 'How many seconds user watched',
+                onDelete: 'CASCADE',
             },
         },
         {
-            tableName: 'reel_views',
+            tableName: 'reel_likes',
             timestamps: true,
             underscored: true,
-            createdAt: 'viewed_at',
+            createdAt: 'created_at',
             updatedAt: false,
             indexes: [
                 { fields: ['reel_id'] },
                 { fields: ['user_id'] },
-                { fields: ['viewed_at'] },
-                { fields: ['reel_id', 'viewed_at'] },
+                { fields: ['created_at'] },
+                {
+                    unique: true,
+                    fields: ['reel_id', 'user_id'],
+                    name: 'unique_reel_user_like',
+                },
             ],
         }
     );
 
     // Define associations
-    ReelView.associate = (models) => {
-        ReelView.belongsTo(models.Reel, {
+    ReelLike.associate = (models) => {
+        ReelLike.belongsTo(models.Reel, {
             foreignKey: 'reel_id',
             as: 'reel',
         });
 
-        ReelView.belongsTo(models.User, {
+        ReelLike.belongsTo(models.User, {
             foreignKey: 'user_id',
             as: 'user',
         });
     };
 
-    return ReelView;
+    return ReelLike;
 };
