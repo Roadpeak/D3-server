@@ -1,4 +1,4 @@
-// controllers/notificationController.js - COMPLETE WITH UNIFIED SYSTEM + WEB PUSH
+// controllers/notificationController.js - COMPLETE WITH UNIFIED SYSTEM + WEB PUSH (MERCHANT SUPPORT FIXED)
 const { Op } = require('sequelize');
 const webpush = require('web-push');
 
@@ -33,7 +33,7 @@ class NotificationController {
     return reqUser.id || reqUser.merchant_id || reqUser.userId;
   }
 
-  // ✅ NEW: Get recipient type from user
+  // ✅ Get recipient type from user
   getRecipientType(reqUser) {
     const userType = reqUser.type || reqUser.userType;
     if (userType === 'merchant') {
@@ -62,7 +62,7 @@ class NotificationController {
       const subscriptions = await PushSubscription.findAll({
         where: {
           userId,
-          userType: userType || 'user' // ✅ NEW: Filter by user type
+          userType: userType || 'user'
         },
         attributes: ['endpoint', 'p256dhKey', 'authKey']
       });
@@ -139,13 +139,20 @@ class NotificationController {
   }
 
   /**
-   * Subscribe to web push notifications
+   * Subscribe to web push notifications - FIXED FOR MERCHANTS
    */
   async subscribePushNotifications(req, res) {
     try {
       const userId = this.getUserId(req.user);
       const userType = req.user.type || req.user.userType || 'user';
       const subscription = req.body;
+
+      console.log('📱 Push subscription request:', {
+        userId,
+        userType,
+        hasSubscription: !!subscription,
+        endpoint: subscription?.endpoint
+      });
 
       if (!userId) {
         return res.status(400).json({
@@ -181,9 +188,27 @@ class NotificationController {
 
       console.log(`✅ ${userType} ${userId} subscribed to web push notifications`);
 
+      // Send welcome notification
+      try {
+        await this.sendWebPushNotification(userId, userType, {
+          title: userType === 'merchant' ? '🔔 Merchant Notifications Enabled!' : '🎉 Notifications Enabled!',
+          message: userType === 'merchant'
+            ? 'You\'ll now receive instant updates for customer messages, bookings, and reviews.'
+            : 'You\'ll now receive instant updates even when the app is closed.',
+          icon: '/logo192.png',
+          actionUrl: userType === 'merchant' ? '/dashboard' : '/'
+        });
+      } catch (welcomeError) {
+        console.warn('Failed to send welcome notification:', welcomeError);
+      }
+
       return res.status(201).json({
         success: true,
-        message: 'Successfully subscribed to push notifications'
+        message: 'Successfully subscribed to push notifications',
+        data: {
+          userType,
+          subscribed: true
+        }
       });
 
     } catch (error) {
@@ -243,7 +268,7 @@ class NotificationController {
   async getPushStats(req, res) {
     try {
       const userId = this.getUserId(req.user);
-      const userType = this.getRecipientType(req.user); // ✅ NEW
+      const userType = this.getRecipientType(req.user);
 
       if (!userId) {
         return res.status(400).json({
@@ -266,7 +291,7 @@ class NotificationController {
       const subscriptions = await PushSubscription.findAll({
         where: {
           userId,
-          userType // ✅ NEW
+          userType
         },
         attributes: ['endpoint', 'userAgent', 'lastUsedAt', 'createdAt']
       });
@@ -305,7 +330,7 @@ class NotificationController {
   async getNotifications(req, res) {
     try {
       const userId = this.getUserId(req.user);
-      const recipientType = this.getRecipientType(req.user); // ✅ NEW
+      const recipientType = this.getRecipientType(req.user);
 
       if (!userId) {
         console.error('No userId found in req.user:', req.user);
@@ -329,7 +354,7 @@ class NotificationController {
       // Build where clause with enhanced filtering
       const whereClause = {
         userId,
-        recipientType // ✅ NEW: Filter by recipient type
+        recipientType
       };
 
       if (type !== 'all') {
@@ -374,7 +399,7 @@ class NotificationController {
         attributes: [
           'id',
           'userId',
-          'recipientType', // ✅ NEW
+          'recipientType',
           'senderId',
           'storeId',
           'type',
@@ -402,7 +427,7 @@ class NotificationController {
       const transformedNotifications = notifications.map(notification => ({
         id: notification.id,
         userId: notification.userId,
-        recipientType: notification.recipientType, // ✅ NEW
+        recipientType: notification.recipientType,
         senderId: notification.senderId,
         storeId: notification.storeId,
         type: notification.type,
@@ -476,7 +501,7 @@ class NotificationController {
   async getNotificationCounts(req, res) {
     try {
       const userId = this.getUserId(req.user);
-      const recipientType = this.getRecipientType(req.user); // ✅ NEW
+      const recipientType = this.getRecipientType(req.user);
 
       if (!userId) {
         console.error('No userId found in req.user for counts:', req.user);
@@ -491,8 +516,8 @@ class NotificationController {
       console.log('Getting enhanced notification counts for:', { userId, recipientType });
 
       // Build base where clause
-      let whereClause = 'WHERE userId = :userId AND recipientType = :recipientType'; // ✅ UPDATED
-      const replacements = { userId, recipientType }; // ✅ UPDATED
+      let whereClause = 'WHERE userId = :userId AND recipientType = :recipientType';
+      const replacements = { userId, recipientType };
 
       if (storeId) {
         whereClause += ' AND storeId = :storeId';
@@ -526,7 +551,7 @@ class NotificationController {
         scheduled: 0,
         byType: {
           new_message: 0,
-          new_conversation: 0, // ✅ NEW
+          new_conversation: 0,
           booking_created: 0,
           booking_confirmed: 0,
           booking_cancelled: 0,
@@ -636,13 +661,13 @@ class NotificationController {
         });
       }
 
-      // ✅ NEW: Determine recipient type
+      // Determine recipient type
       const recipientType = notificationData.recipientType || 'user';
 
       // Enhanced notification data with smart defaults
       const enhancedData = {
         userId: notificationData.userId,
-        recipientType: recipientType, // ✅ NEW
+        recipientType: recipientType,
         senderId: notificationData.senderId || createdBy,
         storeId: notificationData.storeId,
         type: notificationData.type,
@@ -704,7 +729,7 @@ class NotificationController {
       // 3. Send web push notification (supports both users and merchants)
       const pushResult = await this.sendWebPushNotification(
         notification.userId,
-        recipientType, // ✅ NEW: Pass recipient type
+        recipientType,
         {
           id: notification.id,
           title: notification.title,
@@ -736,7 +761,7 @@ class NotificationController {
             webPush: pushResult.sent > 0,
             pushDevices: pushResult.sent || 0,
             pushFailed: pushResult.failed || 0,
-            recipientType: recipientType // ✅ NEW
+            recipientType: recipientType
           }
         }
       });
@@ -758,7 +783,7 @@ class NotificationController {
     try {
       const { id } = req.params;
       const userId = this.getUserId(req.user);
-      const recipientType = this.getRecipientType(req.user); // ✅ NEW
+      const recipientType = this.getRecipientType(req.user);
 
       if (!userId) {
         return res.status(400).json({
@@ -771,7 +796,7 @@ class NotificationController {
         where: {
           id,
           userId,
-          recipientType // ✅ NEW
+          recipientType
         },
         include: [
           {
@@ -836,7 +861,7 @@ class NotificationController {
   async markAllAsRead(req, res) {
     try {
       const userId = this.getUserId(req.user);
-      const recipientType = this.getRecipientType(req.user); // ✅ NEW
+      const recipientType = this.getRecipientType(req.user);
 
       if (!userId) {
         return res.status(400).json({
@@ -849,7 +874,7 @@ class NotificationController {
 
       const whereClause = {
         userId,
-        recipientType, // ✅ NEW
+        recipientType,
         read: false
       };
 
@@ -906,7 +931,7 @@ class NotificationController {
   async getNotificationsByStore(req, res) {
     try {
       const userId = this.getUserId(req.user);
-      const recipientType = this.getRecipientType(req.user); // ✅ NEW
+      const recipientType = this.getRecipientType(req.user);
       const { storeId } = req.params;
       const { page = 1, limit = 20, unreadOnly = false } = req.query;
 
@@ -934,7 +959,7 @@ class NotificationController {
       const offset = (parseInt(page) - 1) * parseInt(limit);
       const whereClause = {
         userId,
-        recipientType, // ✅ NEW
+        recipientType,
         storeId
       };
 
@@ -1000,7 +1025,7 @@ class NotificationController {
   async getNotificationAnalytics(req, res) {
     try {
       const userId = this.getUserId(req.user);
-      const recipientType = this.getRecipientType(req.user); // ✅ NEW
+      const recipientType = this.getRecipientType(req.user);
       const { period = '7d', storeId } = req.query;
 
       if (!userId) {
@@ -1011,8 +1036,8 @@ class NotificationController {
       }
 
       const startDate = this.getDateByPeriod(period);
-      let whereClause = 'WHERE userId = :userId AND recipientType = :recipientType AND createdAt >= :startDate'; // ✅ UPDATED
-      const replacements = { userId, recipientType, startDate }; // ✅ UPDATED
+      let whereClause = 'WHERE userId = :userId AND recipientType = :recipientType AND createdAt >= :startDate';
+      const replacements = { userId, recipientType, startDate };
 
       if (storeId) {
         whereClause += ' AND storeId = :storeId';
@@ -1040,7 +1065,7 @@ class NotificationController {
         success: true,
         data: {
           period,
-          recipientType, // ✅ NEW
+          recipientType,
           analytics,
           summary: {
             totalNotifications: analytics.reduce((sum, a) => sum + parseInt(a.total), 0),
@@ -1066,7 +1091,7 @@ class NotificationController {
     try {
       const { id } = req.params;
       const userId = this.getUserId(req.user);
-      const recipientType = this.getRecipientType(req.user); // ✅ NEW
+      const recipientType = this.getRecipientType(req.user);
 
       if (!userId) {
         return res.status(400).json({
@@ -1079,7 +1104,7 @@ class NotificationController {
         where: {
           id,
           userId,
-          recipientType // ✅ NEW
+          recipientType
         }
       });
 
@@ -1296,7 +1321,7 @@ class NotificationController {
   generateActionUrl(notificationData) {
     const urlMap = {
       new_message: `/chat/${notificationData.relatedEntityId}`,
-      new_conversation: `/chat/${notificationData.relatedEntityId}`, // ✅ NEW
+      new_conversation: `/chat/${notificationData.relatedEntityId}`,
       booking_created: `/bookings/${notificationData.relatedEntityId}`,
       booking_confirmed: `/bookings/${notificationData.relatedEntityId}`,
       new_review: `/stores/${notificationData.storeId}/reviews`,
@@ -1313,7 +1338,7 @@ class NotificationController {
       booking_cancelled: { inApp: true, email: true, sms: true, push: true },
       payment_received: { inApp: true, email: true, push: true },
       new_message: { inApp: true, push: true },
-      new_conversation: { inApp: true, email: true, push: true }, // ✅ NEW
+      new_conversation: { inApp: true, email: true, push: true },
       offer_accepted: { inApp: true, email: true, push: true }
     };
 
