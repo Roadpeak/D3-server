@@ -1,4 +1,4 @@
-// routes/notificationRoutes.js - UPDATED WITH USER AUTH FIRST
+// routes/notificationRoutes.js - FIXED WITH PROPER DUAL AUTH
 const express = require('express');
 const router = express.Router();
 const { body, param, query, validationResult } = require('express-validator');
@@ -22,39 +22,11 @@ const {
   getPushStats
 } = require('../controllers/notificationController');
 
-// Import both auth methods
-const { authenticateUser } = require('../middleware/auth');
-const { authenticateMerchant } = require('../middleware/Merchantauth');
+// Import verifyToken which accepts both users and merchants
+const { verifyToken } = require('../middleware/auth');
 
-// FIXED: User auth first, then merchant auth
-const workingDualAuth = (req, res, next) => {
-  console.log('🔐 Trying dual auth for notifications...');
-
-  // Try USER auth first (for customer app)
-  authenticateUser(req, res, (userErr) => {
-    if (!userErr) {
-      console.log('✅ User auth successful for notifications');
-      return next();
-    }
-
-    console.log('❌ User auth failed, trying merchant auth...');
-
-    // Fallback to merchant auth
-    authenticateMerchant(req, res, (merchantErr) => {
-      if (!merchantErr) {
-        console.log('✅ Merchant auth successful for notifications');
-        return next();
-      }
-
-      console.log('❌ Both auth methods failed');
-      return res.status(401).json({
-        success: false,
-        message: 'Authentication required. Please log in.',
-        code: 'AUTH_REQUIRED'
-      });
-    });
-  });
-};
+// FIXED: Use verifyToken directly - it handles both users and merchants
+const workingDualAuth = verifyToken;
 
 // Validation middleware
 const handleValidationErrors = (req, res, next) => {
@@ -120,7 +92,7 @@ router.get('/', [
   query('page').optional().isInt({ min: 1 }).withMessage('Page must be a positive integer'),
   query('limit').optional().isInt({ min: 1, max: 100 }).withMessage('Limit must be between 1 and 100'),
   query('type').optional().isIn([
-    'all', 'new_message', 'booking_created', 'booking_confirmed', 'booking_cancelled',
+    'all', 'new_message', 'new_conversation', 'booking_created', 'booking_confirmed', 'booking_cancelled',
     'offer_accepted', 'offer_rejected', 'new_review', 'store_follow', 'payment_received'
   ]).withMessage('Invalid notification type'),
   query('unreadOnly').optional().isBoolean().withMessage('unreadOnly must be boolean'),
@@ -175,7 +147,7 @@ router.get('/store/:storeId', [
 router.post('/', [
   body('userId').isUUID().withMessage('userId must be valid UUID'),
   body('type').isIn([
-    'new_message', 'booking_created', 'booking_confirmed', 'booking_cancelled',
+    'new_message', 'new_conversation', 'booking_created', 'booking_confirmed', 'booking_cancelled',
     'offer_accepted', 'offer_rejected', 'new_review', 'store_follow', 'payment_received',
     'service_request_offer', 'system_announcement', 'reminder'
   ]).withMessage('Invalid notification type'),
@@ -211,7 +183,7 @@ router.put('/:id/read', [
  */
 router.put('/mark-all-read', [
   query('type').optional().isIn([
-    'new_message', 'booking_created', 'booking_confirmed', 'booking_cancelled',
+    'new_message', 'new_conversation', 'booking_created', 'booking_confirmed', 'booking_cancelled',
     'offer_accepted', 'offer_rejected', 'new_review', 'store_follow', 'payment_received'
   ]).withMessage('Invalid notification type'),
   query('storeId').optional().isUUID().withMessage('storeId must be valid UUID'),
