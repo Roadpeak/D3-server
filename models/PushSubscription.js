@@ -1,4 +1,4 @@
-// models/PushSubscription.js - CORRECTED FOR UUID
+// models/PushSubscription.js - FIXED FOR MULTI-USER-TYPE SUPPORT
 'use strict';
 
 module.exports = (sequelize, DataTypes) => {
@@ -10,10 +10,10 @@ module.exports = (sequelize, DataTypes) => {
             allowNull: false
         },
         userId: {
-            type: DataTypes.CHAR(36), // CHANGED: UUID instead of INTEGER
+            type: DataTypes.CHAR(36), // UUID
             allowNull: false,
             field: 'user_id',
-            comment: 'References User.id (UUID) - the user who subscribed'
+            comment: 'References User.id OR Merchant.id (UUID) - depends on userType'
         },
         userType: {
             type: DataTypes.ENUM('user', 'merchant', 'admin'),
@@ -67,6 +67,10 @@ module.exports = (sequelize, DataTypes) => {
                 fields: ['user_type']
             },
             {
+                name: 'idx_push_user_composite',
+                fields: ['user_id', 'user_type']
+            },
+            {
                 unique: true,
                 name: 'idx_push_endpoint',
                 fields: ['endpoint(255)']
@@ -78,14 +82,14 @@ module.exports = (sequelize, DataTypes) => {
         ]
     });
 
-    // Define associations
+    // ❌ REMOVED: No belongsTo association because we support multiple user types
+    // The userId can reference either User or Merchant based on userType
+    // We handle this manually in the controller/queries
+
     PushSubscription.associate = (models) => {
-        // Association with User model (UUID)
-        PushSubscription.belongsTo(models.User, {
-            foreignKey: 'userId',
-            as: 'user',
-            onDelete: 'CASCADE'
-        });
+        // No associations defined here
+        // We use polymorphic relationship pattern instead
+        // userId + userType together determine which table to reference
     };
 
     return PushSubscription;

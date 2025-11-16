@@ -405,16 +405,15 @@ Store.hasMany(Notification, {
 // WEB PUSH ASSOCIATIONS (NEW)
 // ==========================================
 
-// PushSubscription-User
-PushSubscription.belongsTo(User, {
-  foreignKey: 'userId',
-  as: 'user',
-  onDelete: 'CASCADE'
-});
-User.hasMany(PushSubscription, {
-  foreignKey: 'userId',
-  as: 'pushSubscriptions'
-});
+// NO ASSOCIATIONS FOR PUSHSUBSCRIPTION
+// We use a polymorphic relationship pattern instead:
+// - userId can reference either User.id or Merchant.id
+// - userType field determines which table to reference
+// - This avoids foreign key constraint issues
+
+// ==========================================
+// EXPORTS
+// ==========================================
 
 // ==========================================
 // EXPORTS
