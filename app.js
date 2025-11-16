@@ -38,6 +38,7 @@ const swaggerFile = path.join(__dirname, 'swagger_output.json');
 const merchantBookingRoutes = require('./routes/merchantBookingRoutes.js')
 const NoShowHandlerService = require('./services/noShowHandlerService');
 const AutoCompletionService = require('./services/autoCompletionService');
+const reelsRoutes = require('./routes/reelsRoutes');
 
 // Import API key middleware
 const { apiKeyMiddleware } = require('./middleware/apiKey');
@@ -249,6 +250,7 @@ app.use('/api/v1/users', favoritesRoutes);
 app.use('/api/v1/offers', favoritesRoutes); 
 app.use('/api/v1/notifications', notificationRoutes);
 app.use('/api/v1/merchant/bookings', merchantBookingRoutes);
+app.use('/api/v1/reels', reelsRoutes);
 
 // Static file serving
 app.use('/qrcodes', express.static(path.join(__dirname, 'public', 'qrcodes')));

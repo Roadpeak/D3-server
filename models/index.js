@@ -1,4 +1,4 @@
-// models/index.js - UPDATED WITH PUSHSUBSCRIPTION MODEL
+// models/index.js - UPDATED WITH REEL MODELS
 
 'use strict';
 
@@ -47,8 +47,13 @@ const ServiceRequest = require('./ServiceRequest')(sequelize, DataTypes);
 const ServiceOffer = require('./ServiceOffer')(sequelize, DataTypes);
 const Notification = require('./notification')(sequelize, DataTypes);
 
-// NEW: WEB PUSH MODEL
+// WEB PUSH MODEL
 const PushSubscription = require('./PushSubscription')(sequelize, DataTypes);
+
+// REELS MODELS (NEW)
+const Reel = require('./reel')(sequelize, DataTypes);
+const ReelLike = require('./reelLike')(sequelize, DataTypes);
+const ReelView = require('./reelView')(sequelize, DataTypes);
 
 // ==========================================
 // MODEL ASSOCIATIONS
@@ -402,18 +407,85 @@ Store.hasMany(Notification, {
 });
 
 // ==========================================
-// WEB PUSH ASSOCIATIONS (NEW)
+// REELS ASSOCIATIONS (NEW)
 // ==========================================
 
-// NO ASSOCIATIONS FOR PUSHSUBSCRIPTION
-// We use a polymorphic relationship pattern instead:
-// - userId can reference either User.id or Merchant.id
-// - userType field determines which table to reference
-// - This avoids foreign key constraint issues
+// Reel-Merchant
+Reel.belongsTo(Merchant, {
+  foreignKey: 'merchant_id',
+  as: 'merchant',
+  onDelete: 'CASCADE'
+});
+Merchant.hasMany(Reel, {
+  foreignKey: 'merchant_id',
+  as: 'reels'
+});
 
-// ==========================================
-// EXPORTS
-// ==========================================
+// Reel-Store
+Reel.belongsTo(Store, {
+  foreignKey: 'store_id',
+  as: 'store',
+  onDelete: 'CASCADE'
+});
+Store.hasMany(Reel, {
+  foreignKey: 'store_id',
+  as: 'reels'
+});
+
+// Reel-Service
+Reel.belongsTo(Service, {
+  foreignKey: 'service_id',
+  as: 'service',
+  onDelete: 'CASCADE'
+});
+Service.hasMany(Reel, {
+  foreignKey: 'service_id',
+  as: 'reels'
+});
+
+// ReelLike-Reel
+ReelLike.belongsTo(Reel, {
+  foreignKey: 'reel_id',
+  as: 'reel',
+  onDelete: 'CASCADE'
+});
+Reel.hasMany(ReelLike, {
+  foreignKey: 'reel_id',
+  as: 'reelLikes'
+});
+
+// ReelLike-User
+ReelLike.belongsTo(User, {
+  foreignKey: 'user_id',
+  as: 'user',
+  onDelete: 'CASCADE'
+});
+User.hasMany(ReelLike, {
+  foreignKey: 'user_id',
+  as: 'likedReels'
+});
+
+// ReelView-Reel
+ReelView.belongsTo(Reel, {
+  foreignKey: 'reel_id',
+  as: 'reel',
+  onDelete: 'CASCADE'
+});
+Reel.hasMany(ReelView, {
+  foreignKey: 'reel_id',
+  as: 'reelViews'
+});
+
+// ReelView-User
+ReelView.belongsTo(User, {
+  foreignKey: 'user_id',
+  as: 'user',
+  onDelete: 'SET NULL'
+});
+User.hasMany(ReelView, {
+  foreignKey: 'user_id',
+  as: 'viewedReels'
+});
 
 // ==========================================
 // EXPORTS
@@ -448,7 +520,11 @@ module.exports = {
   ServiceRequest,
   ServiceOffer,
   Notification,
-  // WEB PUSH MODEL (NEW)
+  // WEB PUSH MODEL
   PushSubscription,
+  // REELS MODELS (NEW)
+  Reel,
+  ReelLike,
+  ReelView,
   sequelize,
 };
