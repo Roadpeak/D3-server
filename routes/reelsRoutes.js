@@ -9,9 +9,27 @@ const merchantReelController = require('../controllers/merchant/reelController')
 const customerReelController = require('../controllers/customer/reelController');
 
 // Import middleware - using your existing auth structure
-const { authenticateToken } = require('../middleware/auth'); // lowercase 'a' to match your existing files
+const { verifyToken: authenticateToken } = require('../middleware/auth');
 const { authenticateMerchant } = require('../middleware/Merchantauth'); // Capital 'M' to match your existing file
 const { optionalAuth } = require('../middleware/optionalAuth'); // For optional auth
+
+// Add this right after all your imports
+console.log('=== REEL CONTROLLER FUNCTIONS ===');
+console.log('merchantReelController:', Object.keys(merchantReelController));
+console.log('customerReelController:', Object.keys(customerReelController));
+console.log('=================================');
+
+// Check each function specifically
+const requiredMerchantFunctions = ['getReels', 'createReel', 'getReel', 'updateReel', 'deleteReel', 'getAnalytics'];
+const requiredCustomerFunctions = ['getFeed', 'getReel', 'toggleLike', 'trackView', 'trackShare', 'trackChat'];
+
+requiredMerchantFunctions.forEach(fn => {
+    console.log(`merchantReelController.${fn}:`, typeof merchantReelController[fn]);
+});
+
+requiredCustomerFunctions.forEach(fn => {
+    console.log(`customerReelController.${fn}:`, typeof customerReelController[fn]);
+});
 
 // Configure multer for memory storage (upload to Cloudflare R2)
 const upload = multer({
