@@ -11,6 +11,8 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.932.0",
+    "@aws-sdk/s3-request-presigner": "^3.932.0",
     "@sendgrid/mail": "^8.1.6",
     "axios": "^1.7.9",
     "bcryptjs": "^2.4.3",
@@ -41,6 +43,7 @@
     "swagger-autogen": "^2.23.7",
     "swagger-jsdoc": "^6.2.8",
     "swagger-ui-express": "^5.0.1",
+    "uuid": "^9.0.1",
     "web-push": "^3.6.7",
     "ws": "^8.18.0"
   },
