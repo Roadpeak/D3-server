@@ -516,13 +516,10 @@ module.exports = {
   Message,
   Favorite,
   Branch,
-  // SERVICE MARKETPLACE MODELS
   ServiceRequest,
   ServiceOffer,
   Notification,
-  // WEB PUSH MODEL
   PushSubscription,
-  // REELS MODELS (NEW)
   Reel,
   ReelLike,
   ReelView,

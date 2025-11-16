@@ -41,7 +41,7 @@ class CustomerReelController {
                 {
                     model: Store,
                     as: 'store',
-                    attributes: ['id', 'name', 'logo', 'verified', 'location'],
+                    attributes: ['id', 'name', 'logo_url', 'location'],
                     required: true,
                     ...(location && {
                         where: {
@@ -96,8 +96,8 @@ class CustomerReelController {
                         store: {
                             id: reel.store.id,
                             name: reel.store.name,
-                            avatar: reel.store.logo,
-                            verified: reel.store.verified === 1 || reel.store.verified === true,
+                            avatar: reel.store.logo_url,
+                            verified: false, // Store model doesn't have verified field
                         },
                         service: {
                             id: reel.service.id,
@@ -157,7 +157,7 @@ class CustomerReelController {
                     {
                         model: Store,
                         as: 'store',
-                        attributes: ['id', 'name', 'logo', 'verified'],
+                        attributes: ['id', 'name', 'logo_url'],
                     },
                 ],
             });
@@ -189,8 +189,8 @@ class CustomerReelController {
                     store: {
                         id: reel.store.id,
                         name: reel.store.name,
-                        avatar: reel.store.logo,
-                        verified: reel.store.verified === 1 || reel.store.verified === true,
+                        avatar: reel.store.logo_url,
+                        verified: false, // Store model doesn't have verified field
                     },
                     service: {
                         id: reel.service.id,
