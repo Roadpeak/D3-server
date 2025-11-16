@@ -57,8 +57,8 @@ const createReelValidation = [
     body('serviceId')
         .notEmpty()
         .withMessage('Service ID is required')
-        .isInt()
-        .withMessage('Service ID must be a valid integer'),
+        .isUUID()
+        .withMessage('Service ID must be a valid UUID'),
     body('status')
         .optional()
         .isIn(['draft', 'published'])
@@ -72,8 +72,8 @@ const createReelValidation = [
 
 const updateReelValidation = [
     param('id')
-        .isInt()
-        .withMessage('Reel ID must be a valid integer'),
+        .isUUID()
+        .withMessage('Reel ID must be a valid UUID'),
     body('title')
         .optional()
         .trim()
@@ -90,14 +90,14 @@ const updateReelValidation = [
         .withMessage('Invalid status'),
     body('serviceId')
         .optional()
-        .isInt()
-        .withMessage('Service ID must be a valid integer'),
+        .isUUID()
+        .withMessage('Service ID must be a valid UUID'),
 ];
 
 const reelIdValidation = [
     param('id')
-        .isInt()
-        .withMessage('Reel ID must be a valid integer'),
+        .isUUID()
+        .withMessage('Reel ID must be a valid UUID'),
 ];
 
 const feedValidation = [
@@ -116,12 +116,12 @@ const feedValidation = [
         .withMessage('Location must be less than 100 characters'),
     query('category')
         .optional()
-        .isInt()
-        .withMessage('Category must be a valid integer'),
+        .isUUID()
+        .withMessage('Category must be a valid UUID'),
     query('store_id')
         .optional()
-        .isInt()
-        .withMessage('Store ID must be a valid integer'),
+        .isUUID()
+        .withMessage('Store ID must be a valid UUID'),
     query('sort')
         .optional()
         .isIn(['recent', 'trending'])
@@ -130,8 +130,8 @@ const feedValidation = [
 
 const trackViewValidation = [
     param('id')
-        .isInt()
-        .withMessage('Reel ID must be a valid integer'),
+        .isUUID()
+        .withMessage('Reel ID must be a valid UUID'),
     body('duration')
         .optional()
         .isInt({ min: 0 })
@@ -252,12 +252,13 @@ router.post('/:id/view', optionalAuth, trackViewValidation, customerReelControll
  */
 router.post('/:id/share', reelIdValidation, customerReelController.trackShare);
 
-/**
- * @route   POST /api/v1/reels/:id/chat
- * @desc    Track chat initiation from reel
- * @access  Public
- */
-router.post('/:id/chat', reelIdValidation, customerReelController.trackChat);
+// COMMENTED OUT - TRACK CHAT ROUTE (CAUSING ISSUES)
+// /**
+//  * @route   POST /api/v1/reels/:id/chat
+//  * @desc    Track chat initiation from reel
+//  * @access  Public
+//  */
+// router.post('/:id/chat', reelIdValidation, customerReelController.trackChat);
 
 // ==========================================
 // ERROR HANDLING
