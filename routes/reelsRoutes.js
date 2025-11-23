@@ -278,6 +278,60 @@ router.post('/:id/share', reelIdValidation, customerReelController.trackShare);
 //  */
 // router.post('/:id/chat', reelIdValidation, customerReelController.trackChat);
 
+// Add this route to reelsRoutes.js after the existing customer routes:
+
+/**
+ * @route   GET /api/v1/reels/store/:storeId
+ * @desc    Get all reels for a specific store
+ * @access  Public (optional auth for likes)
+ */
+router.get(
+    '/store/:storeId',
+    optionalAuth,
+    [
+        param('storeId')
+            .isUUID()
+            .withMessage('Store ID must be a valid UUID'),
+        query('limit')
+            .optional()
+            .isInt({ min: 1, max: 50 })
+            .withMessage('Limit must be between 1 and 50'),
+        query('offset')
+            .optional()
+            .isInt({ min: 0 })
+            .withMessage('Offset must be a positive integer'),
+    ],
+    async (req, res) => {
+        try {
+            const errors = validationResult(req);
+            if (!errors.isEmpty()) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Validation errors',
+                    errors: errors.array(),
+                });
+            }
+
+            const { storeId } = req.params;
+            const { limit = 20, offset = 0 } = req.query;
+
+            // Use the existing getFeed controller but with store_id filter
+            req.query.store_id = storeId;
+            req.query.limit = limit;
+            req.query.offset = offset;
+
+            return customerReelController.getFeed(req, res);
+        } catch (error) {
+            console.error('Error fetching store reels:', error);
+            res.status(500).json({
+                success: false,
+                message: 'Error fetching store reels',
+                error: error.message,
+            });
+        }
+    }
+);
+
 // ==========================================
 // ERROR HANDLING
 // ==========================================
