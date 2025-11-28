@@ -104,13 +104,16 @@ exports.findUserByEmail = async (email) => {
 
     console.log('Found user for login:', user ? 'Yes' : 'No');
     console.log('User has password field:', user && user.password ? 'Yes' : 'No');
-    
+
     return user;
   } catch (error) {
     console.error('Error in findUserByEmail:', error);
     throw new Error('Error finding user: ' + error.message);
   }
 };
+
+// Alias for password reset - same as findUserByEmail but more explicit
+exports.findUserByEmailWithPassword = exports.findUserByEmail;
 
 // Find a user by phone number
 exports.findUserByPhone = async (phoneNumber) => {

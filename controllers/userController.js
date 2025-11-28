@@ -854,19 +854,36 @@ exports.requestPasswordReset = async (req, res) => {
       });
     }
 
-    const user = await userService.findUserByEmail(email);
+    const user = await userService.findUserByEmailWithPassword(email);
+
+    // Always return success message for security (don't reveal if user exists)
     if (!user) {
-      // Don't reveal if user exists for security
       return res.status(200).json({
         message: 'If a user with that email exists, a password reset link has been sent.'
       });
     }
 
-    // Generate reset token (implement this in your userService)
-    // await userService.generatePasswordResetToken(user);
+    // Generate reset token
+    const crypto = require('crypto');
+    const resetToken = crypto.randomBytes(32).toString('hex');
+    const resetTokenExpiry = new Date(Date.now() + 3600000); // 1 hour from now
+
+    // Update user with reset token
+    await user.update({
+      resetToken: resetToken,
+      resetTokenExpiry: resetTokenExpiry
+    });
+
+    // Send password reset email using notification service
+    const NotificationService = require('../services/notificationService');
+    const notificationService = new NotificationService();
+
+    await notificationService.sendPasswordResetEmail(user.email, resetToken, 'user');
+
+    console.log(`✅ Password reset email sent to: ${user.email}`);
 
     return res.status(200).json({
-      message: 'Password reset link sent to your email'
+      message: 'If a user with that email exists, a password reset link has been sent.'
     });
   } catch (err) {
     console.error('Request password reset error:', err);
@@ -892,11 +909,59 @@ exports.resetPassword = async (req, res) => {
       });
     }
 
-    // Implement password reset logic
-    // const result = await userService.resetPassword(token, newPassword);
+    // Validate password strength
+    if (newPassword.length < 8) {
+      return res.status(400).json({
+        message: 'Password must be at least 8 characters long',
+        errors: { newPassword: 'Password must be at least 8 characters long' }
+      });
+    }
+
+    // Find user with valid reset token
+    const { User } = require('../models');
+    const { Op } = require('sequelize');
+
+    const user = await User.scope('withPassword').findOne({
+      where: {
+        resetToken: token,
+        resetTokenExpiry: {
+          [Op.gt]: new Date() // Token must not be expired
+        }
+      }
+    });
+
+    if (!user) {
+      return res.status(400).json({
+        message: 'Invalid or expired reset token',
+        errors: { token: 'Invalid or expired reset token' }
+      });
+    }
+
+    // Update password and clear reset token
+    user.password = newPassword;
+    user.resetToken = null;
+    user.resetTokenExpiry = null;
+    await user.save();
+
+    // Send confirmation email
+    const NotificationService = require('../services/notificationService');
+    const notificationService = new NotificationService();
+
+    try {
+      await notificationService.sendPasswordResetConfirmation(
+        user.email,
+        user.firstName || user.email.split('@')[0],
+        'user'
+      );
+    } catch (emailError) {
+      console.error('Failed to send confirmation email:', emailError);
+      // Don't fail the password reset if email fails
+    }
+
+    console.log(`✅ Password reset successfully for user: ${user.email}`);
 
     return res.status(200).json({
-      message: 'Password reset successfully'
+      message: 'Password reset successfully. You can now log in with your new password.'
     });
   } catch (err) {
     console.error('Reset password error:', err);

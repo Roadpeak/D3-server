@@ -127,6 +127,18 @@ module.exports = (sequelize) => {
       defaultValue: true,
       field: 'sms_notifications',
       comment: 'Whether to receive SMS notifications'
+    },
+    resetToken: {
+      type: DataTypes.STRING,
+      allowNull: true,
+      field: 'reset_token',
+      comment: 'Password reset token'
+    },
+    resetTokenExpiry: {
+      type: DataTypes.DATE,
+      allowNull: true,
+      field: 'reset_token_expiry',
+      comment: 'Password reset token expiry time'
     }
   }, {
     tableName: 'merchants',

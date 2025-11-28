@@ -189,6 +189,16 @@ module.exports = (sequelize, DataTypes) => {
       allowNull: true,
       comment: 'When this user was referred'
     },
+    resetToken: {
+      type: DataTypes.STRING,
+      allowNull: true,
+      comment: 'Password reset token'
+    },
+    resetTokenExpiry: {
+      type: DataTypes.DATE,
+      allowNull: true,
+      comment: 'Password reset token expiry time'
+    },
   }, {
     tableName: 'users',
     timestamps: true,

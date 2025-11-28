@@ -190,69 +190,53 @@ exports.requestPasswordReset = async (req, res) => {
     const { email } = req.body;
 
     if (!email) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         success: false,
-        message: 'Email is required' 
+        message: 'Email is required'
       });
     }
 
     const merchant = await Merchant.findOne({ where: { email } });
+
+    // Always return success message for security (don't reveal if merchant exists)
     if (!merchant) {
-      // Don't reveal if email exists or not for security
-      return res.status(200).json({ 
+      return res.status(200).json({
         success: true,
-        message: 'If this email is registered, you will receive a password reset OTP' 
+        message: 'If this email is registered, you will receive a password reset link'
       });
     }
 
-    const otp = crypto.randomInt(100000, 999999).toString();
-    const otpExpires = new Date(Date.now() + 3600000); // 1 hour from now
+    // Generate reset token
+    const resetToken = crypto.randomBytes(32).toString('hex');
+    const resetTokenExpiry = new Date(Date.now() + 3600000); // 1 hour from now
 
     await merchant.update({
-      passwordResetOtp: otp,
-      passwordResetExpires: otpExpires
+      resetToken: resetToken,
+      resetTokenExpiry: resetTokenExpiry
     });
 
-    // Send OTP email (check if template exists)
-    try {
-      const templatePath = './templates/passwordResetOtp.ejs';
-      if (fs.existsSync(templatePath)) {
-        const template = fs.readFileSync(templatePath, 'utf8');
-        const emailContent = ejs.render(template, {
-          otp: otp,
-          merchantName: merchant.firstName,
-          expiresIn: '1 hour'
-        });
+    // Send password reset email using notification service
+    const NotificationService = require('../services/notificationService');
+    const notificationService = new NotificationService();
 
-        await sendEmail(
-          merchant.email,
-          'Password Reset OTP - Discoun3',
-          '',
-          emailContent
-        );
-      } else {
-        // Fallback plain text email
-        await sendEmail(
-          merchant.email,
-          'Password Reset OTP - Discoun3',
-          `Hi ${merchant.firstName},\n\nYour password reset OTP is: ${otp}\n\nThis OTP will expire in 1 hour.\n\nIf you didn't request this, please ignore this email.\n\nBest regards,\nDiscoun3 Team`
-        );
-      }
+    try {
+      await notificationService.sendPasswordResetEmail(merchant.email, resetToken, 'merchant');
+      console.log(`✅ Password reset email sent to merchant: ${merchant.email}`);
     } catch (emailError) {
-      console.error('Failed to send OTP email:', emailError);
-      return res.status(500).json({ 
+      console.error('Failed to send password reset email:', emailError);
+      return res.status(500).json({
         success: false,
-        message: 'Failed to send OTP email' 
+        message: 'Failed to send password reset email'
       });
     }
 
-    return res.status(200).json({ 
+    return res.status(200).json({
       success: true,
-      message: 'OTP sent to your email' 
+      message: 'If this email is registered, you will receive a password reset link'
     });
   } catch (err) {
     console.error('Password reset request error:', err);
-    return res.status(500).json({ 
+    return res.status(500).json({
       success: false,
       message: 'Error requesting password reset',
       error: process.env.NODE_ENV === 'development' ? err.message : undefined
@@ -262,63 +246,70 @@ exports.requestPasswordReset = async (req, res) => {
 
 exports.resetPassword = async (req, res) => {
   try {
-    const { email, otp, newPassword } = req.body;
+    const { token, newPassword } = req.body;
 
-    if (!email || !otp || !newPassword) {
-      return res.status(400).json({ 
+    if (!token || !newPassword) {
+      return res.status(400).json({
         success: false,
-        message: 'Email, OTP, and new password are required' 
+        message: 'Token and new password are required'
       });
     }
 
     // Validate new password
     if (newPassword.length < 8) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         success: false,
-        message: 'New password must be at least 8 characters long' 
+        message: 'New password must be at least 8 characters long'
       });
     }
 
-    const merchant = await Merchant.findOne({ where: { email } });
-    if (!merchant) {
-      return res.status(404).json({ 
-        success: false,
-        message: 'Merchant not found' 
-      });
-    }
-
-    if (merchant.passwordResetOtp !== otp) {
-      return res.status(400).json({ 
-        success: false,
-        message: 'Invalid OTP' 
-      });
-    }
-
-    if (!merchant.passwordResetExpires || merchant.passwordResetExpires < new Date()) {
-      return res.status(400).json({ 
-        success: false,
-        message: 'OTP has expired. Please request a new one.' 
-      });
-    }
-
-    // Hash new password
-    const hashedPassword = await bcrypt.hash(newPassword, 12);
-
-    // Update merchant
-    await merchant.update({
-      password: hashedPassword,
-      passwordResetOtp: null,
-      passwordResetExpires: null,
-      passwordChangedAt: new Date()
+    // Find merchant with valid reset token
+    const merchant = await Merchant.findOne({
+      where: {
+        resetToken: token,
+        resetTokenExpiry: {
+          [Op.gt]: new Date() // Token must not be expired
+        }
+      }
     });
 
-    return res.status(200).json({ 
+    if (!merchant) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid or expired reset token'
+      });
+    }
+
+    // Update password and clear reset token
+    merchant.password = newPassword;
+    merchant.resetToken = null;
+    merchant.resetTokenExpiry = null;
+    await merchant.save();
+
+    // Send confirmation email
+    const NotificationService = require('../services/notificationService');
+    const notificationService = new NotificationService();
+
+    try {
+      await notificationService.sendPasswordResetConfirmation(
+        merchant.email,
+        merchant.firstName || merchant.email.split('@')[0],
+        'merchant'
+      );
+    } catch (emailError) {
+      console.error('Failed to send confirmation email:', emailError);
+      // Don't fail the password reset if email fails
+    }
+
+    console.log(`✅ Password reset successfully for merchant: ${merchant.email}`);
+
+    return res.status(200).json({
       success: true,
-      message: 'Password has been reset successfully' 
+      message: 'Password has been reset successfully. You can now log in with your new password.'
     });
   } catch (err) {
     console.error('Password reset error:', err);
-    return res.status(500).json({ 
+    return res.status(500).json({
       success: false,
       message: 'Error resetting password',
       error: process.env.NODE_ENV === 'development' ? err.message : undefined

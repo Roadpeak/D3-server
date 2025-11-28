@@ -584,6 +584,89 @@ class NotificationService {
             return false;
         }
     }
+
+    async sendPasswordResetEmail(email, resetToken, userType = 'user') {
+        try {
+            console.log('📧 Sending password reset email to:', email);
+            console.log('📧 User type:', userType);
+
+            if (!email) {
+                console.error('❌ Email is required for password reset');
+                return false;
+            }
+
+            if (!resetToken) {
+                console.error('❌ Reset token is required');
+                return false;
+            }
+
+            const baseUrl = userType === 'merchant'
+                ? process.env.MERCHANT_FRONTEND_URL || 'https://merchants.discoun3ree.com'
+                : process.env.FRONTEND_URL || 'https://discoun3ree.com';
+
+            const resetLink = `${baseUrl}/reset-password?token=${resetToken}`;
+
+            const templateData = {
+                userName: email.split('@')[0],
+                userType: userType,
+                resetLink: resetLink,
+                expiresIn: '1 hour',
+                supportEmail: process.env.SUPPORT_EMAIL || 'support@discoun3ree.com',
+                companyAddress: process.env.COMPANY_ADDRESS || 'Nairobi, Kenya'
+            };
+
+            console.log('📧 Password reset template data prepared');
+
+            const htmlContent = await this.renderTemplate('passwordResetLink', templateData);
+
+            await this.sendEmail(
+                email,
+                'Reset Your Password - Discoun3ree',
+                htmlContent
+            );
+
+            console.log('✅ Password reset email sent successfully');
+            return true;
+        } catch (error) {
+            console.error('❌ Failed to send password reset email:', error);
+            return false;
+        }
+    }
+
+    async sendPasswordResetConfirmation(email, userName, userType = 'user') {
+        try {
+            console.log('📧 Sending password reset confirmation to:', email);
+
+            if (!email) {
+                console.error('❌ Email is required');
+                return false;
+            }
+
+            const templateData = {
+                userName: userName || email.split('@')[0],
+                userType: userType,
+                loginUrl: userType === 'merchant'
+                    ? `${process.env.MERCHANT_FRONTEND_URL || 'https://merchants.discoun3ree.com'}/login`
+                    : `${process.env.FRONTEND_URL || 'https://discoun3ree.com'}/login`,
+                supportEmail: process.env.SUPPORT_EMAIL || 'support@discoun3ree.com',
+                companyAddress: process.env.COMPANY_ADDRESS || 'Nairobi, Kenya'
+            };
+
+            const htmlContent = await this.renderTemplate('passwordResetConfirmation', templateData);
+
+            await this.sendEmail(
+                email,
+                'Password Reset Successful - Discoun3ree',
+                htmlContent
+            );
+
+            console.log('✅ Password reset confirmation email sent successfully');
+            return true;
+        } catch (error) {
+            console.error('❌ Failed to send password reset confirmation:', error);
+            return false;
+        }
+    }
 }
 
 module.exports = NotificationService;
