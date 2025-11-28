@@ -336,6 +336,25 @@ exports.followStore = async (req, res) => {
 
         console.log('✅ Customer/User', userId, 'now following store', storeId);
 
+        // Send push notification to merchant
+        try {
+            const user = await User.findByPk(userId);
+            const followerName = user ? `${user.firstName} ${user.lastName}`.trim() : 'Someone';
+
+            const PushNotificationService = require('../services/pushNotificationService');
+            const pushService = new PushNotificationService();
+
+            await pushService.sendNewFollowerNotification(
+                store.merchant_id,
+                followerName,
+                store.name
+            );
+            console.log('📱 Push notification sent to merchant for new follower');
+        } catch (pushError) {
+            console.error('❌ Failed to send push notification:', pushError);
+            // Don't fail the follow operation if push notification fails
+        }
+
         return res.status(201).json({
             success: true,
             message: 'Successfully followed store',
@@ -586,6 +605,24 @@ exports.toggleFollow = async (req, res) => {
 
             console.log('✅ Customer/User', userId, 'now following store', storeId);
 
+            // Send push notification to merchant
+            try {
+                const user = await User.findByPk(userId);
+                const followerName = user ? `${user.firstName} ${user.lastName}`.trim() : 'Someone';
+
+                const PushNotificationService = require('../services/pushNotificationService');
+                const pushService = new PushNotificationService();
+
+                await pushService.sendNewFollowerNotification(
+                    store.merchant_id,
+                    followerName,
+                    store.name
+                );
+                console.log('📱 Push notification sent to merchant for new follower');
+            } catch (pushError) {
+                console.error('❌ Failed to send push notification:', pushError);
+            }
+
             return res.status(200).json({
                 success: true,
                 message: 'Successfully followed store',
@@ -669,6 +706,23 @@ exports.toggleFollow = async (req, res) => {
                 user_id: userId,
                 store_id: storeId
             });
+
+            // Send push notification to merchant
+            try {
+                const user = await User.findByPk(userId);
+                const followerName = user ? `${user.firstName} ${user.lastName}`.trim() : 'Someone';
+
+                const PushNotificationService = require('../services/pushNotificationService');
+                const pushService = new PushNotificationService();
+
+                await pushService.sendNewFollowerNotification(
+                    store.merchant_id,
+                    followerName,
+                    store.name
+                );
+            } catch (pushError) {
+                console.error('❌ Failed to send push notification:', pushError);
+            }
 
             return res.status(200).json({
                 success: true,

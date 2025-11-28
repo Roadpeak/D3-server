@@ -398,6 +398,38 @@ class ServiceBookingController {
         // Don't fail the booking if notifications fail, just log the error
       }
 
+      // Send push notifications
+      try {
+        const PushNotificationService = require('../services/pushNotificationService');
+        const pushService = new PushNotificationService();
+        const moment = require('moment');
+
+        // Format booking time for notification
+        const bookingTime = moment(booking.startTime).format('MMM D, YYYY [at] h:mm A');
+        const customerName = `${user.firstName} ${user.lastName}`.trim();
+
+        // Send push to merchant
+        await pushService.sendNewBookingNotificationToMerchant(
+          bookingStore.merchant_id,
+          customerName,
+          service.name,
+          bookingTime
+        );
+
+        // Send push to user
+        await pushService.sendBookingConfirmationToUser(
+          user.id,
+          service.name,
+          bookingTime,
+          bookingStore.name
+        );
+
+        console.log('📱 Push notifications sent for new booking');
+      } catch (pushError) {
+        console.error('❌ Push notification failed:', pushError);
+        // Don't fail the booking if push fails
+      }
+
       // Fetch complete booking data for response
       const completeBooking = await Booking.findByPk(booking.id, {
         include: [
@@ -646,6 +678,53 @@ class ServiceBookingController {
         cancelledAt: new Date()
       });
 
+      // Send push notifications for cancellation
+      try {
+        const moment = require('moment');
+        const PushNotificationService = require('../services/pushNotificationService');
+        const pushService = new PushNotificationService();
+
+        // Get booking details with user and store
+        const fullBooking = await Booking.findByPk(bookingId, {
+          include: [
+            { model: User, as: 'bookingUser' },
+            { model: Service, as: 'service', include: [{ model: Store, as: 'store' }] }
+          ]
+        });
+
+        if (fullBooking && fullBooking.bookingUser && fullBooking.service) {
+          const bookingTime = moment(fullBooking.startTime).format('MMM D, YYYY [at] h:mm A');
+          const customerName = `${fullBooking.bookingUser.firstName} ${fullBooking.bookingUser.lastName}`.trim();
+          const storeName = fullBooking.service.store?.name || 'the store';
+          const serviceName = fullBooking.service.name;
+
+          // Send push to user
+          await pushService.sendBookingCancellationToUser(
+            fullBooking.userId,
+            serviceName,
+            bookingTime,
+            storeName,
+            reason || 'No reason provided'
+          );
+
+          // Send push to merchant
+          if (fullBooking.service.store?.merchant_id) {
+            await pushService.sendBookingCancellationToMerchant(
+              fullBooking.service.store.merchant_id,
+              customerName,
+              serviceName,
+              bookingTime,
+              reason || 'No reason provided'
+            );
+          }
+
+          console.log('📱 Push notifications sent for booking cancellation');
+        }
+      } catch (pushError) {
+        console.error('❌ Push notification failed:', pushError);
+        // Don't fail the cancellation if push fails
+      }
+
       return res.status(200).json({
         success: true,
         message: 'Service booking cancelled successfully',
@@ -764,6 +843,8 @@ class ServiceBookingController {
       const duration = service?.duration || 60;
       const newEndTime = newDateTime.clone().add(duration, 'minutes').toDate();
 
+      const oldStartTime = existingBooking.startTime;
+
       await existingBooking.update({
         startTime: newDateTime.toDate(),
         endTime: newEndTime,
@@ -772,6 +853,54 @@ class ServiceBookingController {
       }, { ...(transaction && { transaction }) });
 
       if (transaction) await transaction.commit();
+
+      // Send push notifications for reschedule
+      try {
+        const moment = require('moment');
+        const PushNotificationService = require('../services/pushNotificationService');
+        const pushService = new PushNotificationService();
+
+        // Get booking details with user and store
+        const fullBooking = await Booking.findByPk(bookingId, {
+          include: [
+            { model: User, as: 'bookingUser' },
+            { model: Service, as: 'service', include: [{ model: Store, as: 'store' }] }
+          ]
+        });
+
+        if (fullBooking && fullBooking.bookingUser && fullBooking.service) {
+          const oldTime = moment(oldStartTime).format('MMM D, YYYY [at] h:mm A');
+          const newTime = moment(newDateTime).format('MMM D, YYYY [at] h:mm A');
+          const customerName = `${fullBooking.bookingUser.firstName} ${fullBooking.bookingUser.lastName}`.trim();
+          const storeName = fullBooking.service.store?.name || 'the store';
+          const serviceName = fullBooking.service.name;
+
+          // Send push to user
+          await pushService.sendBookingRescheduleNotificationToUser(
+            fullBooking.userId,
+            serviceName,
+            oldTime,
+            newTime,
+            storeName
+          );
+
+          // Send push to merchant
+          if (fullBooking.service.store?.merchant_id) {
+            await pushService.sendBookingRescheduleNotificationToMerchant(
+              fullBooking.service.store.merchant_id,
+              customerName,
+              serviceName,
+              oldTime,
+              newTime
+            );
+          }
+
+          console.log('📱 Push notifications sent for booking reschedule');
+        }
+      } catch (pushError) {
+        console.error('❌ Push notification failed:', pushError);
+        // Don't fail the reschedule if push fails
+      }
 
       return res.status(200).json({
         success: true,

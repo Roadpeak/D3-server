@@ -126,6 +126,23 @@ exports.createReview = async (req, res) => {
 
     console.log('✅ Store rating updated:', { avgRating, totalReviews });
 
+    // Send push notification to merchant
+    try {
+      const PushNotificationService = require('../services/pushNotificationService');
+      const pushService = new PushNotificationService();
+
+      await pushService.sendNewReviewNotification(
+        store.merchant_id,
+        userName,
+        store.name,
+        parseInt(rating)
+      );
+      console.log('📱 Push notification sent to merchant for new review');
+    } catch (pushError) {
+      console.error('❌ Failed to send push notification:', pushError);
+      // Don't fail the review creation if push notification fails
+    }
+
     return res.status(201).json({
       success: true,
       message: 'Review submitted successfully',

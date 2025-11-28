@@ -554,6 +554,37 @@ class OfferBookingController {
         console.error('Stack trace:', notificationError.stack);
       }
 
+      // Send push notifications
+      try {
+        const PushNotificationService = require('../services/pushNotificationService');
+        const pushService = new PushNotificationService();
+        const moment = require('moment');
+
+        const bookingTime = moment(booking.startTime).format('MMM D, YYYY [at] h:mm A');
+        const customerName = `${user.firstName} ${user.lastName}`.trim();
+        const offerTitle = offer?.title || service?.name || 'Special Offer';
+
+        // Send push to merchant
+        await pushService.sendNewBookingNotificationToMerchant(
+          bookingStore.merchant_id,
+          customerName,
+          offerTitle,
+          bookingTime
+        );
+
+        // Send push to user
+        await pushService.sendBookingConfirmationToUser(
+          user.id,
+          offerTitle,
+          bookingTime,
+          bookingStore.name
+        );
+
+        console.log('📱 Push notifications sent for new offer booking');
+      } catch (pushError) {
+        console.error('❌ Push notification failed:', pushError);
+      }
+
       const completeBooking = await Booking.findByPk(booking.id, {
         include: [
           {
@@ -1356,6 +1387,43 @@ class OfferBookingController {
         // Don't fail the cancellation if emails fail
       }
 
+      // Send push notifications
+      try {
+        const PushNotificationService = require('../services/pushNotificationService');
+        const pushService = new PushNotificationService();
+        const moment = require('moment');
+
+        const bookingTime = moment(booking.startTime).format('MMM D, YYYY [at] h:mm A');
+        const customerName = booking.bookingUser ? `${booking.bookingUser.firstName} ${booking.bookingUser.lastName}`.trim() : 'Customer';
+        const storeName = service?.store?.name || booking.offer?.service?.store?.name || 'the store';
+        const serviceName = booking.offer?.title || service?.name || 'Service';
+
+        // Send push to user
+        await pushService.sendBookingCancellationToUser(
+          booking.userId,
+          serviceName,
+          bookingTime,
+          storeName,
+          reason || 'No reason provided'
+        );
+
+        // Send push to merchant
+        const merchantId = service?.store?.merchant_id || booking.offer?.service?.store?.merchant_id;
+        if (merchantId) {
+          await pushService.sendBookingCancellationToMerchant(
+            merchantId,
+            customerName,
+            serviceName,
+            bookingTime,
+            reason || 'No reason provided'
+          );
+        }
+
+        console.log('📱 Push notifications sent for offer booking cancellation');
+      } catch (pushError) {
+        console.error('❌ Push notification failed:', pushError);
+      }
+
       return res.status(200).json({
         success: true,
         message: 'Offer booking cancelled successfully',
@@ -1507,6 +1575,44 @@ class OfferBookingController {
       } catch (emailError) {
         console.error('❌ Email notification failed:', emailError);
         // Don't fail the reschedule if emails fail
+      }
+
+      // Send push notifications
+      try {
+        const PushNotificationService = require('../services/pushNotificationService');
+        const pushService = new PushNotificationService();
+        const moment = require('moment');
+
+        const oldTime = moment(oldStartTime).format('MMM D, YYYY [at] h:mm A');
+        const newTime = moment(newDateTime).format('MMM D, YYYY [at] h:mm A');
+        const customerName = existingBooking.bookingUser ? `${existingBooking.bookingUser.firstName} ${existingBooking.bookingUser.lastName}`.trim() : 'Customer';
+        const storeName = service?.store?.name || existingBooking.offer?.service?.store?.name || 'the store';
+        const serviceName = existingBooking.offer?.title || service?.name || 'Service';
+
+        // Send push to user
+        await pushService.sendBookingRescheduleNotificationToUser(
+          existingBooking.userId,
+          serviceName,
+          oldTime,
+          newTime,
+          storeName
+        );
+
+        // Send push to merchant
+        const merchantId = service?.store?.merchant_id || existingBooking.offer?.service?.store?.merchant_id;
+        if (merchantId) {
+          await pushService.sendBookingRescheduleNotificationToMerchant(
+            merchantId,
+            customerName,
+            serviceName,
+            oldTime,
+            newTime
+          );
+        }
+
+        console.log('📱 Push notifications sent for offer booking reschedule');
+      } catch (pushError) {
+        console.error('❌ Push notification failed:', pushError);
       }
 
       return res.status(200).json({
