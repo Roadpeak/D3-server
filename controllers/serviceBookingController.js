@@ -77,18 +77,28 @@ class ServiceBookingController {
       ];
 
       let normalizedDateTime = null;
-      for (const format of formats) {
-        const parsed = moment(fixedDateTime, format, true);
-        if (parsed.isValid()) {
-          normalizedDateTime = parsed;
-          break;
-        }
-      }
 
-      if (!normalizedDateTime) {
-        const fallbackParsed = moment(fixedDateTime);
-        if (fallbackParsed.isValid()) {
-          normalizedDateTime = fallbackParsed;
+      // Check if the datetime string has a timezone indicator (Z, +00:00, etc.)
+      const hasTimezone = /Z$|[+-]\d{2}:?\d{2}$/.test(fixedDateTime);
+
+      if (hasTimezone) {
+        // If it has timezone info, parse as UTC
+        normalizedDateTime = moment.utc(fixedDateTime);
+      } else {
+        // If NO timezone info, treat as East Africa Time (EAT/UTC+3) and convert to UTC
+        for (const format of formats) {
+          const parsed = moment.tz(fixedDateTime, format, 'Africa/Nairobi');
+          if (parsed.isValid()) {
+            normalizedDateTime = parsed.utc(); // Convert to UTC
+            break;
+          }
+        }
+
+        if (!normalizedDateTime) {
+          const fallbackParsed = moment.tz(fixedDateTime, 'Africa/Nairobi');
+          if (fallbackParsed.isValid()) {
+            normalizedDateTime = fallbackParsed.utc();
+          }
         }
       }
 
