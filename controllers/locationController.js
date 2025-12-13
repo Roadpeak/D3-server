@@ -171,7 +171,7 @@ exports.reverseGeocode = async (req, res) => {
     try {
       const fetch = require('node-fetch');
       const response = await fetch(
-        `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&addressdetails=1&accept-language=en`,
+        `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&addressdetails=1&accept-language=en&zoom=16`,
         {
           headers: {
             'User-Agent': 'Discoun3ree/1.0'
@@ -181,22 +181,43 @@ exports.reverseGeocode = async (req, res) => {
 
       if (response.ok) {
         const locationData = await response.json();
-        
+
         if (locationData && locationData.address) {
-          const area = locationData.address.suburb || 
-                       locationData.address.neighbourhood || 
-                       locationData.address.residential || 
+          // Helper function to clean area names (remove administrative suffixes)
+          const cleanAreaName = (name) => {
+            if (!name) return null;
+            // Remove common administrative suffixes
+            const cleaned = name
+              .replace(/\s+(ward|division|location|constituency|sub-county)$/i, '')
+              .trim();
+            return cleaned || name; // Return original if cleaning results in empty string
+          };
+
+          // Prioritize most specific location data (city_block > neighbourhood > suburb)
+          // For Nairobi, OSM often uses city_block for neighborhoods like "Kilimani location"
+          const rawArea = locationData.address.city_block ||      // Most specific (e.g., "Kilimani location")
+                       locationData.address.neighbourhood ||       // Neighborhood level (e.g., "Kilimani ward")
+                       locationData.address.suburb ||              // Suburb level (e.g., "Kilimani division")
+                       locationData.address.residential ||
                        locationData.address.commercial ||
-                       locationData.address.city_district ||
+                       locationData.address.hamlet ||
+                       locationData.address.quarter ||
+                       locationData.address.city_district ||       // District level (e.g., "Westlands")
+                       locationData.address.district ||
                        'Nairobi';
-                       
-          const city = locationData.address.city || 
-                       locationData.address.town || 
+
+          const city = locationData.address.city ||
+                       locationData.address.town ||
                        locationData.address.municipality ||
                        'Nairobi';
 
+          // Clean the area name to remove administrative suffixes
+          const area = cleanAreaName(rawArea);
+
           detectedLocation = `${area}, ${city}`;
-          
+
+          console.log(`📍 Raw area: ${rawArea} → Cleaned: ${area} → Final: ${detectedLocation}`);
+
           // Enhanced matching logic
           const areaLower = area.toLowerCase();
           const cityLower = city.toLowerCase();
