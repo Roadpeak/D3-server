@@ -332,6 +332,7 @@ class ServiceBookingController {
               serviceId: serviceId,
               isActive: true
             },
+            attributes: ['id', 'staffId', 'serviceId', 'isActive'], // Only select columns that exist in production
             ...(transaction && { transaction })
           });
 
