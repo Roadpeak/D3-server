@@ -192,12 +192,15 @@ class NotificationService {
         try {
             console.log('📧 Sending service booking notification to merchant');
 
-            const merchantEmail = staff?.email || store?.email || store?.merchant_email || store?.contact_email;
+            // Get merchant email from store only (NOT from staff)
+            const merchantEmail = store?.email || store?.merchant_email || store?.contact_email;
 
             if (!merchantEmail) {
                 console.warn('⚠️ No merchant email found for store:', store?.id);
                 return false;
             }
+
+            console.log('📧 Merchant email:', merchantEmail);
 
             const templateData = {
                 merchantName: store?.merchant_name || staff?.name || 'Merchant',
@@ -307,12 +310,15 @@ class NotificationService {
         try {
             console.log('📧 Sending offer booking notification to merchant');
 
-            const merchantEmail = staff?.email || store?.email || store?.merchant_email || store?.contact_email;
+            // Get merchant email from store only (NOT from staff)
+            const merchantEmail = store?.email || store?.merchant_email || store?.contact_email;
 
             if (!merchantEmail) {
                 console.warn('⚠️ No merchant email found for store:', store?.id);
                 return false;
             }
+
+            console.log('📧 Merchant email:', merchantEmail);
 
             const originalPrice = service?.price || 0;
             const discount = offer?.discount || 0;
