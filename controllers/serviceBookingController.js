@@ -1949,6 +1949,7 @@ const serviceBookingController = new ServiceBookingController();
 module.exports = {
   createBooking: serviceBookingController.createBooking.bind(serviceBookingController),
   getAvailableSlots: serviceBookingController.getAvailableSlots.bind(serviceBookingController),
+  getSlotsWithStaffAvailability: serviceBookingController.getSlotsWithStaffAvailability.bind(serviceBookingController),
   getUserBookings: serviceBookingController.getUserBookings.bind(serviceBookingController),
   getBookingById: serviceBookingController.getBookingById.bind(serviceBookingController),
   cancelBooking: serviceBookingController.cancelBooking.bind(serviceBookingController),
