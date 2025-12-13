@@ -522,6 +522,10 @@ class SlotGenerationService {
               // Get all bookings for this staff on the given date
               const staffBookings = await this.getStaffBookings(staffMember.id, date);
 
+              console.log(`\n=== CONFLICT CHECK FOR STAFF: ${staffMember.name} (ID: ${staffMember.id}) ===`);
+              console.log(`Slot: ${slot.startTime} - ${slot.endTime}`);
+              console.log(`Staff has ${staffBookings.length} bookings today`);
+
               // Check if this staff has any overlapping bookings for this slot
               const hasConflict = staffBookings.some(booking => {
                 const bookingStart = moment(booking.startTime);
@@ -530,8 +534,16 @@ class SlotGenerationService {
                 const bookingStartTime = moment(`2023-01-01 ${bookingStart.format('HH:mm')}`);
                 const bookingEndTime = moment(`2023-01-01 ${bookingEnd.format('HH:mm')}`);
 
-                return bookingStartTime.isBefore(slotEnd) && bookingEndTime.isAfter(slotStart);
+                const conflicts = bookingStartTime.isBefore(slotEnd) && bookingEndTime.isAfter(slotStart);
+
+                console.log(`  Booking ${booking.id}: ${bookingStart.format('HH:mm')} - ${bookingEnd.format('HH:mm')} | Conflicts: ${conflicts}`);
+                console.log(`    Logic: ${bookingStart.format('HH:mm')} < ${slot.endTime} (${bookingStartTime.isBefore(slotEnd)}) && ${bookingEnd.format('HH:mm')} > ${slot.startTime} (${bookingEndTime.isAfter(slotStart)})`);
+
+                return conflicts;
               });
+
+              console.log(`  Overall has conflict: ${hasConflict}`);
+              console.log(`  Staff will be ${hasConflict ? 'EXCLUDED' : 'INCLUDED'} in available staff\n`);
 
               // Return staff info if they're available (no conflict)
               if (!hasConflict) {
