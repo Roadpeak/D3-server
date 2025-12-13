@@ -78,10 +78,12 @@ class SlotGenerationService {
   }
 
   /**
-   * CORE FIX: Generate available time slots with store-level conflict prevention
+   * CORE FIX: Generate available time slots with per-staff conflict prevention
    */
   async generateAvailableSlots(entityId, entityType = 'offer', date, options = {}) {
     try {
+      const { staffId } = options;
+
       // Get entity details
       const entity = await this.getEntityDetails(entityId, entityType);
       if (!entity) {
@@ -115,14 +117,18 @@ class SlotGenerationService {
       // Generate base time slots
       const baseSlots = this.generateBaseSlots(service, store);
 
-      // KEY FIX: Get ALL bookings for the store on this date (both offers and services)
-      const existingBookings = await this.getStoreBookings(store.id, date);
+      // NEW: If staffId is provided, get staff-specific bookings
+      // Otherwise, fall back to store-level bookings
+      const existingBookings = staffId
+        ? await this.getStaffBookings(staffId, date)
+        : await this.getStoreBookings(store.id, date);
 
-      // Calculate slot availability considering store-level conflicts
+      // Calculate slot availability (now supports per-staff)
       const slotsWithAvailability = this.calculateSlotAvailability(
-        baseSlots, 
-        existingBookings, 
-        service
+        baseSlots,
+        existingBookings,
+        service,
+        staffId ? 'staff' : 'store'
       );
 
       // Format slots for frontend
@@ -133,9 +139,10 @@ class SlotGenerationService {
           startTime: slot.startTime,
           endTime: slot.endTime,
           available: slot.available,
-          total: service.max_concurrent_bookings || 1,
-          booked: (service.max_concurrent_bookings || 1) - slot.available,
-          isAvailable: slot.available > 0
+          total: staffId ? 1 : (service.max_concurrent_bookings || 1),
+          booked: staffId ? (slot.booked > 0 ? 1 : 0) : ((service.max_concurrent_bookings || 1) - slot.available),
+          isAvailable: slot.available > 0,
+          staffId: staffId || null
         }));
 
       return {
@@ -150,7 +157,8 @@ class SlotGenerationService {
           minAdvanceBooking: service.min_advance_booking || 30,
           maxAdvanceBooking: service.max_advance_booking || 10080
         },
-        accessFee: entityType === 'offer' ? 5.99 : 0
+        accessFee: entityType === 'offer' ? 5.99 : 0,
+        isStaffSpecific: !!staffId
       };
 
     } catch (error) {
@@ -169,14 +177,14 @@ class SlotGenerationService {
   async getStoreBookings(storeId, date) {
     const startOfDay = moment(date).startOf('day').toDate();
     const endOfDay = moment(date).endOf('day').toDate();
-  
+
     console.log('=== STORE BOOKINGS DEBUG ===');
     console.log('Store ID:', storeId);
     console.log('Date:', date);
     console.log('Start of day:', startOfDay);
     console.log('End of day:', endOfDay);
-  
-  
+
+
     try {
       // Get all services for this store
       const services = await this.models.Service.findAll({
@@ -211,23 +219,70 @@ class SlotGenerationService {
 
       const bookings = await this.models.Booking.findAll({
         where: whereConditions,
-        attributes: ['id', 'startTime', 'endTime', 'serviceId', 'offerId', 'status'],
+        attributes: ['id', 'startTime', 'endTime', 'serviceId', 'offerId', 'status', 'staffId'],
         order: [['startTime', 'ASC']]
       });
-    
+
       console.log('Found bookings:', bookings.map(b => ({
         id: b.id,
         startTime: b.startTime,
         status: b.status,
         offerId: b.offerId,
-        serviceId: b.serviceId
+        serviceId: b.serviceId,
+        staffId: b.staffId
       })));
       console.log('=== END STORE BOOKINGS DEBUG ===');
-    
+
       return bookings;
 
     } catch (error) {
       console.error('Error fetching store bookings:', error);
+      return [];
+    }
+  }
+
+  /**
+   * NEW: Get bookings for a specific staff member on a specific date
+   * This enables per-staff conflict detection
+   */
+  async getStaffBookings(staffId, date) {
+    const startOfDay = moment(date).startOf('day').toDate();
+    const endOfDay = moment(date).endOf('day').toDate();
+
+    console.log('=== STAFF BOOKINGS DEBUG ===');
+    console.log('Staff ID:', staffId);
+    console.log('Date:', date);
+    console.log('Start of day:', startOfDay);
+    console.log('End of day:', endOfDay);
+
+    try {
+      // Get all bookings for this specific staff member
+      const bookings = await this.models.Booking.findAll({
+        where: {
+          staffId: staffId,
+          startTime: {
+            [Op.gte]: startOfDay,
+            [Op.lte]: endOfDay,
+          },
+          status: { [Op.not]: 'cancelled' }
+        },
+        attributes: ['id', 'startTime', 'endTime', 'serviceId', 'offerId', 'status', 'staffId'],
+        order: [['startTime', 'ASC']]
+      });
+
+      console.log('Found staff bookings:', bookings.map(b => ({
+        id: b.id,
+        startTime: b.startTime,
+        endTime: b.endTime,
+        status: b.status,
+        staffId: b.staffId
+      })));
+      console.log('=== END STAFF BOOKINGS DEBUG ===');
+
+      return bookings;
+
+    } catch (error) {
+      console.error('Error fetching staff bookings:', error);
       return [];
     }
   }
@@ -258,7 +313,7 @@ class SlotGenerationService {
       }
 
       const baseSlots = this.generateBaseSlots(service, store);
-      
+
       const requestedSlot = baseSlots.find(slot => {
         const slotTime = moment(slot.startTime, 'HH:mm').format('h:mm A');
         return slotTime === time || slot.startTime === time;
@@ -289,6 +344,112 @@ class SlotGenerationService {
         remainingSlots: 1,
         totalSlots: 1,
         warning: 'Availability check failed, allowing booking'
+      };
+    }
+  }
+
+  /**
+   * NEW: Get all staff availability for a service on a specific date
+   * Returns each staff member with their individual slot availability
+   */
+  async getStaffAvailability(serviceId, date) {
+    try {
+      // Get service with assigned staff
+      const service = await this.models.Service.findByPk(serviceId, {
+        include: [
+          {
+            model: this.models.Store,
+            as: 'store'
+          },
+          {
+            model: this.models.Staff,
+            as: 'staff',
+            through: {
+              model: this.models.StaffService,
+              where: { isActive: true }
+            },
+            where: { status: 'active' }
+          }
+        ]
+      });
+
+      if (!service) {
+        throw new Error('Service not found');
+      }
+
+      if (!service.staff || service.staff.length === 0) {
+        return {
+          success: false,
+          message: 'No staff assigned to this service',
+          staff: []
+        };
+      }
+
+      const store = service.store;
+      if (!store) {
+        throw new Error('Store not found');
+      }
+
+      // Validate date and store working hours
+      const validationResult = this.validateDateAndStore(date, store);
+      if (!validationResult.isValid) {
+        return {
+          success: false,
+          message: validationResult.message,
+          staff: []
+        };
+      }
+
+      // Generate base slots
+      const baseSlots = this.generateBaseSlots(service, store);
+
+      // Get availability for each staff member
+      const staffAvailability = await Promise.all(
+        service.staff.map(async (staffMember) => {
+          const staffBookings = await this.getStaffBookings(staffMember.id, date);
+          const slotsWithAvailability = this.calculateSlotAvailability(
+            baseSlots,
+            staffBookings,
+            service,
+            'staff'
+          );
+
+          const availableSlots = slotsWithAvailability
+            .filter(slot => slot.available > 0)
+            .map(slot => ({
+              time: moment(slot.startTime, 'HH:mm').format('h:mm A'),
+              startTime: slot.startTime,
+              endTime: slot.endTime,
+              isAvailable: true
+            }));
+
+          return {
+            id: staffMember.id,
+            name: staffMember.name,
+            email: staffMember.email,
+            phone: staffMember.phone,
+            specialization: staffMember.specialization || null,
+            availableSlots: availableSlots,
+            totalAvailableSlots: availableSlots.length,
+            isAvailable: availableSlots.length > 0
+          };
+        })
+      );
+
+      return {
+        success: true,
+        date,
+        serviceName: service.name,
+        staff: staffAvailability,
+        storeInfo: this.formatStoreInfo(store)
+      };
+
+    } catch (error) {
+      console.error('Error getting staff availability:', error);
+      return {
+        success: false,
+        message: error.message || 'Failed to get staff availability',
+        staff: []
       };
     }
   }
@@ -360,48 +521,57 @@ class SlotGenerationService {
   }
 
   /**
-   * Calculate slot availability with store-level conflict prevention
+   * Calculate slot availability with per-staff or store-level conflict prevention
+   * @param {Array} baseSlots - Base time slots generated
+   * @param {Array} existingBookings - Bookings to check against
+   * @param {Object} service - Service configuration
+   * @param {String} mode - 'staff' for per-staff checking, 'store' for store-wide checking
    */
-  calculateSlotAvailability(baseSlots, existingBookings, service) {
+  calculateSlotAvailability(baseSlots, existingBookings, service, mode = 'store') {
     console.log('=== SLOT AVAILABILITY DEBUG ===');
+    console.log('Mode:', mode);
     console.log('Existing bookings for this date:', existingBookings.length);
     console.log('Bookings:', existingBookings.map(b => ({
       id: b.id,
       startTime: b.startTime,
       endTime: b.endTime,
-      status: b.status
+      status: b.status,
+      staffId: b.staffId
     })));
-    
+
     return baseSlots.map(slot => {
       const slotStart = moment(`2023-01-01 ${slot.startTime}`);
       const slotEnd = moment(`2023-01-01 ${slot.endTime}`);
-  
+
       console.log(`Checking slot ${slot.startTime} - ${slot.endTime}`);
-  
-      // Find ALL overlapping bookings from the entire store
+
+      // Find ALL overlapping bookings
       const overlappingBookings = existingBookings.filter(booking => {
         const bookingStart = moment(booking.startTime);
         const bookingEnd = moment(booking.endTime);
-        
+
         // Convert to same day for comparison
         const bookingStartTime = moment(`2023-01-01 ${bookingStart.format('HH:mm')}`);
         const bookingEndTime = moment(`2023-01-01 ${bookingEnd.format('HH:mm')}`);
-        
+
         const overlaps = bookingStartTime.isBefore(slotEnd) && bookingEndTime.isAfter(slotStart);
-        
+
         if (overlaps) {
           console.log(`Found overlap: Booking ${booking.id} (${bookingStart.format('HH:mm')} - ${bookingEnd.format('HH:mm')}) overlaps with slot ${slot.startTime} - ${slot.endTime}`);
         }
-        
+
         return overlaps;
       });
-  
+
       const bookedCount = overlappingBookings.length;
-      const maxConcurrent = service.max_concurrent_bookings || 1;
+
+      // CRITICAL FIX: Per-staff mode means only 1 booking allowed (staff can't be in 2 places at once)
+      // Store mode uses max_concurrent_bookings setting
+      const maxConcurrent = mode === 'staff' ? 1 : (service.max_concurrent_bookings || 1);
       const available = Math.max(0, maxConcurrent - bookedCount);
-  
-      console.log(`Slot ${slot.startTime}: ${available}/${maxConcurrent} available (${bookedCount} booked)`);
-  
+
+      console.log(`Slot ${slot.startTime}: ${available}/${maxConcurrent} available (${bookedCount} booked) [${mode} mode]`);
+
       return {
         ...slot,
         available,

@@ -323,6 +323,27 @@ class ServiceBookingController {
             message: 'Staff member not found or not available at this location'
           });
         }
+
+        // NEW: Validate that the staff is actually assigned to this service
+        const { StaffService } = this.models;
+        if (StaffService) {
+          const staffServiceAssignment = await StaffService.findOne({
+            where: {
+              staffId: staffId,
+              serviceId: serviceId,
+              isActive: true
+            },
+            ...(transaction && { transaction })
+          });
+
+          if (!staffServiceAssignment) {
+            if (transaction && !transactionCommitted) await transaction.rollback();
+            return res.status(400).json({
+              success: false,
+              message: `Staff member "${bookingStaff.name}" is not assigned to this service. Please select a different staff member or contact the merchant.`
+            });
+          }
+        }
       }
 
       // Calculate end time
