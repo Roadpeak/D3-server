@@ -250,8 +250,11 @@ class ServiceBookingController {
 
       // Normalize datetime
       let bookingDateTime;
+      let bookingDateTimeLocal; // Keep local time for slot availability check
       try {
         bookingDateTime = this.normalizeDateTime(startTime);
+        // Keep a copy in EAT for slot availability check
+        bookingDateTimeLocal = moment.tz(startTime.replace(/Z$|[+-]\d{2}:?\d{2}$/, ''), 'Africa/Nairobi');
       } catch (dateError) {
         if (transaction && !transactionCommitted) await transaction.rollback();
         return res.status(400).json({
@@ -312,9 +315,9 @@ class ServiceBookingController {
         });
       }
 
-      // Check slot availability
-      const date = bookingDateTime.format('YYYY-MM-DD');
-      const time = bookingDateTime.format('h:mm A');
+      // Check slot availability (use local time, as slots are generated in EAT)
+      const date = bookingDateTimeLocal.format('YYYY-MM-DD');
+      const time = bookingDateTimeLocal.format('h:mm A');
 
       const availabilityCheck = await slotService.isSlotAvailable(serviceId, 'service', date, time);
 
