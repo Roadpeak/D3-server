@@ -455,6 +455,137 @@ class SlotGenerationService {
   }
 
   /**
+   * NEW: Get slots with staff availability (slot-centric view)
+   * Returns each time slot with a list of available staff members
+   * This supports the hybrid UX where users select time first, then see which staff are available
+   */
+  async getSlotsWithStaffAvailability(serviceId, date) {
+    try {
+      // Get service with assigned staff
+      const service = await this.models.Service.findByPk(serviceId, {
+        include: [
+          {
+            model: this.models.Store,
+            as: 'store'
+          },
+          {
+            model: this.models.Staff,
+            as: 'staff',
+            through: {
+              model: this.models.StaffService,
+              where: { isActive: true }
+            },
+            where: { status: 'active' }
+          }
+        ]
+      });
+
+      if (!service) {
+        throw new Error('Service not found');
+      }
+
+      if (!service.staff || service.staff.length === 0) {
+        return {
+          success: false,
+          message: 'No staff assigned to this service',
+          slots: []
+        };
+      }
+
+      const store = service.store;
+      if (!store) {
+        throw new Error('Store not found');
+      }
+
+      // Validate date and store working hours
+      const validationResult = this.validateDateAndStore(date, store);
+      if (!validationResult.isValid) {
+        return {
+          success: false,
+          message: validationResult.message,
+          slots: []
+        };
+      }
+
+      // Generate base slots
+      const baseSlots = this.generateBaseSlots(service, store);
+
+      // For each slot, determine which staff members are available
+      const slotsWithStaffAvailability = await Promise.all(
+        baseSlots.map(async (slot) => {
+          const slotStart = moment(`2023-01-01 ${slot.startTime}`);
+          const slotEnd = moment(`2023-01-01 ${slot.endTime}`);
+
+          // Check each staff member's availability for this slot
+          const availableStaff = await Promise.all(
+            service.staff.map(async (staffMember) => {
+              // Get all bookings for this staff on the given date
+              const staffBookings = await this.getStaffBookings(staffMember.id, date);
+
+              // Check if this staff has any overlapping bookings for this slot
+              const hasConflict = staffBookings.some(booking => {
+                const bookingStart = moment(booking.startTime);
+                const bookingEnd = moment(booking.endTime);
+
+                const bookingStartTime = moment(`2023-01-01 ${bookingStart.format('HH:mm')}`);
+                const bookingEndTime = moment(`2023-01-01 ${bookingEnd.format('HH:mm')}`);
+
+                return bookingStartTime.isBefore(slotEnd) && bookingEndTime.isAfter(slotStart);
+              });
+
+              // Return staff info if they're available (no conflict)
+              if (!hasConflict) {
+                return {
+                  id: staffMember.id,
+                  name: staffMember.name,
+                  email: staffMember.email,
+                  phone: staffMember.phone,
+                  specialization: staffMember.specialization || null
+                };
+              }
+              return null;
+            })
+          );
+
+          // Filter out null values (staff who are not available)
+          const availableStaffFiltered = availableStaff.filter(staff => staff !== null);
+
+          return {
+            time: moment(slot.startTime, 'HH:mm').format('h:mm A'),
+            startTime: slot.startTime,
+            endTime: slot.endTime,
+            availableStaffCount: availableStaffFiltered.length,
+            availableStaff: availableStaffFiltered,
+            isAvailable: availableStaffFiltered.length > 0
+          };
+        })
+      );
+
+      // Filter to only include slots where at least one staff is available
+      const availableSlots = slotsWithStaffAvailability.filter(slot => slot.isAvailable);
+
+      return {
+        success: true,
+        date,
+        serviceName: service.name,
+        serviceDuration: service.duration,
+        totalSlots: slotsWithStaffAvailability.length,
+        availableSlots: availableSlots.length,
+        slots: availableSlots,
+        storeInfo: this.formatStoreInfo(store)
+      };
+
+    } catch (error) {
+      console.error('Error getting slots with staff availability:', error);
+      return {
+        success: false,
+        message: error.message || 'Failed to get slots with staff availability',
+        slots: []
+      };
+    }
+  }
+
+  /**
    * Get entity details (service or offer)
    */
   async getEntityDetails(entityId, entityType) {

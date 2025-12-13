@@ -151,6 +151,57 @@ class ServiceBookingController {
     }
   }
 
+  /**
+   * NEW: Get available slots with staff availability (slot-centric view)
+   * Supports hybrid UX where users see which staff are available for each time slot
+   */
+  async getSlotsWithStaffAvailability(req, res) {
+    try {
+      const { date, serviceId } = req.query;
+
+      if (!date || !serviceId) {
+        return res.status(400).json({
+          success: false,
+          message: 'Date and service ID are required.',
+          received: { date, serviceId }
+        });
+      }
+
+      if (!moment(date, 'YYYY-MM-DD', true).isValid()) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid date format. Use YYYY-MM-DD.',
+          received: date
+        });
+      }
+
+      if (moment(date).isBefore(moment().startOf('day'))) {
+        return res.status(400).json({
+          success: false,
+          message: 'Cannot book slots for past dates.',
+          received: date
+        });
+      }
+
+      const result = await slotService.getSlotsWithStaffAvailability(serviceId, date);
+
+      if (result.success) {
+        result.bookingType = 'service';
+      }
+
+      const statusCode = result.success ? 200 : (result.message.includes('not found') ? 404 : 400);
+      return res.status(statusCode).json(result);
+
+    } catch (error) {
+      console.error('Error getting slots with staff availability:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error fetching slots with staff availability',
+        error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+      });
+    }
+  }
+
   async createBooking(req, res) {
     let transaction;
     let transactionCommitted = false;

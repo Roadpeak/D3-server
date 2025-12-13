@@ -39,7 +39,12 @@ const safeControllerMethod = (controller, methodName) => {
 router.get('/service-slots', safeControllerMethod(serviceBookingController, 'getAvailableSlots'));
 
 /**
- * Frontend expects /offer-slots  
+ * NEW: Get service slots with staff availability (slot-centric view)
+ */
+router.get('/service-slots-with-staff', safeControllerMethod(serviceBookingController, 'getSlotsWithStaffAvailability'));
+
+/**
+ * Frontend expects /offer-slots
  */
 router.get('/offer-slots', safeControllerMethod(offerBookingController, 'getAvailableSlots'));
 
