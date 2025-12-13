@@ -325,7 +325,6 @@ class ServiceBookingController {
         }
 
         // NEW: Validate that the staff is actually assigned to this service
-        const { StaffService } = this.models;
         if (StaffService) {
           const staffServiceAssignment = await StaffService.findOne({
             where: {
