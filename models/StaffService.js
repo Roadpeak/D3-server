@@ -24,16 +24,6 @@ module.exports = (sequelize, DataTypes) => {
         key: 'id',
       },
     },
-    // Optional: Add additional fields for the relationship
-    assignedAt: {
-      type: DataTypes.DATE,
-      defaultValue: DataTypes.NOW,
-    },
-    assignedBy: {
-      type: DataTypes.UUID,
-      allowNull: true,
-      comment: 'ID of the user who assigned this staff to the service',
-    },
     isActive: {
       type: DataTypes.BOOLEAN,
       defaultValue: true,
