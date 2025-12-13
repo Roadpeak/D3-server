@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>New Booking Assignment</title>
+</head>
+
+<body style="margin: 0; padding: 0; font-family: 'Segoe UI', Arial, sans-serif; background-color: #f5f5f5;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f5f5f5; padding: 20px;">
+    <tr>
+      <td align="center">
+        <table width="600" cellpadding="0" cellspacing="0"
+          style="background-color: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+
+          <!-- Header -->
+          <tr>
+            <td style="background-color: #27ae60; color: #ffffff; padding: 40px 30px; text-align: center;">
+              <h1 style="margin: 0; font-size: 28px; font-weight: 600;">📅 New Booking Assignment</h1>
+              <p style="margin: 10px 0 0; font-size: 16px; opacity: 0.9;">You have an upcoming appointment</p>
+            </td>
+          </tr>
+
+          <!-- Content -->
+          <tr>
+            <td style="padding: 40px 30px;">
+
+              <p style="font-size: 16px; color: #333333; margin-bottom: 20px;">
+                Hello <%= staffName %>,
+              </p>
+
+              <p style="font-size: 15px; color: #555555; line-height: 1.6; margin-bottom: 25px;">
+                <% if (bookingType==='offer' ) { %>
+                  You have been assigned to a special offer booking. Please review the details below and prepare accordingly.
+                  <% } else { %>
+                    You have been assigned to a new service appointment. Please review the details below and prepare accordingly.
+                    <% } %>
+              </p>
+
+              <!-- Alert -->
+              <div
+                style="background-color: #e8f4f8; border-left: 4px solid #3498db; padding: 15px 20px; margin: 0 0 25px 0; border-radius: 4px;">
+                <p style="margin: 0; color: #2c3e50; font-size: 15px; font-weight: 600;">
+                  ⏰ Please be prepared and arrive 10 minutes early
+                </p>
+              </div>
+
+              <!-- Booking Details -->
+              <div
+                style="background-color: #f8f9fa; border-radius: 6px; padding: 25px; margin: 25px 0; border-left: 4px solid #27ae60;">
+                <h2 style="margin: 0 0 20px 0; font-size: 18px; color: #2c3e50; font-weight: 600;">
+                  Appointment Details
+                </h2>
+
+                <table width="100%" cellpadding="8" cellspacing="0">
+                  <tr style="border-bottom: 1px solid #e0e0e0;">
+                    <td style="font-weight: 600; color: #666666; font-size: 14px;">Booking ID:</td>
+                    <td style="color: #333333; font-size: 14px; text-align: right;">#<%= bookingId %>
+                    </td>
+                  </tr>
+
+                  <% if (bookingType==='offer' ) { %>
+                    <tr style="border-bottom: 1px solid #e0e0e0;">
+                      <td style="font-weight: 600; color: #666666; font-size: 14px;">Offer:</td>
+                      <td style="color: #333333; font-size: 14px; text-align: right;">
+                        <%= offerTitle %>
+                      </td>
+                    </tr>
+                    <% } %>
+
+                      <tr style="border-bottom: 1px solid #e0e0e0;">
+                        <td style="font-weight: 600; color: #666666; font-size: 14px;">Service:</td>
+                        <td style="color: #333333; font-size: 14px; text-align: right;">
+                          <%= serviceName %>
+                        </td>
+                      </tr>
+
+                      <tr style="border-bottom: 1px solid #e0e0e0;">
+                        <td style="font-weight: 600; color: #666666; font-size: 14px;">Date:</td>
+                        <td style="color: #333333; font-size: 14px; text-align: right;">
+                          <%= bookingDate %>
+                        </td>
+                      </tr>
+
+                      <tr style="border-bottom: 1px solid #e0e0e0;">
+                        <td style="font-weight: 600; color: #666666; font-size: 14px;">Start Time:</td>
+                        <td style="color: #27ae60; font-size: 16px; text-align: right; font-weight: 600;">
+                          <%= bookingStartTime %>
+                        </td>
+                      </tr>
+
+                      <tr style="border-bottom: 1px solid #e0e0e0;">
+                        <td style="font-weight: 600; color: #666666; font-size: 14px;">End Time:</td>
+                        <td style="color: #333333; font-size: 14px; text-align: right;">
+                          <%= bookingEndTime %>
+                        </td>
+                      </tr>
+
+                      <% if (duration) { %>
+                        <tr style="border-bottom: 1px solid #e0e0e0;">
+                          <td style="font-weight: 600; color: #666666; font-size: 14px;">Duration:</td>
+                          <td style="color: #333333; font-size: 14px; text-align: right;">
+                            <%= duration %> minutes
+                          </td>
+                        </tr>
+                        <% } %>
+
+                          <% if (storeName) { %>
+                            <tr style="border-bottom: 1px solid #e0e0e0;">
+                              <td style="font-weight: 600; color: #666666; font-size: 14px;">Location:</td>
+                              <td style="color: #333333; font-size: 14px; text-align: right;">
+                                <%= storeName %>
+                              </td>
+                            </tr>
+                            <% } %>
+
+                              <% if (branchName) { %>
+                                <tr style="border-bottom: 1px solid #e0e0e0;">
+                                  <td style="font-weight: 600; color: #666666; font-size: 14px;">Branch:</td>
+                                  <td style="color: #333333; font-size: 14px; text-align: right;">
+                                    <%= branchName %>
+                                  </td>
+                                </tr>
+                                <% } %>
+
+                                  <tr>
+                                    <td style="font-weight: 600; color: #666666; font-size: 14px;">Status:</td>
+                                    <td
+                                      style="color: <%= status === 'confirmed' ? '#27ae60' : '#f0c14b' %>; font-size: 14px; text-align: right; font-weight: 600;">
+                                      <%= status.toUpperCase() %>
+                                    </td>
+                                  </tr>
+                </table>
+              </div>
+
+              <!-- Customer Information -->
+              <div
+                style="background-color: #e8f4f8; border-left: 4px solid #3498db; padding: 20px; margin: 20px 0; border-radius: 4px;">
+                <h3 style="margin: 0 0 15px 0; color: #2c3e50; font-size: 16px; font-weight: 600;">Customer
+                  Information</h3>
+                <p style="margin: 8px 0; color: #34495e; font-size: 14px;"><strong>Name:</strong>
+                  <%= customerName %>
+                </p>
+                <% if (customerEmail) { %>
+                  <p style="margin: 8px 0; color: #34495e; font-size: 14px;"><strong>Email:</strong> <a
+                      href="mailto:<%= customerEmail %>" style="color: #3498db; text-decoration: none;">
+                      <%= customerEmail %>
+                    </a></p>
+                  <% } %>
+                    <% if (customerPhone) { %>
+                      <p style="margin: 8px 0; color: #34495e; font-size: 14px;"><strong>Phone:</strong>
+                        <%= customerPhone %>
+                      </p>
+                      <% } %>
+              </div>
+
+              <!-- Customer Notes -->
+              <% if (customerNotes) { %>
+                <div
+                  style="background-color: #fff9e6; border-left: 4px solid #f0c14b; padding: 15px 20px; margin: 20px 0; border-radius: 4px;">
+                  <p style="margin: 0; color: #666; font-size: 14px; font-weight: 600;">💬 Customer Notes:</p>
+                  <p style="margin: 5px 0 0; color: #333; font-size: 14px;">"<%= customerNotes %>"</p>
+                </div>
+                <% } %>
+
+                  <!-- Preparation Checklist -->
+                  <div
+                    style="background-color: #e8f8f0; border-left: 4px solid #27ae60; padding: 20px; margin: 20px 0; border-radius: 4px;">
+                    <h3 style="margin: 0 0 15px 0; color: #2c3e50; font-size: 16px; font-weight: 600;">✅ Preparation
+                      Checklist</h3>
+                    <ul style="margin: 10px 0 0; padding-left: 20px; color: #555; font-size: 14px; line-height: 1.8;">
+                      <li>Review service requirements and gather necessary materials</li>
+                      <li>Arrive at <%= storeName %> 10 minutes before the start time</li>
+                      <li>Ensure your workspace is clean and ready</li>
+                      <% if (customerNotes) { %>
+                        <li>Review customer's special requests or notes above</li>
+                        <% } %>
+                          <li>Have booking ID #<%= bookingId %> ready for verification</li>
+                          <% if (bookingType==='offer' ) { %>
+                            <li>Customer is using a special offer - ensure you know the offer details</li>
+                            <% } %>
+                    </ul>
+                  </div>
+
+                  <!-- Important Notice -->
+                  <div
+                    style="background-color: #f8f9fa; padding: 15px 20px; margin: 20px 0; border-radius: 6px; border: 1px solid #dee2e6;">
+                    <p style="margin: 0; color: #666; font-size: 14px; font-weight: 600;">📌 Important:</p>
+                    <p style="margin: 10px 0 0; color: #555; font-size: 13px; line-height: 1.6;">
+                      If you're unable to attend this appointment, please notify your manager immediately. The customer
+                      is counting on you to provide excellent service.
+                    </p>
+                  </div>
+
+                  <p style="margin-top: 30px; color: #666; font-size: 13px; text-align: center; line-height: 1.5;">
+                    This is an automated notification from <%= storeName || 'Discoun3ree' %>.
+                  </p>
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td
+              style="background-color: #27ae60; color: #ffffff; padding: 25px 30px; text-align: center; font-size: 13px;">
+              <p style="margin: 5px 0;"><strong>Discoun3ree</strong></p>
+              <p style="margin: 5px 0;">Staff Notifications</p>
+              <p style="margin: 15px 0 5px; font-size: 12px; opacity: 0.8;">
+                © <%= new Date().getFullYear() %> Discoun3ree. All rights reserved.
+              </p>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+
+</html>

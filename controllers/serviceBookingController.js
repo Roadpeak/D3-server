@@ -452,6 +452,23 @@ class ServiceBookingController {
         );
         console.log('✅ Merchant notification sent successfully');
 
+        // Send to STAFF (if staff is assigned)
+        if (bookingStaff && bookingStaff.email) {
+          console.log('📧 Sending notification to STAFF:', bookingStaff.email);
+          await this.notificationService.sendBookingNotificationToStaff(
+            booking,
+            service,
+            bookingStore,
+            bookingStaff,
+            user,
+            bookingBranch,
+            null // no offer for service bookings
+          );
+          console.log('✅ Staff notification sent successfully');
+        } else {
+          console.log('ℹ️ No staff assigned or staff has no email, skipping staff notification');
+        }
+
         // Send to CUSTOMER
         console.log('📧 Sending confirmation to CUSTOMER...');
         await this.notificationService.sendBookingConfirmationToCustomer(

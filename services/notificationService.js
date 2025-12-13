@@ -363,6 +363,55 @@ class NotificationService {
         }
     }
 
+    async sendBookingNotificationToStaff(booking, service, store, staff, user, branch, offer = null) {
+        try {
+            console.log('📧 Sending booking notification to staff');
+
+            if (!staff || !staff.email) {
+                console.warn('⚠️ No staff or staff email found');
+                return false;
+            }
+
+            const isOfferBooking = !!offer;
+
+            const templateData = {
+                staffName: staff.name || 'Team Member',
+                staffEmail: staff.email,
+                bookingType: isOfferBooking ? 'offer' : 'service',
+                offerTitle: offer?.title || null,
+                serviceName: service?.name || 'Service',
+                bookingDate: this.formatDateTime(booking.startTime).split(' at')[0],
+                bookingStartTime: this.formatDateTime(booking.startTime),
+                bookingEndTime: this.formatDateTime(booking.endTime),
+                duration: service?.duration || (isOfferBooking ? 90 : 60),
+                storeName: store?.name || 'Location',
+                branchName: branch?.name || null,
+                bookingId: booking.id,
+                status: booking.status,
+                customerName: user ? `${user.firstName || ''} ${user.lastName || ''}`.trim() : 'Customer',
+                customerEmail: user?.email || null,
+                customerPhone: user?.phoneNumber || user?.phone || null,
+                customerNotes: booking.notes || null
+            };
+
+            console.log('📧 Staff template data prepared for:', staff.email);
+
+            const htmlContent = await this.renderTemplate('staffBookingNotification', templateData);
+
+            await this.sendEmail(
+                staff.email,
+                `New Booking Assignment: ${isOfferBooking ? offer?.title : service?.name}`,
+                htmlContent
+            );
+
+            console.log('✅ Staff notification email sent successfully to:', staff.email);
+            return true;
+        } catch (error) {
+            console.error('❌ Failed to send staff booking notification:', error);
+            return false;
+        }
+    }
+
     async sendCancellationNotificationToCustomer(booking, service, user, store, reason, refundInfo) {
         try {
             console.log('📧 Sending cancellation notification to customer');
