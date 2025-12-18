@@ -705,6 +705,22 @@ router.post('/', authenticateToken, async (req, res) => {
       }
     }
 
+    // Map timeline values correctly
+    // Valid timeline values: 'urgent', 'thisweek', 'nextweek', 'thismonth', 'flexible'
+    const validTimelines = ['urgent', 'thisweek', 'nextweek', 'thismonth', 'flexible'];
+    let mappedTimeline = timeline;
+
+    // If timeline is not provided or invalid, derive from urgency
+    if (!mappedTimeline || !validTimelines.includes(mappedTimeline)) {
+      if (urgency === 'IMMEDIATE') {
+        mappedTimeline = 'urgent';
+      } else if (urgency === 'SCHEDULED') {
+        mappedTimeline = 'flexible'; // Will be scheduled for specific time
+      } else {
+        mappedTimeline = 'flexible'; // Default for CHECK_LATER
+      }
+    }
+
     if (!ServiceRequest) {
       throw new Error('ServiceRequest model not available');
     }
@@ -716,7 +732,7 @@ router.post('/', authenticateToken, async (req, res) => {
       location,
       budgetMin: parseFloat(budgetMin),
       budgetMax: parseFloat(budgetMax),
-      timeline,
+      timeline: mappedTimeline,
       urgency: urgency || 'CHECK_LATER', // ✅ NEW: Uber-style urgency field
       scheduledDateTime: scheduledDateTime ? new Date(scheduledDateTime) : null, // ✅ NEW
       cutoffTime: cutoffTime ? new Date(cutoffTime) : null, // ✅ NEW
