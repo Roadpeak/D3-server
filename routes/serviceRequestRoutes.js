@@ -674,7 +674,7 @@ router.post('/', authenticateToken, async (req, res) => {
       urgency,
       scheduledDateTime,
       cutoffTime,
-      priority = 'medium',
+      priority = 'normal',
       requirements = []
     } = req.body;
 
@@ -687,6 +687,25 @@ router.post('/', authenticateToken, async (req, res) => {
         success: false,
         message: 'Missing required fields'
       });
+    }
+
+    // Map priority values correctly
+    // Valid priority values: 'low', 'normal', 'high', 'urgent'
+    const validPriorities = ['low', 'normal', 'high', 'urgent'];
+    let mappedPriority = priority;
+
+    // Map common invalid values to valid ones
+    if (!validPriorities.includes(mappedPriority)) {
+      const priorityMap = {
+        'medium': 'normal',
+        'MEDIUM': 'normal',
+        'NORMAL': 'normal',
+        'LOW': 'low',
+        'HIGH': 'high',
+        'URGENT': 'urgent',
+        'IMMEDIATE': 'urgent'
+      };
+      mappedPriority = priorityMap[mappedPriority] || 'normal';
     }
 
     // Validate SCHEDULED requests
@@ -736,7 +755,7 @@ router.post('/', authenticateToken, async (req, res) => {
       urgency: urgency || 'CHECK_LATER', // ✅ NEW: Uber-style urgency field
       scheduledDateTime: scheduledDateTime ? new Date(scheduledDateTime) : null, // ✅ NEW
       cutoffTime: cutoffTime ? new Date(cutoffTime) : null, // ✅ NEW
-      priority,
+      priority: mappedPriority,
       requirements: JSON.stringify(requirements),
       status: 'open',
       postedBy: userId,
