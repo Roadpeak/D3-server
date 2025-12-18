@@ -4,7 +4,7 @@ const router = express.Router();
 const { Op } = require('sequelize');
 
 // ✅ Import models with error handling
-let ServiceRequest, User, ServiceOffer, Store, Merchant;
+let ServiceRequest, User, ServiceOffer, Store, Merchant, sequelize;
 
 try {
   const models = require('../models');
@@ -13,6 +13,7 @@ try {
   ServiceOffer = models.ServiceOffer;
   Store = models.Store;
   Merchant = models.Merchant;
+  sequelize = models.sequelize;
   
   console.log('✅ Service Request Routes - Models loaded:', {
     ServiceRequest: !!ServiceRequest,
