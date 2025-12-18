@@ -781,6 +781,80 @@ socketManager.initialize(server, {
   }
 });
 
+// ===============================
+// UBER-STYLE SERVICE REQUEST SOCKET.IO SETUP
+// ===============================
+
+// Make Socket.IO instance available to routes
+app.locals.io = socketManager.io;
+
+// Setup Uber-style service request event handlers
+if (socketManager.io) {
+  console.log('📡 Setting up Uber-style service request event handlers...');
+
+  socketManager.io.on('connection', (socket) => {
+    console.log(`🔌 Socket connected for service requests: ${socket.id}, userType: ${socket.userType}`);
+
+    // ✅ Merchants join category rooms to receive IMMEDIATE requests
+    socket.on('join-category-room', ({ category }) => {
+      if (socket.userType === 'merchant') {
+        const roomName = `category:${category}`;
+        socket.join(roomName);
+        console.log(`🏪 Merchant ${socket.userId} joined category room: ${roomName}`);
+
+        socket.emit('category-room-joined', {
+          category,
+          roomName,
+          message: `Joined category room: ${category}`
+        });
+      } else {
+        console.log(`⚠️ Non-merchant tried to join category room: ${socket.userId}`);
+      }
+    });
+
+    // ✅ Clients join request rooms to receive offers for their IMMEDIATE requests
+    socket.on('join-request-room', ({ requestId }) => {
+      const roomName = `request:${requestId}`;
+      socket.join(roomName);
+      console.log(`👤 User ${socket.userId} joined request room: ${roomName}`);
+
+      socket.emit('request-room-joined', {
+        requestId,
+        roomName,
+        message: `Joined request room for request #${requestId}`
+      });
+    });
+
+    // ✅ Leave category room
+    socket.on('leave-category-room', ({ category }) => {
+      const roomName = `category:${category}`;
+      socket.leave(roomName);
+      console.log(`🚪 User ${socket.userId} left category room: ${roomName}`);
+
+      socket.emit('category-room-left', {
+        category,
+        roomName
+      });
+    });
+
+    // ✅ Leave request room
+    socket.on('leave-request-room', ({ requestId }) => {
+      const roomName = `request:${requestId}`;
+      socket.leave(roomName);
+      console.log(`🚪 User ${socket.userId} left request room: ${roomName}`);
+
+      socket.emit('request-room-left', {
+        requestId,
+        roomName
+      });
+    });
+  });
+
+  console.log('✅ Uber-style service request Socket.IO handlers initialized');
+} else {
+  console.warn('⚠️ Socket.IO not initialized, service request real-time features will not work');
+}
+
 const PORT = process.env.PORT || 4000;
 
 server.listen(PORT, () => {

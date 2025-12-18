@@ -75,6 +75,21 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.ENUM('urgent', 'thisweek', 'nextweek', 'thismonth', 'flexible'),
       allowNull: false,
     },
+    urgency: {
+      type: DataTypes.ENUM('IMMEDIATE', 'SCHEDULED', 'CHECK_LATER'),
+      allowNull: true,
+      comment: 'Request type: IMMEDIATE (realtime), SCHEDULED (future), CHECK_LATER (async)'
+    },
+    scheduledDateTime: {
+      type: DataTypes.DATE,
+      allowNull: true,
+      comment: 'When the service is needed (for SCHEDULED requests)'
+    },
+    cutoffTime: {
+      type: DataTypes.DATE,
+      allowNull: true,
+      comment: 'When offers should stop being accepted'
+    },
     location: {
       type: DataTypes.STRING(255),
       allowNull: false,
@@ -105,7 +120,7 @@ module.exports = (sequelize, DataTypes) => {
       onDelete: 'CASCADE',
     },
     status: {
-      type: DataTypes.ENUM('open', 'in_progress', 'completed', 'cancelled', 'disputed'),
+      type: DataTypes.ENUM('open', 'booked', 'in_progress', 'completed', 'expired', 'cancelled', 'disputed'),
       defaultValue: 'open',
     },
     acceptedOfferId: {

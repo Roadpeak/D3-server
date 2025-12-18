@@ -493,11 +493,14 @@ exports.createServiceRequest = async (req, res) => {
       budgetMin,
       budgetMax,
       timeline,
+      urgency,
+      scheduledDateTime,
+      cutoffTime,
       priority = 'normal',
       requirements = []
     } = req.body;
 
-    console.log('📝 Creating service request for user:', userId);
+    console.log('📝 Creating service request for user:', userId, 'urgency:', urgency);
 
     // Validation
     if (!title || !description || !category || !location || !budgetMin || !budgetMax) {
@@ -505,6 +508,22 @@ exports.createServiceRequest = async (req, res) => {
         success: false,
         message: 'Missing required fields: title, description, category, location, budgetMin, budgetMax'
       });
+    }
+
+    // Validate SCHEDULED requests
+    if (urgency === 'SCHEDULED') {
+      if (!scheduledDateTime) {
+        return res.status(400).json({
+          success: false,
+          message: 'scheduledDateTime is required for SCHEDULED requests'
+        });
+      }
+      if (!cutoffTime) {
+        return res.status(400).json({
+          success: false,
+          message: 'cutoffTime is required for SCHEDULED requests'
+        });
+      }
     }
 
     if (parseFloat(budgetMin) >= parseFloat(budgetMax)) {
@@ -526,6 +545,9 @@ exports.createServiceRequest = async (req, res) => {
       budgetMin: parseFloat(budgetMin),
       budgetMax: parseFloat(budgetMax),
       timeline,
+      urgency: urgency || 'CHECK_LATER',
+      scheduledDateTime: scheduledDateTime ? new Date(scheduledDateTime) : null,
+      cutoffTime: cutoffTime ? new Date(cutoffTime) : null,
       priority,
       requirements: JSON.stringify(requirements),
       status: 'open',
@@ -535,6 +557,21 @@ exports.createServiceRequest = async (req, res) => {
     });
 
     console.log('✅ Service request created:', serviceRequest.id);
+
+    // Emit Socket.IO event for IMMEDIATE requests
+    if (urgency === 'IMMEDIATE' && req.app.locals.io) {
+      console.log('📡 Broadcasting IMMEDIATE request to merchants:', serviceRequest.id);
+      req.app.locals.io.to(`category:${category}`).emit('service-request:new', {
+        requestId: serviceRequest.id,
+        title: serviceRequest.title,
+        category: serviceRequest.category,
+        location: serviceRequest.location,
+        budgetMin: serviceRequest.budgetMin,
+        budgetMax: serviceRequest.budgetMax,
+        urgency: serviceRequest.urgency,
+        createdAt: serviceRequest.createdAt
+      });
+    }
 
     return res.status(201).json({
       success: true,
@@ -548,6 +585,8 @@ exports.createServiceRequest = async (req, res) => {
           location: serviceRequest.location,
           budget: `KSH ${serviceRequest.budgetMin} - KSH ${serviceRequest.budgetMax}`,
           timeline: serviceRequest.timeline,
+          urgency: serviceRequest.urgency,
+          scheduledDateTime: serviceRequest.scheduledDateTime,
           status: serviceRequest.status
         }
       }
@@ -882,6 +921,29 @@ exports.createStoreOffer = async (req, res) => {
 
     console.log('✅ Store offer created successfully:', offer.id);
 
+    // Emit Socket.IO event to notify client in real-time (for IMMEDIATE requests)
+    if (serviceRequest.urgency === 'IMMEDIATE' && req.app.locals.io) {
+      console.log('📡 Broadcasting new offer to request room:', requestId);
+
+      req.app.locals.io.to(`request:${requestId}`).emit('offer:new', {
+        id: offer.id,
+        requestId: offer.requestId,
+        merchant: {
+          id: merchantId,
+          name: store.name,
+          avatar: store.logo_url || null,
+          rating: store.rating || 0
+        },
+        price: offer.quotedPrice,
+        message: offer.message,
+        availability: offer.availability,
+        estimatedDuration: offer.estimatedDuration,
+        responseTime: 'Just now',
+        createdAt: offer.createdAt,
+        isNew: true
+      });
+    }
+
     return res.status(201).json({
       success: true,
       message: 'Store offer submitted successfully',
@@ -976,9 +1038,9 @@ exports.acceptOffer = async (req, res) => {
         acceptedAt: new Date()
       }, { transaction });
 
-      // Update the service request
+      // Update the service request - set to 'booked' instead of 'in_progress'
       await serviceRequest.update({
-        status: 'in_progress',
+        status: 'booked',
         acceptedOfferId: offerId
       }, { transaction });
 
@@ -1000,13 +1062,26 @@ exports.acceptOffer = async (req, res) => {
 
       console.log('✅ Offer accepted successfully');
 
+      // Emit Socket.IO event to notify merchants of accepted offer
+      if (req.app.locals.io) {
+        // Notify the request room
+        req.app.locals.io.to(`request:${requestId}`).emit('offer:accepted', {
+          requestId,
+          offerId,
+          acceptedOfferId: offerId,
+          newStatus: 'booked'
+        });
+
+        console.log('📡 Broadcasted offer acceptance to request room:', requestId);
+      }
+
       return res.json({
         success: true,
         message: 'Offer accepted successfully',
         data: {
           offerId,
           requestId,
-          newStatus: 'in_progress'
+          newStatus: 'booked'
         }
       });
 
@@ -1446,6 +1521,69 @@ function getCategoryColor(categoryName) {
     'Financial Services': 'bg-yellow-100 text-yellow-800',
     'Healthcare': 'bg-red-100 text-red-800'
   };
-  
+
   return colorMap[categoryName] || 'bg-gray-100 text-gray-800';
 }
+
+/**
+ * Get nearby stores (for map display on Uber-style interface)
+ */
+exports.getNearbyStores = async (req, res) => {
+  try {
+    const { lat, lng, radius = 5000, limit = 20 } = req.query;
+
+    console.log('📍 Fetching nearby stores for location:', { lat, lng, radius });
+
+    if (!lat || !lng) {
+      return res.status(400).json({
+        success: false,
+        message: 'Missing required parameters: lat, lng'
+      });
+    }
+
+    if (!Store) {
+      return res.json({
+        success: true,
+        data: { stores: [] }
+      });
+    }
+
+    // Get active stores
+    // Note: In production, you would use spatial queries or Haversine formula
+    // For now, we'll just return recent active stores
+    const stores = await Store.findAll({
+      where: { is_active: true },
+      attributes: ['id', 'name', 'category', 'location', 'latitude', 'longitude', 'rating', 'logo_url'],
+      limit: parseInt(limit),
+      order: [['createdAt', 'DESC']]
+    });
+
+    // Format stores for map display
+    const formattedStores = stores.map(store => ({
+      id: store.id,
+      name: store.name,
+      category: store.category,
+      lat: store.latitude || (parseFloat(lat) + (Math.random() - 0.5) * 0.02),
+      lng: store.longitude || (parseFloat(lng) + (Math.random() - 0.5) * 0.02),
+      rating: store.rating || 4.0,
+      logo_url: store.logo_url
+    }));
+
+    console.log(`✅ Found ${formattedStores.length} nearby stores`);
+
+    return res.json({
+      success: true,
+      data: {
+        stores: formattedStores
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Error fetching nearby stores:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to fetch nearby stores',
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+    });
+  }
+};

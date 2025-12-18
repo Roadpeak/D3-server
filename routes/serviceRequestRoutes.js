@@ -213,6 +213,65 @@ router.get('/statistics', async (req, res) => {
   }
 });
 
+// ✅ GET /api/v1/request-service/nearby-stores - Get nearby stores for map
+router.get('/nearby-stores', async (req, res) => {
+  try {
+    const { lat, lng, radius = 5000, limit = 20 } = req.query;
+
+    console.log('📍 Fetching nearby stores for location:', { lat, lng, radius });
+
+    if (!lat || !lng) {
+      return res.status(400).json({
+        success: false,
+        message: 'Missing required parameters: lat, lng'
+      });
+    }
+
+    if (!Store) {
+      return res.json({
+        success: true,
+        data: { stores: [] }
+      });
+    }
+
+    // Get active stores
+    const stores = await Store.findAll({
+      where: { is_active: true },
+      attributes: ['id', 'name', 'category', 'location', 'latitude', 'longitude', 'rating', 'logo_url'],
+      limit: parseInt(limit),
+      order: [['createdAt', 'DESC']]
+    });
+
+    // Format stores for map display
+    const formattedStores = stores.map(store => ({
+      id: store.id,
+      name: store.name,
+      category: store.category,
+      lat: store.latitude || (parseFloat(lat) + (Math.random() - 0.5) * 0.02),
+      lng: store.longitude || (parseFloat(lng) + (Math.random() - 0.5) * 0.02),
+      rating: store.rating || 4.0,
+      logo_url: store.logo_url
+    }));
+
+    console.log(`✅ Found ${formattedStores.length} nearby stores`);
+
+    res.json({
+      success: true,
+      data: {
+        stores: formattedStores
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Error fetching nearby stores:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch nearby stores',
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+    });
+  }
+});
+
 // ✅ Helper function for category icons
 function getCategoryIcon(categoryName) {
   const iconMap = {
@@ -233,7 +292,7 @@ function getCategoryIcon(categoryName) {
     'Technology': '🔧',
     'Arts & Crafts': '🎭'
   };
-  
+
   return iconMap[categoryName] || '🔧';
 }
 
@@ -612,11 +671,14 @@ router.post('/', authenticateToken, async (req, res) => {
       budgetMin,
       budgetMax,
       timeline,
+      urgency,
+      scheduledDateTime,
+      cutoffTime,
       priority = 'medium',
       requirements = []
     } = req.body;
 
-    console.log('📝 Creating service request for user:', userId);
+    console.log('📝 Creating service request for user:', userId, 'urgency:', urgency);
     console.log('📝 Category:', category);
 
     // Validation
@@ -625,6 +687,22 @@ router.post('/', authenticateToken, async (req, res) => {
         success: false,
         message: 'Missing required fields'
       });
+    }
+
+    // Validate SCHEDULED requests
+    if (urgency === 'SCHEDULED') {
+      if (!scheduledDateTime) {
+        return res.status(400).json({
+          success: false,
+          message: 'scheduledDateTime is required for SCHEDULED requests'
+        });
+      }
+      if (!cutoffTime) {
+        return res.status(400).json({
+          success: false,
+          message: 'cutoffTime is required for SCHEDULED requests'
+        });
+      }
     }
 
     if (!ServiceRequest) {
@@ -639,6 +717,9 @@ router.post('/', authenticateToken, async (req, res) => {
       budgetMin: parseFloat(budgetMin),
       budgetMax: parseFloat(budgetMax),
       timeline,
+      urgency: urgency || 'CHECK_LATER', // ✅ NEW: Uber-style urgency field
+      scheduledDateTime: scheduledDateTime ? new Date(scheduledDateTime) : null, // ✅ NEW
+      cutoffTime: cutoffTime ? new Date(cutoffTime) : null, // ✅ NEW
       priority,
       requirements: JSON.stringify(requirements),
       status: 'open',
@@ -648,6 +729,21 @@ router.post('/', authenticateToken, async (req, res) => {
     });
 
     console.log('✅ Service request created:', serviceRequest.id);
+
+    // ✅ NEW: Emit Socket.IO event for IMMEDIATE requests
+    if (urgency === 'IMMEDIATE' && req.app.locals.io) {
+      console.log('📡 Broadcasting IMMEDIATE request to merchants in category:', category);
+      req.app.locals.io.to(`category:${category}`).emit('service-request:new', {
+        requestId: serviceRequest.id,
+        title: serviceRequest.title,
+        category: serviceRequest.category,
+        location: serviceRequest.location,
+        budgetMin: serviceRequest.budgetMin,
+        budgetMax: serviceRequest.budgetMax,
+        urgency: serviceRequest.urgency,
+        createdAt: serviceRequest.createdAt
+      });
+    }
 
     res.status(201).json({
       success: true,
@@ -661,6 +757,8 @@ router.post('/', authenticateToken, async (req, res) => {
           location: serviceRequest.location,
           budget: `$${serviceRequest.budgetMin} - $${serviceRequest.budgetMax}`,
           timeline: serviceRequest.timeline,
+          urgency: serviceRequest.urgency, // ✅ NEW
+          scheduledDateTime: serviceRequest.scheduledDateTime, // ✅ NEW
           status: serviceRequest.status
         }
       }
@@ -992,6 +1090,28 @@ router.post('/:requestId/offers', authenticateMerchant, async (req, res) => {
 
     console.log('✅ Store offer created successfully:', offer.id);
 
+    // ✅ NEW: Emit Socket.IO event to notify client in real-time (for IMMEDIATE requests)
+    if (serviceRequest.urgency === 'IMMEDIATE' && req.app.locals.io) {
+      console.log('📡 Broadcasting new offer to request room:', requestId);
+      req.app.locals.io.to(`request:${requestId}`).emit('offer:new', {
+        id: offer.id,
+        requestId: offer.requestId,
+        merchant: {
+          id: merchantId,
+          name: store.name,
+          avatar: store.logo_url || null,
+          rating: store.rating || 0
+        },
+        price: offer.quotedPrice,
+        message: offer.message,
+        availability: offer.availability,
+        estimatedDuration: offer.estimatedDuration,
+        responseTime: 'Just now',
+        createdAt: offer.createdAt,
+        isNew: true
+      });
+    }
+
     res.status(201).json({
       success: true,
       message: 'Store offer submitted successfully',
@@ -1165,9 +1285,9 @@ router.put('/:requestId/accept-offer/:offerId', authenticateToken, async (req, r
         acceptedAt: new Date()
       }, { transaction });
 
-      // Update the service request
+      // Update the service request - use 'booked' status for Uber-style flow
       await serviceRequest.update({
-        status: 'in_progress',
+        status: 'booked', // ✅ CHANGED: from 'in_progress' to 'booked'
         acceptedOfferId: offerId
       }, { transaction });
 
@@ -1189,13 +1309,24 @@ router.put('/:requestId/accept-offer/:offerId', authenticateToken, async (req, r
 
       console.log('✅ Offer accepted successfully');
 
+      // ✅ NEW: Emit Socket.IO event to notify merchants of accepted offer
+      if (req.app.locals.io) {
+        req.app.locals.io.to(`request:${requestId}`).emit('offer:accepted', {
+          requestId,
+          offerId,
+          acceptedOfferId: offerId,
+          newStatus: 'booked'
+        });
+        console.log('📡 Broadcasted offer acceptance to request room:', requestId);
+      }
+
       res.json({
         success: true,
         message: 'Offer accepted successfully',
         data: {
           offerId,
           requestId,
-          newStatus: 'in_progress'
+          newStatus: 'booked' // ✅ CHANGED: from 'in_progress' to 'booked'
         }
       });
 
