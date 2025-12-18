@@ -19,25 +19,13 @@ module.exports = {
         primaryKey: true
       },
       serviceRequestId: {
-        type: Sequelize.UUID,
+        type: Sequelize.CHAR(36),
         allowNull: false,
-        references: {
-          model: 'service_requests',
-          key: 'id'
-        },
-        onUpdate: 'CASCADE',
-        onDelete: 'CASCADE',
         comment: 'Reference to the service request'
       },
       merchantId: {
-        type: Sequelize.UUID,
+        type: Sequelize.CHAR(36),
         allowNull: false,
-        references: {
-          model: 'users', // Assuming merchants are in users table
-          key: 'id'
-        },
-        onUpdate: 'CASCADE',
-        onDelete: 'CASCADE',
         comment: 'Merchant who submitted this offer'
       },
       storeId: {
@@ -130,6 +118,31 @@ module.exports = {
       name: 'idx_service_offers_price'
     });
 
+    // Add foreign key constraints
+    await queryInterface.addConstraint('service_offers', {
+      fields: ['serviceRequestId'],
+      type: 'foreign key',
+      name: 'fk_service_offers_request',
+      references: {
+        table: 'service_requests',
+        field: 'id'
+      },
+      onUpdate: 'CASCADE',
+      onDelete: 'CASCADE'
+    });
+
+    await queryInterface.addConstraint('service_offers', {
+      fields: ['merchantId'],
+      type: 'foreign key',
+      name: 'fk_service_offers_merchant',
+      references: {
+        table: 'users',
+        field: 'id'
+      },
+      onUpdate: 'CASCADE',
+      onDelete: 'CASCADE'
+    });
+
     // Now add the foreign key constraint to service_requests table
     // that references accepted offer
     await queryInterface.addConstraint('service_requests', {
@@ -150,6 +163,10 @@ module.exports = {
   down: async (queryInterface, Sequelize) => {
     // Remove foreign key constraint from service_requests first
     await queryInterface.removeConstraint('service_requests', 'fk_service_requests_accepted_offer');
+
+    // Remove foreign key constraints from service_offers
+    await queryInterface.removeConstraint('service_offers', 'fk_service_offers_request');
+    await queryInterface.removeConstraint('service_offers', 'fk_service_offers_merchant');
 
     // Drop the service_offers table
     await queryInterface.dropTable('service_offers');
