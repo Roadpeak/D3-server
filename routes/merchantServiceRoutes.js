@@ -2,6 +2,7 @@
 const express = require('express');
 const router = express.Router();
 const { Op } = require('sequelize');
+const { sequelize } = require('../models');
 
 // ✅ SAFE: Import models and middleware with error handling
 let ServiceRequest, User, ServiceOffer, Store;
@@ -221,6 +222,9 @@ router.get('/service-requests', authenticateMerchant, async (req, res) => {
           budgetMin: 150,
           budgetMax: 300,
           timeline: 'urgent',
+          urgency: 'IMMEDIATE', // ✅ NEW
+          scheduledDateTime: null, // ✅ NEW
+          cutoffTime: null, // ✅ NEW
           priority: 'high',
           status: 'open',
           postedBy: 'Sarah K.',
@@ -335,7 +339,12 @@ router.get('/service-requests', authenticateMerchant, async (req, res) => {
       where: whereClause,
       include: includeOptions,
       order: [
-        ['priority', 'DESC'], // Urgent first
+        // ✅ ENHANCED: Sort IMMEDIATE requests first, then by priority, then by newest
+        [
+          sequelize.literal(`CASE WHEN urgency = 'IMMEDIATE' THEN 0 WHEN urgency = 'SCHEDULED' THEN 1 ELSE 2 END`),
+          'ASC'
+        ],
+        ['priority', 'DESC'], // Then urgent/high priority
         ['createdAt', 'DESC']  // Then newest
       ],
       limit: parseInt(limit),
@@ -378,17 +387,20 @@ router.get('/service-requests', authenticateMerchant, async (req, res) => {
       budgetMin: request.budgetMin,
       budgetMax: request.budgetMax,
       timeline: request.timeline,
-      priority: request.priority || 'medium',
+      urgency: request.urgency || 'CHECK_LATER', // ✅ NEW: Uber-style urgency field
+      scheduledDateTime: request.scheduledDateTime || null, // ✅ NEW: Scheduled date/time
+      cutoffTime: request.cutoffTime || null, // ✅ NEW: Cutoff time for offers
+      priority: request.priority || 'normal', // ✅ FIXED: Changed from 'medium' to 'normal'
       status: request.status,
-      postedBy: request.postedByUser ? 
-        `${request.postedByUser.firstName} ${request.postedByUser.lastName.charAt(0)}.` : 
+      postedBy: request.postedByUser ?
+        `${request.postedByUser.firstName} ${request.postedByUser.lastName.charAt(0)}.` :
         'Unknown User',
       postedTime: calculateTimeAgo(request.createdAt),
       offers: request.offerCount || 0,
       verified: request.postedByUser?.verified || false,
       merchantOffered: !!merchantOfferMap[request.id],
-      requirements: request.requirements ? 
-        (Array.isArray(request.requirements) ? request.requirements : JSON.parse(request.requirements || '[]')) : 
+      requirements: request.requirements ?
+        (Array.isArray(request.requirements) ? request.requirements : JSON.parse(request.requirements || '[]')) :
         [],
       createdAt: request.createdAt,
       updatedAt: request.updatedAt
