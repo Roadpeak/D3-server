@@ -939,13 +939,13 @@ router.get('/offers', authenticateToken, async (req, res) => {
   }
 });
 
-// ✅ GET /api/v1/request-service/my-requests - Get user's past requests
-router.get('/my-requests', authenticateToken, async (req, res) => {
+// ✅ GET /api/v1/request-service/user/my-requests - Get user's service requests with offers
+router.get('/user/my-requests', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.id;
-    const { page = 1, limit = 10, status = 'all' } = req.query;
+    const { page = 1, limit = 20, status = 'all' } = req.query;
 
-    console.log('📋 Fetching user past requests for user:', userId);
+    console.log('📋 Fetching user service requests for user:', userId);
 
     if (!ServiceRequest) {
       return res.json({
@@ -975,7 +975,14 @@ router.get('/my-requests', authenticateToken, async (req, res) => {
 
     const { count, rows } = await ServiceRequest.findAndCountAll({
       where: whereClause,
-      order: [['createdAt', 'DESC']],
+      order: [
+        // ✅ Sort IMMEDIATE requests first
+        [
+          sequelize.literal(`CASE WHEN urgency = 'IMMEDIATE' THEN 0 WHEN urgency = 'SCHEDULED' THEN 1 ELSE 2 END`),
+          'ASC'
+        ],
+        ['createdAt', 'DESC']
+      ],
       limit: parseInt(limit),
       offset: offset
     });
@@ -986,21 +993,25 @@ router.get('/my-requests', authenticateToken, async (req, res) => {
       description: request.description,
       category: request.category,
       location: request.location,
+      budgetMin: request.budgetMin,
+      budgetMax: request.budgetMax,
       budget: `KSH ${request.budgetMin} - KSH ${request.budgetMax}`,
+      timeline: request.timeline,
+      urgency: request.urgency || 'CHECK_LATER', // ✅ NEW
+      scheduledDateTime: request.scheduledDateTime, // ✅ NEW
+      cutoffTime: request.cutoffTime, // ✅ NEW
+      priority: request.priority || 'normal',
       status: request.status,
-      offers: 0,
+      offerCount: request.offerCount || 0, // ✅ NEW: Show offer count
       completedAt: request.completedAt,
-      acceptedOffer: request.acceptedOfferId ? {
-        storeName: 'Service Provider',
-        price: `$${request.budgetMax}`,
-        rating: null
-      } : null,
-      createdAt: request.createdAt
+      acceptedOfferId: request.acceptedOfferId,
+      createdAt: request.createdAt,
+      updatedAt: request.updatedAt
     }));
 
     const totalPages = Math.ceil(count / parseInt(limit));
 
-    console.log(`✅ Found ${count} past requests for user`);
+    console.log(`✅ Found ${count} requests for user`);
 
     res.json({
       success: true,
@@ -1017,13 +1028,20 @@ router.get('/my-requests', authenticateToken, async (req, res) => {
     });
 
   } catch (error) {
-    console.error('❌ Error fetching user past requests:', error);
+    console.error('❌ Error fetching user requests:', error);
     res.status(500).json({
       success: false,
-      message: 'Failed to fetch user past requests',
+      message: 'Failed to fetch user requests',
       error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
+});
+
+// ✅ KEEP OLD ENDPOINT FOR BACKWARD COMPATIBILITY
+router.get('/my-requests', authenticateToken, async (req, res) => {
+  // Redirect to new endpoint
+  req.url = '/user/my-requests';
+  return router.handle(req, res);
 });
 
 // ✅ POST /api/v1/request-service/:requestId/offers - Create store-based offer
