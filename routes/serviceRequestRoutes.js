@@ -1143,18 +1143,21 @@ router.post('/:requestId/offers', authenticateMerchant, async (req, res) => {
 
     console.log('✅ Store offer created successfully:', offer.id);
 
-    // ✅ NEW: Emit Socket.IO event to notify client in real-time (for IMMEDIATE requests)
-    if (serviceRequest.urgency === 'IMMEDIATE' && req.app.locals.io) {
+    // ✅ FIXED: Emit Socket.IO event to notify client in real-time (for ALL requests)
+    if (req.app.locals.io) {
       console.log('📡 Broadcasting new offer to request room:', requestId);
       req.app.locals.io.to(`request:${requestId}`).emit('offer:new', {
         id: offer.id,
         requestId: offer.requestId,
+        storeId: offer.storeId, // ✅ CRITICAL: Added storeId for mapping
+        storeName: store.name, // ✅ Added store name
         merchant: {
           id: merchantId,
           name: store.name,
           avatar: store.logo_url || null,
           rating: store.rating || 0
         },
+        quotedPrice: offer.quotedPrice, // ✅ CRITICAL: Added quotedPrice
         price: offer.quotedPrice,
         message: offer.message,
         availability: offer.availability,
@@ -1163,6 +1166,9 @@ router.post('/:requestId/offers', authenticateMerchant, async (req, res) => {
         createdAt: offer.createdAt,
         isNew: true
       });
+      console.log('✅ Offer emitted to client via Socket.IO');
+    } else {
+      console.warn('⚠️ Socket.IO not available - offer not broadcasted');
     }
 
     res.status(201).json({
