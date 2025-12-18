@@ -68,7 +68,15 @@ module.exports = {
       name: 'idx_service_requests_cutoff_time'
     });
 
-    // 8. Migrate existing data: Set urgency based on timeline
+    // 8. Add acceptedOfferId column (will be linked to service_offers table)
+    await queryInterface.addColumn('service_requests', 'acceptedOfferId', {
+      type: Sequelize.UUID,
+      allowNull: true,
+      after: 'status',
+      comment: 'Reference to the accepted offer (if any)'
+    });
+
+    // 9. Migrate existing data: Set urgency based on timeline
     // This is optional - you can keep existing requests with null urgency
     // or migrate them to CHECK_LATER as a safe default
     await queryInterface.sequelize.query(`
@@ -91,6 +99,7 @@ module.exports = {
     await queryInterface.removeIndex('service_requests', 'idx_service_requests_cutoff_time');
 
     // Remove new columns
+    await queryInterface.removeColumn('service_requests', 'acceptedOfferId');
     await queryInterface.removeColumn('service_requests', 'cutoffTime');
     await queryInterface.removeColumn('service_requests', 'scheduledDateTime');
     await queryInterface.removeColumn('service_requests', 'urgency');
