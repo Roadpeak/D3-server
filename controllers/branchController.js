@@ -250,7 +250,7 @@ exports.createBranch = async (req, res) => {
     console.log('🏢 CREATE BRANCH - Start');
     console.log('📍 Store ID:', req.params.storeId);
     console.log('👤 Merchant ID:', req.user.id);
-    console.log('📝 Request Body:', req.body);
+    // SECURITY: Not logging request body to prevent sensitive data exposure
 
     const {
       name,

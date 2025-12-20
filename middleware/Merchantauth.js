@@ -30,7 +30,8 @@ const authenticateMerchant = async (req, res, next) => {
     let decoded;
     try {
       decoded = jwt.verify(token, JWT_SECRET);
-      console.log('✅ Token verified for merchant ID:', decoded.id);
+      console.log('✅ Token verified for merchant');
+      // SECURITY: Never log decoded token - contains sensitive user data
     } catch (error) {
       console.error('❌ Token verification failed:', error.message);
       

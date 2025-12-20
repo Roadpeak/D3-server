@@ -5,6 +5,7 @@ const fs = require('fs');
 const { Op } = require('sequelize');
 const { sendEmail } = require('../utils/emailUtil');
 const userService = require('../services/userService');
+const { setTokenCookie, clearTokenCookie } = require('../utils/cookieHelper');
 
 const JWT_SECRET = process.env.JWT_SECRET;
 
@@ -44,8 +45,10 @@ exports.register = async (req, res) => {
     if (!userData.phoneNumber?.trim()) errors.phoneNumber = 'Phone number is required';
     if (!userData.password) {
       errors.password = 'Password is required';
-    } else if (userData.password.length < 8) {
-      errors.password = 'Password must be at least 8 characters long';
+    } else if (userData.password.length < 12) {
+      errors.password = 'Password must be at least 12 characters long';
+    } else if (!/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&#^()_+=\-{}\[\]:;"'<>,.\/\\|`~]).{12,}$/.test(userData.password)) {
+      errors.password = 'Password must contain uppercase, lowercase, number, and special character';
     }
     if (userData.passwordConfirmation && userData.password !== userData.passwordConfirmation) {
       errors.password_confirmation = 'Passwords do not match';
@@ -129,6 +132,9 @@ exports.register = async (req, res) => {
       }
     }
 
+    // Set token as HttpOnly cookie
+    setTokenCookie(res, token);
+
     return res.status(201).json({
       message: 'Registration successful',
       user: {
@@ -143,7 +149,6 @@ exports.register = async (req, res) => {
         createdAt: newUser.createdAt,
         updatedAt: newUser.updatedAt,
       },
-      access_token: token,
       referralInfo: referrerId ? {
         message: 'You were successfully referred! Start booking offers to help your referrer earn rewards.',
         referrerNotified: true
@@ -258,6 +263,9 @@ exports.login = async (req, res) => {
       await user.updateLastLogin();
     }
 
+    // Set token as HttpOnly cookie
+    setTokenCookie(res, token);
+
     return res.status(200).json({
       message: 'Login successful',
       user: {
@@ -273,7 +281,6 @@ exports.login = async (req, res) => {
         createdAt: user.createdAt,
         updatedAt: user.updatedAt,
       },
-      access_token: token,
     });
   } catch (err) {
     console.error('Login error:', err);

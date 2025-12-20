@@ -5,6 +5,12 @@ const router = express.Router();
 // Import merchant controller
 const merchantController = require('../controllers/merchantController');
 
+// Import validation middleware
+const {
+  validateMerchantRegistration,
+  validateMerchantLogin
+} = require('../middleware/validators/authValidator');
+
 // Import auth middleware with error handling
 let authenticateMerchant, authenticateAdmin, authRateLimit;
 
@@ -67,16 +73,16 @@ router.get('/test', (req, res) => {
 // PUBLIC ROUTES
 // ==========================================
 
-// Registration - with safe rate limiting
-router.post('/register', (req, res, next) => {
+// Registration - with safe rate limiting and validation
+router.post('/register', validateMerchantRegistration, (req, res, next) => {
   if (authRateLimit) {
     return authRateLimit(5, 15 * 60 * 1000)(req, res, next);
   }
   next();
 }, merchantController.register);
 
-// Login - with safe rate limiting
-router.post('/login', (req, res, next) => {
+// Login - with safe rate limiting and validation
+router.post('/login', validateMerchantLogin, (req, res, next) => {
   if (authRateLimit) {
     return authRateLimit(10, 15 * 60 * 1000)(req, res, next);
   }

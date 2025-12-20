@@ -763,7 +763,7 @@ exports.getServicesByMerchantId = async (req, res) => {
     const { merchantId } = req.params;
     
     console.log('Getting services for merchant:', merchantId);
-    console.log('Authenticated user:', req.user);
+    // SECURITY: Not logging user object to prevent sensitive data exposure
     
     // Check if requesting merchant is the same as the authenticated merchant
     if (req.user.id !== merchantId && req.user.userId !== merchantId) {

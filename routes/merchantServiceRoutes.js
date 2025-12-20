@@ -55,14 +55,10 @@ try {
     
     try {
       const jwt = require('jsonwebtoken');
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key');
-      
-      console.log('✅ Token decoded:', {
-        id: decoded.id,
-        userId: decoded.userId,
-        email: decoded.email,
-        type: decoded.type
-      });
+      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+      console.log('✅ Token verified successfully');
+      // SECURITY: Never log decoded token - contains sensitive user data
       
       // ✅ CRITICAL: Check if token is for a merchant
       if (decoded.type !== 'merchant') {

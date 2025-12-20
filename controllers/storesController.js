@@ -414,7 +414,8 @@ exports.getStoreById = async (req, res) => {
     if (token) {
       try {
         const decoded = jwt.verify(token, JWT_SECRET);
-        console.log('🔍 Decoded token in getStoreById:', decoded);
+        console.log('🔍 Token verified in getStoreById');
+        // SECURITY: Never log decoded token - contains sensitive user data
         
         if (decoded.type === 'user' && decoded.userId) {
           userId = decoded.userId;
@@ -1288,7 +1289,8 @@ exports.getStoreById = async (req, res) => {
     if (token) {
       try {
         const decoded = jwt.verify(token, JWT_SECRET);
-        console.log('🔍 Decoded token in getStoreById:', decoded);
+        console.log('🔍 Token verified in getStoreById');
+        // SECURITY: Never log decoded token - contains sensitive user data
         
         // Handle both user and merchant tokens
         if (decoded.type === 'user' && decoded.userId) {

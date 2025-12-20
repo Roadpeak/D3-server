@@ -6,6 +6,7 @@ const ejs = require('ejs');
 const fs = require('fs');
 const { sendEmail } = require('../utils/emailUtil');
 const { Op } = require('sequelize');
+const { setTokenCookie, clearTokenCookie } = require('../utils/cookieHelper');
 
 const JWT_SECRET = process.env.JWT_SECRET;
 
@@ -31,10 +32,19 @@ exports.register = async (req, res) => {
     }
 
     // Validate password strength
-    if (password.length < 8) {
-      return res.status(400).json({ 
+    if (password.length < 12) {
+      return res.status(400).json({
         success: false,
-        message: 'Password must be at least 8 characters long' 
+        message: 'Password must be at least 12 characters long'
+      });
+    }
+
+    // Validate password complexity
+    const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&#^()_+=\-{}\[\]:;"'<>,.\/\\|`~]).{12,}$/;
+    if (!passwordRegex.test(password)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Password must contain uppercase, lowercase, number, and special character'
       });
     }
 
@@ -106,11 +116,13 @@ exports.register = async (req, res) => {
       // Don't fail registration if email fails
     }
 
+    // Set token as HttpOnly cookie
+    setTokenCookie(res, token);
+
     return res.status(201).json({
       success: true,
       message: 'Merchant registered successfully',
       merchant,
-      access_token: token,
     });
   } catch (err) {
     console.error('Registration error:', err);
@@ -162,6 +174,9 @@ exports.login = async (req, res) => {
       expiresIn: '24h' // 24 hours for login token
     });
 
+    // Set token as HttpOnly cookie
+    setTokenCookie(res, token);
+
     return res.status(200).json({
       success: true,
       message: 'Login successful',
@@ -173,7 +188,6 @@ exports.login = async (req, res) => {
       joined: merchant.createdAt,
       updated: merchant.updatedAt,
       last_login: merchant.lastLoginAt,
-      access_token: token,
     });
   } catch (err) {
     console.error('Login error:', err);
@@ -701,9 +715,12 @@ exports.refreshToken = async (req, res) => {
       expiresIn: '24h'
     });
 
+    // Set token as HttpOnly cookie
+    setTokenCookie(res, token);
+
     return res.status(200).json({
       success: true,
-      access_token: token,
+      message: 'Token refreshed successfully',
       expires_in: '24h'
     });
   } catch (err) {

@@ -118,7 +118,8 @@ router.post('/mpesa/stkpush', authenticateToken, async (req, res) => {
 // M-Pesa callback endpoint
 router.post('/mpesa/callback', async (req, res) => {
   try {
-    console.log('📨 M-Pesa callback received:', JSON.stringify(req.body, null, 2));
+    console.log('📨 M-Pesa callback received');
+    // SECURITY: Not logging request body to prevent sensitive payment data exposure
 
     const result = await paymentService.processMpesaCallback(req.body);
 

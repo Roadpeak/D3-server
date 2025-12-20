@@ -57,23 +57,28 @@ exports.getBookingsWithCustomers = async (req, res) => {
             }
         }
 
+        // SECURITY: Validate sortOrder to prevent SQL injection
+        const validatedSortOrder = ['asc', 'desc'].includes(sortOrder.toLowerCase())
+            ? sortOrder.toUpperCase()
+            : 'DESC';
+
         // Build order clause
         let orderClause = [];
         switch (sortBy) {
             case 'customerName':
-                orderClause = [[User, 'first_name', sortOrder.toUpperCase()]];
+                orderClause = [[User, 'first_name', validatedSortOrder]];
                 break;
             case 'startTime':
-                orderClause = [['startTime', sortOrder.toUpperCase()]];
+                orderClause = [['startTime', validatedSortOrder]];
                 break;
             case 'status':
-                orderClause = [['status', sortOrder.toUpperCase()]];
+                orderClause = [['status', validatedSortOrder]];
                 break;
             case 'bookingType':
-                orderClause = [['bookingType', sortOrder.toUpperCase()]];
+                orderClause = [['bookingType', validatedSortOrder]];
                 break;
             default:
-                orderClause = [['createdAt', sortOrder.toUpperCase()]];
+                orderClause = [['createdAt', validatedSortOrder]];
         }
 
         const offset = (parseInt(page) - 1) * parseInt(limit);
@@ -266,8 +271,13 @@ exports.getUniqueCustomers = async (req, res) => {
         }
 
         // Get unique customers with booking statistics using raw SQL for better performance
+        // SECURITY: Validate sortOrder to prevent SQL injection
+        const validatedSortOrder = ['asc', 'desc'].includes(sortOrder.toLowerCase())
+            ? sortOrder.toUpperCase()
+            : 'DESC';
+
         const baseQuery = `
-            SELECT 
+            SELECT
                 u.id,
                 u.first_name,
                 u.last_name,
@@ -293,11 +303,11 @@ exports.getUniqueCustomers = async (req, res) => {
             WHERE b.storeId = :storeId
             ${bookingType ? 'AND b.bookingType = :bookingType' : ''}
             ${search ? `AND (
-                u.first_name LIKE :search OR 
-                u.last_name LIKE :search OR 
-                u.firstName LIKE :search OR 
-                u.lastName LIKE :search OR 
-                u.email LIKE :search OR 
+                u.first_name LIKE :search OR
+                u.last_name LIKE :search OR
+                u.firstName LIKE :search OR
+                u.lastName LIKE :search OR
+                u.email LIKE :search OR
                 u.email_address LIKE :search
             )` : ''}
             GROUP BY u.id
@@ -306,15 +316,15 @@ exports.getUniqueCustomers = async (req, res) => {
         const orderClause = (() => {
             switch (sortBy) {
                 case 'name':
-                    return `ORDER BY COALESCE(u.first_name, u.firstName) ${sortOrder.toUpperCase()}`;
+                    return `ORDER BY COALESCE(u.first_name, u.firstName) ${validatedSortOrder}`;
                 case 'totalBookings':
-                    return `ORDER BY totalBookings ${sortOrder.toUpperCase()}`;
+                    return `ORDER BY totalBookings ${validatedSortOrder}`;
                 case 'totalSpent':
-                    return `ORDER BY totalSpent ${sortOrder.toUpperCase()}`;
+                    return `ORDER BY totalSpent ${validatedSortOrder}`;
                 case 'lastBookingDate':
-                    return `ORDER BY lastBookingDate ${sortOrder.toUpperCase()}`;
+                    return `ORDER BY lastBookingDate ${validatedSortOrder}`;
                 default:
-                    return `ORDER BY totalBookings ${sortOrder.toUpperCase()}`;
+                    return `ORDER BY totalBookings ${validatedSortOrder}`;
             }
         })();
 

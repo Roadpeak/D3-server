@@ -32,7 +32,7 @@ const verifyToken = async (req, res, next) => {
     try {
       decoded = jwt.verify(token, JWT_SECRET);
       console.log('✅ Token verified successfully');
-      console.log('📄 Decoded token:', JSON.stringify(decoded, null, 2));
+      // SECURITY: Never log decoded token - contains sensitive user data
     } catch (error) {
       console.log('❌ Token verification failed:', error.message);
       if (error.name === 'TokenExpiredError') {
@@ -64,7 +64,7 @@ const verifyToken = async (req, res, next) => {
 
     // PRIORITY 1: Check if it's a user token (has userId AND type === 'user')
     if (decoded.userId && decoded.type === 'user') {
-      console.log('👤 Detected user token with userId:', decoded.userId);
+      console.log('👤 Detected user token (type: user)');
       try {
         user = await User.findByPk(decoded.userId, {
           attributes: { exclude: ['password'] }
@@ -77,7 +77,7 @@ const verifyToken = async (req, res, next) => {
     }
     // PRIORITY 2: Check if it's a merchant token (has type === 'merchant')
     else if (decoded.type === 'merchant' && decoded.id) {
-      console.log('🏪 Detected merchant token with id:', decoded.id);
+      console.log('🏪 Detected merchant token (type: merchant)');
       try {
         user = await Merchant.findOne({
           where: { id: decoded.id },

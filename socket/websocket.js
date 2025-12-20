@@ -40,7 +40,7 @@ class SocketManager {
 
         let decoded;
         try {
-          decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key');
+          decoded = jwt.verify(token, process.env.JWT_SECRET);
         } catch (jwtError) {
           return next(new Error(`Authentication error: ${jwtError.message}`));
         }

@@ -1,8 +1,14 @@
 const jwt = require('jsonwebtoken');
 const { User } = require('../models'); // Adjust path based on your project structure
 
-// JWT Secret - In production, use environment variable
-const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-jwt-key-here';
+// JWT Secret - MUST be set in environment variables
+const JWT_SECRET = process.env.JWT_SECRET;
+
+if (!JWT_SECRET) {
+  console.error('CRITICAL SECURITY ERROR: JWT_SECRET is not set in environment variables!');
+  console.error('Application will not function correctly without JWT_SECRET.');
+  throw new Error('JWT_SECRET environment variable is required');
+}
 
 /**
  * Authentication middleware to verify JWT tokens
@@ -32,16 +38,10 @@ const authenticateToken = async (req, res, next) => {
     // Verify the token
     const decoded = jwt.verify(token, JWT_SECRET);
     console.log('✅ Token verified successfully');
-    console.log('📄 Decoded token:', {
-      userId: decoded.userId,
-      email: decoded.email,
-      type: decoded.type,
-      iat: decoded.iat,
-      exp: decoded.exp
-    });
+    // SECURITY: Never log decoded token - contains sensitive user data
 
     console.log('🔍 Looking for user with token data...');
-    console.log('👤 Detected user token with userId:', decoded.userId);
+    console.log('👤 Detected user token (type: user)');
     
     // Get user from database using the scope that includes password for comparison
     const user = await User.scope('withPassword').findByPk(decoded.userId, {

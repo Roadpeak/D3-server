@@ -2,6 +2,7 @@
 const jwt = require('jsonwebtoken');
 const { OAuth2Client } = require('google-auth-library');
 const userService = require('../services/userService');
+const { setTokenCookie } = require('../utils/cookieHelper');
 
 const JWT_SECRET = process.env.JWT_SECRET;
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
@@ -169,6 +170,9 @@ exports.googleSignInUser = async (req, res) => {
       { expiresIn: '30d' }
     );
 
+    // Set token as HttpOnly cookie
+    setTokenCookie(res, token);
+
     return res.status(200).json({
       message: isNewUser ? 'Account created with Google successfully' : 'Google sign-in successful',
       user: {
@@ -188,7 +192,6 @@ exports.googleSignInUser = async (req, res) => {
         createdAt: user.createdAt,
         updatedAt: user.updatedAt,
       },
-      access_token: token,
       isNewUser,
       referralInfo: user.referredBy ? {
         message: 'You were successfully referred! Start booking offers to help your referrer earn rewards.',
@@ -428,6 +431,9 @@ exports.googleSignInMerchant = async (req, res) => {
       { expiresIn: '30d' }
     );
 
+    // Set token as HttpOnly cookie
+    setTokenCookie(res, token);
+
     return res.status(200).json({
       message: isNewMerchant ? 'Merchant account created with Google successfully' : 'Google sign-in successful',
       merchant: {
@@ -445,7 +451,6 @@ exports.googleSignInMerchant = async (req, res) => {
         createdAt: merchant.createdAt,
         updatedAt: merchant.updatedAt,
       },
-      access_token: token,
       isNewMerchant
     });
   } catch (error) {

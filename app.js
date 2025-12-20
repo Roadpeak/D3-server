@@ -1,6 +1,8 @@
 const express = require('express');
 const cors = require('cors');
 const http = require('http');
+const helmet = require('helmet');
+const cookieParser = require('cookie-parser');
 const storesRoutes = require('./routes/storesRoutes');
 const merchantRoutes = require('./routes/merchantRoutes');
 const userRoutes = require('./routes/userRoutes');
@@ -42,6 +44,16 @@ const reelsRoutes = require('./routes/reelsRoutes');
 
 // Import API key middleware
 const { apiKeyMiddleware } = require('./middleware/apiKey');
+
+// Import rate limiting middleware - CRITICAL SECURITY
+const {
+  generalLimiter,
+  authLimiter,
+  paymentLimiter,
+  uploadLimiter,
+  passwordResetLimiter,
+  creationLimiter
+} = require('./middleware/rateLimiting');
 
 require('dotenv').config();
 
@@ -141,17 +153,64 @@ app.set('trust proxy', 1);
 // Basic middleware
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+app.use(cookieParser()); // Parse cookies for HttpOnly token storage
 
 // Apply API key middleware (optional in development)
 app.use(apiKeyMiddleware);
 
-// Security headers
-app.use((req, res, next) => {
-  res.header('X-Content-Type-Options', 'nosniff');
-  res.header('X-Frame-Options', 'DENY');
-  res.header('X-XSS-Protection', '1; mode=block');
-  next();
-});
+// ==========================================
+// HELMET.JS SECURITY HEADERS - COMPREHENSIVE
+// ==========================================
+app.use(helmet({
+  // Content Security Policy
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'", "https://accounts.google.com", "https://www.googletagmanager.com"],
+      styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+      fontSrc: ["'self'", "https://fonts.gstatic.com"],
+      imgSrc: ["'self'", "data:", "https:", "blob:"],
+      connectSrc: ["'self'", "https://api.safaricom.co.ke", "https://accounts.google.com"],
+      frameSrc: ["'self'", "https://accounts.google.com"],
+      objectSrc: ["'none'"],
+      upgradeInsecureRequests: process.env.NODE_ENV === 'production' ? [] : null,
+    },
+  },
+  // Strict Transport Security (HSTS)
+  hsts: {
+    maxAge: 31536000, // 1 year
+    includeSubDomains: true,
+    preload: true
+  },
+  // Prevent clickjacking
+  frameguard: {
+    action: 'deny'
+  },
+  // Prevent MIME type sniffing
+  noSniff: true,
+  // XSS Protection
+  xssFilter: true,
+  // Referrer Policy
+  referrerPolicy: {
+    policy: 'strict-origin-when-cross-origin'
+  },
+  // Permissions Policy
+  permittedCrossDomainPolicies: {
+    permittedPolicies: 'none'
+  }
+}));
+
+console.log('🛡️ Helmet.js security headers enabled');
+console.log('✅ CSP, HSTS, X-Frame-Options, X-Content-Type-Options configured');
+
+// ==========================================
+// RATE LIMITING - CRITICAL SECURITY
+// ==========================================
+// Apply global rate limiter to all requests
+app.use(generalLimiter);
+
+console.log('✅ Rate limiting enabled globally (100 req/15min per IP)');
+console.log('✅ Strict auth rate limiting ready (5 attempts/15min)');
 
 // Request logging for development
 if (process.env.NODE_ENV === 'development') {
@@ -211,7 +270,14 @@ app.get('/api/v1/cors-test', (req, res) => {
 // API ROUTES
 // ===============================
 
-// Core user and merchant routes first
+// Core user and merchant routes with AUTH RATE LIMITING
+app.use('/api/v1/users/login', authLimiter); // Protect login endpoint
+app.use('/api/v1/users/register', authLimiter); // Protect registration
+app.use('/api/v1/merchants/login', authLimiter); // Protect merchant login
+app.use('/api/v1/merchants/register', authLimiter); // Protect merchant registration
+app.use('/api/v1/users/request-password-reset', passwordResetLimiter);
+app.use('/api/v1/merchants/request-password-reset', passwordResetLimiter);
+
 app.use('/api/v1/users', userRoutes);
 app.use('/api/v1/merchants', merchantRoutes);
 
@@ -222,13 +288,13 @@ app.use('/api/v1/locations', locationRoutes);
 app.use('/api/v1/request-service', serviceRequestRoutes);
 app.use('/api/v1/merchant', merchantServiceRoutes);
 
-// Store and service routes
-app.use('/api/v1/stores', storesRoutes);
+// Store and service creation with rate limiting
+app.use('/api/v1/stores', creationLimiter, storesRoutes); // 30 creations/15min
 app.use('/api/v1/services', serviceRoutes);
 
-// Other feature routes
-app.use('/api/v1/upload', uploadRoutes);
-app.use('/api/v1/payments', paymentRoutes);
+// Other feature routes with SPECIFIC RATE LIMITING
+app.use('/api/v1/upload', uploadLimiter, uploadRoutes); // 20 uploads/15min
+app.use('/api/v1/payments', paymentLimiter, paymentRoutes); // 10 payments/hour
 app.use('/api/v1/staff', staffRoutes);
 app.use('/api/v1/offers', offerRoutes);
 app.use('/api/v1/bookings', bookingRoutes); // User-facing booking routes
@@ -588,7 +654,8 @@ if (process.env.NODE_ENV === 'development') {
 
   // Test user authentication
   app.post('/api/v1/users/login', (req, res) => {
-    console.log('Login attempt:', req.body);
+    console.log('Login attempt received');
+    // SECURITY: Not logging request body to prevent password exposure
     const { email, password } = req.body;
 
     if (!email || !password) {
@@ -606,7 +673,7 @@ if (process.env.NODE_ENV === 'development') {
         type: 'user',
         userType: 'customer'
       },
-      process.env.JWT_SECRET || 'your-secret-key',
+      process.env.JWT_SECRET,
       { expiresIn: '30d' }
     );
 
@@ -628,7 +695,8 @@ if (process.env.NODE_ENV === 'development') {
 
   // Test merchant authentication
   app.post('/api/v1/merchants/login', (req, res) => {
-    console.log('Merchant login attempt:', req.body);
+    console.log('Merchant login attempt received');
+    // SECURITY: Not logging request body to prevent password exposure
     const { email, password } = req.body;
 
     if (!email || !password) {
@@ -646,7 +714,7 @@ if (process.env.NODE_ENV === 'development') {
         type: 'merchant',
         userType: 'merchant'
       },
-      process.env.JWT_SECRET || 'your-secret-key',
+      process.env.JWT_SECRET,
       { expiresIn: '30d' }
     );
 
@@ -675,7 +743,8 @@ if (process.env.NODE_ENV === 'development') {
 
   // OTP verification for testing
   app.post('/api/v1/users/verify-otp', (req, res) => {
-    console.log('OTP verification request:', req.body);
+    console.log('OTP verification request received');
+    // SECURITY: Not logging request body to prevent sensitive data exposure
     const { phone, otp } = req.body;
 
     if (['123456', '111111', '000000', '999999'].includes(otp)) {
@@ -692,7 +761,8 @@ if (process.env.NODE_ENV === 'development') {
   });
 
   app.post('/api/v1/users/resend-otp', (req, res) => {
-    console.log('OTP resend request:', req.body);
+    console.log('OTP resend request received');
+    // SECURITY: Not logging request body to prevent sensitive data exposure
     return res.status(200).json({
       message: 'OTP sent successfully',
       success: true,
@@ -711,7 +781,7 @@ if (process.env.NODE_ENV === 'development') {
 
     const token = authHeader.substring(7);
     try {
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key');
+      const decoded = jwt.verify(token, process.env.JWT_SECRET);
       return res.status(200).json({
         success: true,
         user: {
@@ -732,7 +802,8 @@ if (process.env.NODE_ENV === 'development') {
   });
 
   app.post('/api/v1/users/register', (req, res) => {
-    console.log('Registration attempt:', req.body);
+    console.log('Registration attempt received');
+    // SECURITY: Not logging request body to prevent password exposure
     const { firstName, lastName, email, phoneNumber, password } = req.body;
 
     const token = jwt.sign(
@@ -743,7 +814,7 @@ if (process.env.NODE_ENV === 'development') {
         type: 'user',
         userType: 'customer'
       },
-      process.env.JWT_SECRET || 'your-secret-key',
+      process.env.JWT_SECRET,
       { expiresIn: '30d' }
     );
 

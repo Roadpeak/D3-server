@@ -40,11 +40,21 @@ const {
 } = require('../controllers/notificationController');
 
 // Import unified auth middleware
-const { 
-  verifyToken, 
-  authenticateUser, 
-  optionalAuth 
+const {
+  verifyToken,
+  authenticateUser,
+  optionalAuth
 } = require('../middleware/auth');
+
+// Import validation middleware
+const {
+  validateUserRegistration,
+  validateUserLogin,
+  validatePasswordResetRequest,
+  validatePasswordReset,
+  validateEmailUpdate,
+  validatePhoneUpdate
+} = require('../middleware/validators/authValidator');
 
 // ==========================================
 // PUBLIC ROUTES (No authentication required)
@@ -56,16 +66,17 @@ router.get('/test', (req, res) => {
 });
 
 router.post('/test-otp', (req, res) => {
-  console.log('Test OTP called with:', req.body);
+  console.log('Test OTP called');
+  // SECURITY: Not logging request body to prevent sensitive data exposure
   res.json({ 
     message: 'OTP test endpoint working!',
     body: req.body 
   });
 });
 
-// Authentication routes
-router.post('/register', register);
-router.post('/login', login);
+// Authentication routes (with validation)
+router.post('/register', validateUserRegistration, register);
+router.post('/login', validateUserLogin, login);
 
 // NEW: Google Authentication routes
 router.post('/google-signin', googleSignInUser);
@@ -82,9 +93,9 @@ if (process.env.NODE_ENV === 'development') {
   router.post('/skip-verification', skipVerification);
 }
 
-// Password reset routes
-router.post('/request-password-reset', requestPasswordReset);
-router.post('/reset-password', resetPassword);
+// Password reset routes (with validation)
+router.post('/request-password-reset', validatePasswordResetRequest, requestPasswordReset);
+router.post('/reset-password', validatePasswordReset, resetPassword);
 
 // ==========================================
 // PROTECTED ROUTES (Authentication required)

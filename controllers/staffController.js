@@ -10,7 +10,7 @@ const StaffController = {
   async create(req, res) {
     try {
       console.log('📝 Creating staff for merchant:', req.user?.id);
-      console.log('📋 Request data:', req.body);
+      // SECURITY: Not logging request body to prevent sensitive data exposure
       
       let { storeId, email, name, phoneNumber, branchId, role = 'staff' } = req.body;
       
@@ -139,7 +139,7 @@ const StaffController = {
       const { page = 1, limit = 50, status, storeId, branchId, role } = req.query;
       
       console.log('🔍 Staff getAll called with params:', { page, limit, status, storeId, branchId, role });
-      console.log('👤 req.user:', req.user);
+      // SECURITY: Not logging user object to prevent sensitive data exposure
       
       const merchantId = req.user?.id || req.user?.merchantId || req.user?.userId;
       console.log('🔑 Extracted merchant ID:', merchantId);
@@ -352,7 +352,7 @@ const StaffController = {
       const merchantId = req.user?.id || req.user?.merchantId;
 
       console.log('🔄 Updating staff ID:', id);
-      console.log('📋 Update data:', req.body);
+      // SECURITY: Not logging request body to prevent sensitive data exposure
       console.log('👤 Merchant ID:', merchantId);
 
       if (!merchantId) {

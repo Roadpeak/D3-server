@@ -2,8 +2,18 @@
 
 const express = require('express');
 const router = express.Router();
+
+// Import M-Pesa callback authentication middleware - CRITICAL SECURITY
+const { mpesaCallbackAuth, validateCallbackStructure } = require('../middleware/mpesaCallbackAuth');
 const axios = require('axios');
 const { authenticateUser } = require('../middleware/auth');
+
+// Import payment validation middleware
+const {
+  validateStkPush,
+  validatePaymentStatusCheck,
+  validateMpesaQuery
+} = require('../middleware/validators/paymentValidator');
 
 // ========================================
 // REAL M-PESA CONFIGURATION
@@ -13,10 +23,16 @@ const MPESA_CONFIG = {
   consumerKey: process.env.MPESA_CONSUMER_KEY,
   consumerSecret: process.env.MPESA_CONSUMER_SECRET,
   baseURL: process.env.MPESA_BASE_URL || 'https://api.safaricom.co.ke',
-  shortCode: process.env.MPESA_SHORTCODE || '4137125',
-  passKey: process.env.MPESA_PASSKEY || 'd51c992e104a03143dae7295b30ef658e2a6cdba52d41d05c46206eae75ba801',
-  callbackURL: 'https://api.discoun3ree.com/api/v1/payments'
+  shortCode: process.env.MPESA_SHORTCODE,
+  passKey: process.env.MPESA_PASSKEY,
+  callbackURL: process.env.MPESA_CALLBACK_URL || 'https://api.discoun3ree.com/api/v1/payments'
 };
+
+// Validate critical M-Pesa configuration
+if (!MPESA_CONFIG.shortCode || !MPESA_CONFIG.passKey) {
+  console.error('CRITICAL: M-Pesa shortCode and passKey MUST be set in environment variables');
+  console.error('Hardcoded credentials have been removed for security reasons');
+}
 
 // ========================================
 // REAL M-PESA HELPER FUNCTIONS
@@ -72,7 +88,7 @@ function generateMpesaPassword(timestamp) {
 // REAL M-PESA STK PUSH ROUTE
 // ========================================
 
-router.post('/mpesa', authenticateUser, async (req, res) => {
+router.post('/mpesa', authenticateUser, validateStkPush, async (req, res) => {
   try {
     const { phoneNumber, amount, bookingId, type = 'booking_access_fee' } = req.body;
 
@@ -258,12 +274,18 @@ router.post('/mpesa', authenticateUser, async (req, res) => {
 });
 
 // ========================================
-// M-PESA CALLBACK HANDLER - FIXED
+// M-PESA CALLBACK HANDLER - SECURED
 // ========================================
+// CRITICAL SECURITY: This endpoint is now protected by:
+// 1. IP whitelist (only Safaricom IPs allowed)
+// 2. Callback structure validation
+// 3. Timestamp validation (prevents replay attacks)
+// 4. Comprehensive audit logging
 
-router.post('/mpesa/callback', async (req, res) => {
+router.post('/mpesa/callback', mpesaCallbackAuth, validateCallbackStructure, async (req, res) => {
   try {
-    console.log('📨 M-Pesa callback received:', JSON.stringify(req.body, null, 2));
+    console.log('📨 M-Pesa callback received');
+    // SECURITY: Not logging request body to prevent sensitive payment data exposure
 
     const { Body } = req.body;
     

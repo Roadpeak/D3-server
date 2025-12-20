@@ -47,6 +47,11 @@ exports.getStoreFollowers = async (req, res) => {
 
         const offset = (parseInt(page) - 1) * parseInt(limit);
 
+        // SECURITY: Validate sortOrder to prevent SQL injection
+        const validatedSortOrder = ['asc', 'desc'].includes(sortOrder.toLowerCase())
+            ? sortOrder.toUpperCase()
+            : 'DESC';
+
         // ALTERNATIVE APPROACH: Use raw query or simpler approach to avoid association conflicts
         try {
             // First, get the Follow records
@@ -55,7 +60,7 @@ exports.getStoreFollowers = async (req, res) => {
                 attributes: ['id', 'user_id', 'createdAt', 'updatedAt'],
                 limit: parseInt(limit),
                 offset: offset,
-                order: [['createdAt', sortOrder.toUpperCase()]]
+                order: [['createdAt', validatedSortOrder]]
             });
 
             const follows = followQuery.rows;
@@ -171,7 +176,12 @@ exports.getStoreFollowers = async (req, res) => {
 
         } catch (associationError) {
             console.error('💥 Association error, trying fallback approach:', associationError.message);
-            
+
+            // SECURITY: Validate sortOrder to prevent SQL injection
+            const validatedSortOrder = ['asc', 'desc'].includes(sortOrder.toLowerCase())
+                ? sortOrder.toUpperCase()
+                : 'DESC';
+
             // FALLBACK: If there are still association issues, return basic data
             const basicFollows = await sequelize.query(`
                 SELECT f.id, f.user_id, f.createdAt, f.updatedAt,
@@ -179,13 +189,13 @@ exports.getStoreFollowers = async (req, res) => {
                 FROM Follows f
                 LEFT JOIN users u ON f.user_id = u.id
                 WHERE f.store_id = :storeId
-                ORDER BY f.createdAt ${sortOrder.toUpperCase()}
+                ORDER BY f.createdAt ${validatedSortOrder}
                 LIMIT :limit OFFSET :offset
             `, {
-                replacements: { 
-                    storeId: storeId, 
-                    limit: parseInt(limit), 
-                    offset: offset 
+                replacements: {
+                    storeId: storeId,
+                    limit: parseInt(limit),
+                    offset: offset
                 },
                 type: sequelize.QueryTypes.SELECT
             });
