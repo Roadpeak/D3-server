@@ -55,6 +55,12 @@ const {
   creationLimiter
 } = require('./middleware/rateLimiting');
 
+// Import CSRF protection middleware
+const { csrfProtection, getCsrfToken } = require('./middleware/csrfProtection');
+
+// Import error handling middleware
+const { errorHandler, notFoundHandler } = require('./middleware/errorHandler');
+
 require('dotenv').config();
 
 const app = express();
@@ -212,6 +218,15 @@ app.use(generalLimiter);
 console.log('✅ Rate limiting enabled globally (100 req/15min per IP)');
 console.log('✅ Strict auth rate limiting ready (5 attempts/15min)');
 
+// ==========================================
+// CSRF PROTECTION - CRITICAL SECURITY
+// ==========================================
+// Apply CSRF protection to all routes
+app.use(csrfProtection);
+
+console.log('🛡️  CSRF protection enabled (double-submit cookie pattern)');
+console.log('✅ State-changing requests require CSRF token validation');
+
 // Request logging for development
 if (process.env.NODE_ENV === 'development') {
   app.use((req, res, next) => {
@@ -248,10 +263,13 @@ app.get('/health', (req, res) => {
       serviceRequests: true,
       storeBasedOffers: true,
       merchantDashboard: true,
-      locationServices: true // ADD THIS
+      locationServices: true
     }
   });
 });
+
+// CSRF token endpoint
+app.get('/api/v1/csrf-token', getCsrfToken);
 
 // CORS test endpoint
 app.get('/api/v1/cors-test', (req, res) => {
@@ -832,6 +850,18 @@ if (process.env.NODE_ENV === 'development') {
     });
   });
 }
+
+// ===============================
+// ERROR HANDLING - MUST BE LAST
+// ===============================
+// 404 handler - catches all unmatched routes
+app.use(notFoundHandler);
+
+// Global error handler - sanitizes error messages to prevent information disclosure
+app.use(errorHandler);
+
+console.log('🛡️  Error handling middleware enabled');
+console.log('✅ Error messages sanitized to prevent information disclosure');
 
 // Create HTTP Server
 const server = http.createServer(app);
