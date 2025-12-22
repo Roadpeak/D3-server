@@ -219,7 +219,7 @@ console.log('✅ CSP, HSTS, X-Frame-Options, X-Content-Type-Options configured')
 // Apply global rate limiter to all requests
 app.use(generalLimiter);
 
-console.log('✅ Rate limiting enabled globally (100 req/15min per IP)');
+console.log('✅ Rate limiting enabled globally (1000 req/15min per IP)');
 console.log('✅ Strict auth rate limiting ready (5 attempts/15min)');
 
 // ==========================================

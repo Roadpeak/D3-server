@@ -10,7 +10,7 @@ const rateLimit = require('express-rate-limit');
 // ==========================================
 const generalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // Limit each IP to 100 requests per windowMs
+  max: 1000, // Limit each IP to 1000 requests per windowMs (reasonable for normal browsing)
   message: {
     success: false,
     message: 'Too many requests from this IP, please try again later.',
@@ -124,7 +124,7 @@ const passwordResetLimiter = rateLimit({
 // ==========================================
 const creationLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 30, // 30 creations per 15 minutes
+  max: 100, // 100 creations per 15 minutes (allows for bulk operations)
   message: {
     success: false,
     message: 'Creation limit exceeded. Please slow down.',
