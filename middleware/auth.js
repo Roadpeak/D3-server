@@ -10,22 +10,33 @@ const JWT_SECRET = process.env.JWT_SECRET;
 const verifyToken = async (req, res, next) => {
   try {
     console.log('🔐 Auth middleware called for:', req.path);
-    
-    // Get token from header
+
+    // Try to get token from header FIRST
     const authHeader = req.headers.authorization;
     console.log('📋 Auth header:', authHeader ? 'Present' : 'Missing');
-    
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      console.log('❌ No valid auth header found');
+
+    let token = null;
+
+    // PRIORITY 1: Check Authorization header
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      token = authHeader.substring(7); // Remove 'Bearer ' prefix
+      console.log('🎫 Token extracted from header, length:', token.length);
+    }
+    // PRIORITY 2: Check HttpOnly cookie (for browser requests)
+    else if (req.cookies && req.cookies.access_token) {
+      token = req.cookies.access_token;
+      console.log('🍪 Token extracted from cookie, length:', token.length);
+    }
+
+    // If no token found in either location, reject
+    if (!token) {
+      console.log('❌ No valid auth token found (checked header and cookie)');
       return res.status(401).json({
         success: false,
         message: 'Access denied. No token provided.',
         errors: {}
       });
     }
-
-    const token = authHeader.substring(7); // Remove 'Bearer ' prefix
-    console.log('🎫 Token extracted, length:', token.length);
 
     // Verify token
     let decoded;
