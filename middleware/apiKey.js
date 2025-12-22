@@ -15,7 +15,9 @@ const apiKeyMiddleware = (req, res, next) => {
   const skipApiKeyRoutes = [
     '/health',
     '/api/v1/api-docs',
-    '/api/v1/payments/mpesa/callback',  // ✅ ADD THIS LINE
+    '/api/v1/payments/mpesa/callback',
+    '/api/v1/locations',  // Public location data
+    '/api/v1/services',  // Public services data
   ];
 
   // Routes that skip API key validation (auth endpoints)
@@ -26,6 +28,8 @@ const apiKeyMiddleware = (req, res, next) => {
     '/api/v1/users/register',
     '/api/v1/users/verify-otp',
     '/api/v1/users/resend-otp',
+    '/api/v1/users/google-signin',  // Google OAuth
+    '/api/v1/merchants/google-signin',  // Merchant Google OAuth
   ];
 
   // Skip API key validation entirely for these routes

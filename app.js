@@ -42,6 +42,10 @@ const NoShowHandlerService = require('./services/noShowHandlerService');
 const AutoCompletionService = require('./services/autoCompletionService');
 const reelsRoutes = require('./routes/reelsRoutes');
 
+// Initialize background services at module level for shutdown handlers
+let noShowHandler = null;
+let autoCompletionHandler = null;
+
 // Import API key middleware
 const { apiKeyMiddleware } = require('./middleware/apiKey');
 
@@ -444,8 +448,8 @@ if (process.env.FORCE_DB_SYNC === 'true') {
         
      // Step 5: Start background services AFTER database is ready
     console.log('Starting background services...');
-    const noShowHandler = new NoShowHandlerService(require('./models'));
-    const autoCompletionHandler = new AutoCompletionService(require('./models'));
+    noShowHandler = new NoShowHandlerService(require('./models'));
+    autoCompletionHandler = new AutoCompletionService(require('./models'));
     noShowHandler.start();
     autoCompletionHandler.start();
     console.log('✅ Background services started');
@@ -1021,14 +1025,14 @@ process.on('unhandledRejection', (reason, promise) => {
 // Graceful shutdown
 process.on('SIGTERM', () => {
   console.log('Shutting down booking automation services...');
-  noShowHandler.stop();
-  autoCompletionHandler.stop();
+  if (noShowHandler) noShowHandler.stop();
+  if (autoCompletionHandler) autoCompletionHandler.stop();
 });
 
 process.on('SIGINT', () => {
   console.log('Shutting down booking automation services...');
-  noShowHandler.stop();
-  autoCompletionHandler.stop();
+  if (noShowHandler) noShowHandler.stop();
+  if (autoCompletionHandler) autoCompletionHandler.stop();
 });
 
 
