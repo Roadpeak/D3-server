@@ -180,7 +180,7 @@ app.use(helmet({
       styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
       fontSrc: ["'self'", "https://fonts.gstatic.com"],
       imgSrc: ["'self'", "data:", "https:", "blob:"],
-      connectSrc: ["'self'", "https://api.safaricom.co.ke", "https://accounts.google.com"],
+      connectSrc: ["'self'", "https://api.safaricom.co.ke", "https://accounts.google.com", "https://www.googleapis.com", "https://*.googleapis.com"],
       frameSrc: ["'self'", "https://accounts.google.com"],
       objectSrc: ["'none'"],
       upgradeInsecureRequests: process.env.NODE_ENV === 'production' ? [] : null,
