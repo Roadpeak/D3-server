@@ -49,6 +49,12 @@ const csrfProtection = (req, res, next) => {
   const csrfExemptPaths = [
     '/api/v1/payments/mpesa/callback',  // M-Pesa callbacks
     '/api/v1/webhooks/',                // Webhook endpoints
+    '/api/v1/users/login',              // User login
+    '/api/v1/users/register',           // User registration
+    '/api/v1/users/google-signin',      // Google OAuth
+    '/api/v1/merchants/login',          // Merchant login
+    '/api/v1/merchants/register',       // Merchant registration
+    '/api/v1/merchants/google-signin',  // Merchant Google OAuth
   ];
 
   const isExempt = csrfExemptPaths.some(path => req.path.startsWith(path));
