@@ -180,6 +180,7 @@ exports.login = async (req, res) => {
     return res.status(200).json({
       success: true,
       message: 'Login successful',
+      access_token: token,
       id: merchant.id,
       first_name: merchant.firstName,
       last_name: merchant.lastName,
