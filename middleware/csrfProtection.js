@@ -56,6 +56,7 @@ const csrfProtection = (req, res, next) => {
     '/api/v1/merchants/register',       // Merchant registration
     '/api/v1/merchants/google-signin',  // Merchant Google OAuth
     '/api/v1/bookings',                 // Booking endpoints (API key authenticated)
+    '/api/v1/notifications/push/',      // Push notification subscriptions
   ];
 
   const isExempt = csrfExemptPaths.some(path => req.path.startsWith(path));
