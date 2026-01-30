@@ -214,13 +214,12 @@ console.log('🛡️ Helmet.js security headers enabled');
 console.log('✅ CSP, HSTS, X-Frame-Options, X-Content-Type-Options configured');
 
 // ==========================================
-// RATE LIMITING - CRITICAL SECURITY
+// RATE LIMITING - DISABLED
 // ==========================================
-// Apply global rate limiter to all requests
+// Rate limiting disabled per production requirements
 app.use(generalLimiter);
 
-console.log('✅ Rate limiting enabled globally (1000 req/15min per IP)');
-console.log('✅ Strict auth rate limiting ready (5 attempts/15min)');
+console.log('ℹ️ Rate limiting: DISABLED');
 
 // ==========================================
 // CSRF PROTECTION - CRITICAL SECURITY

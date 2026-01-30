@@ -23,10 +23,9 @@ module.exports = (sequelize, DataTypes) => {
             comment: 'Type of user (user/merchant/admin)'
         },
         endpoint: {
-            type: DataTypes.TEXT,
+            type: DataTypes.STRING(1000),
             allowNull: false,
-            unique: true,
-            comment: 'Push subscription endpoint URL'
+            comment: 'Push subscription endpoint URL (unique index defined in indexes)'
         },
         p256dhKey: {
             type: DataTypes.TEXT,
@@ -73,7 +72,7 @@ module.exports = (sequelize, DataTypes) => {
             {
                 unique: true,
                 name: 'idx_push_endpoint',
-                fields: ['endpoint(255)']
+                fields: ['endpoint']
             },
             {
                 name: 'idx_push_last_used',

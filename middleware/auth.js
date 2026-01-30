@@ -9,28 +9,21 @@ const JWT_SECRET = process.env.JWT_SECRET;
  */
 const verifyToken = async (req, res, next) => {
   try {
-    console.log('🔐 Auth middleware called for:', req.path);
-
     // Try to get token from header FIRST
     const authHeader = req.headers.authorization;
-    console.log('📋 Auth header:', authHeader ? 'Present' : 'Missing');
-
     let token = null;
 
     // PRIORITY 1: Check Authorization header
     if (authHeader && authHeader.startsWith('Bearer ')) {
       token = authHeader.substring(7); // Remove 'Bearer ' prefix
-      console.log('🎫 Token extracted from header, length:', token.length);
     }
     // PRIORITY 2: Check HttpOnly cookie (for browser requests)
     else if (req.cookies && req.cookies.access_token) {
       token = req.cookies.access_token;
-      console.log('🍪 Token extracted from cookie, length:', token.length);
     }
 
     // If no token found in either location, reject
     if (!token) {
-      console.log('❌ No valid auth token found (checked header and cookie)');
       return res.status(401).json({
         success: false,
         message: 'Access denied. No token provided.',
@@ -42,10 +35,7 @@ const verifyToken = async (req, res, next) => {
     let decoded;
     try {
       decoded = jwt.verify(token, JWT_SECRET);
-      console.log('✅ Token verified successfully');
-      // SECURITY: Never log decoded token - contains sensitive user data
     } catch (error) {
-      console.log('❌ Token verification failed:', error.message);
       if (error.name === 'TokenExpiredError') {
         return res.status(401).json({
           success: false,
@@ -67,71 +57,57 @@ const verifyToken = async (req, res, next) => {
       }
     }
 
-    // FIXED: Correct user lookup logic with proper priority
+    // User lookup logic with proper priority
     let user = null;
     let userType = null;
 
-    console.log('🔍 Looking for user with token data...');
-
     // PRIORITY 1: Check if it's a user token (has userId AND type === 'user')
     if (decoded.userId && decoded.type === 'user') {
-      console.log('👤 Detected user token (type: user)');
       try {
         user = await User.findByPk(decoded.userId, {
           attributes: { exclude: ['password'] }
         });
         userType = 'user';
-        console.log('👤 User found:', user ? `${user.firstName} ${user.lastName}` : 'Not found');
       } catch (userError) {
-        console.log('❌ Error finding user:', userError.message);
+        // User lookup failed
       }
     }
     // PRIORITY 2: Check if it's a merchant token (has type === 'merchant')
     else if (decoded.type === 'merchant' && decoded.id) {
-      console.log('🏪 Detected merchant token (type: merchant)');
       try {
         user = await Merchant.findOne({
           where: { id: decoded.id },
           attributes: { exclude: ['password', 'passwordResetOtp', 'passwordResetExpires'] }
         });
         userType = 'merchant';
-        console.log('🏪 Merchant found:', user ? `${user.firstName} ${user.lastName}` : 'Not found');
       } catch (merchantError) {
-        console.log('❌ Error finding merchant:', merchantError.message);
+        // Merchant lookup failed
       }
     }
     // FALLBACK: Old tokens without type field
     else if (decoded.userId) {
-      console.log('🔄 Fallback: user token without type field');
       try {
         user = await User.findByPk(decoded.userId, {
           attributes: { exclude: ['password'] }
         });
         userType = 'user';
-        console.log('👤 User found in fallback');
       } catch (userError) {
-        console.log('❌ Error in user fallback:', userError.message);
+        // User fallback lookup failed
       }
     }
     else if (decoded.id) {
-      console.log('🔄 Fallback: merchant token without type field');
       try {
         user = await Merchant.findOne({
           where: { id: decoded.id },
           attributes: { exclude: ['password', 'passwordResetOtp', 'passwordResetExpires'] }
         });
         userType = 'merchant';
-        console.log('🏪 Merchant found in fallback');
       } catch (merchantError) {
-        console.log('❌ Error in merchant fallback:', merchantError.message);
+        // Merchant fallback lookup failed
       }
-    }
-    else {
-      console.log('❌ No valid user identifier found in token');
     }
 
     if (!user) {
-      console.log('❌ No user found for token');
       return res.status(404).json({
         success: false,
         message: 'User not found. Please log in again.',
@@ -141,7 +117,6 @@ const verifyToken = async (req, res, next) => {
 
     // Check if account is active
     if (user.status && (user.status === 'suspended' || user.status === 'deactivated')) {
-      console.log('❌ User account not active:', user.status);
       return res.status(403).json({
         success: false,
         message: 'Account is not active.',
@@ -165,17 +140,9 @@ const verifyToken = async (req, res, next) => {
       ...decoded // Include original token data
     };
 
-    console.log('✅ req.user set successfully');
-    console.log('📋 req.user summary:', {
-      id: req.user.id,
-      userId: req.user.userId,
-      email: req.user.email,
-      userType: req.user.userType
-    });
-
     next();
   } catch (error) {
-    console.error('💥 Authentication middleware error:', error);
+    console.error('Auth middleware error:', error.message);
     return res.status(500).json({
       success: false,
       message: 'Authentication failed due to server error.',

@@ -188,21 +188,37 @@ exports.getStores = async (req, res) => {
       whereClause.category = category;
     }
 
+    // Build location filter
+    let locationFilter = null;
     if (location && location !== 'All Locations') {
-      whereClause[Op.or] = [
-        { location: location },
-        { location: 'All Locations' }
-      ];
+      locationFilter = {
+        [Op.or]: [
+          { location: location },
+          { location: 'All Locations' }
+        ]
+      };
     }
 
-    // Add search functionality
+    // Build search filter
+    let searchFilter = null;
     if (search) {
-      whereClause[Op.or] = [
-        { name: { [Op.like]: `%${search}%` } },
-        { description: { [Op.like]: `%${search}%` } },
-        { category: { [Op.like]: `%${search}%` } },
-        { location: { [Op.like]: `%${search}%` } }
-      ];
+      searchFilter = {
+        [Op.or]: [
+          { name: { [Op.like]: `%${search}%` } },
+          { description: { [Op.like]: `%${search}%` } },
+          { category: { [Op.like]: `%${search}%` } },
+          { location: { [Op.like]: `%${search}%` } }
+        ]
+      };
+    }
+
+    // Combine filters properly using Op.and
+    if (locationFilter && searchFilter) {
+      whereClause[Op.and] = [locationFilter, searchFilter];
+    } else if (locationFilter) {
+      Object.assign(whereClause, locationFilter);
+    } else if (searchFilter) {
+      Object.assign(whereClause, searchFilter);
     }
 
     // UPDATED: Build order clause with new "Most Reviewed" option

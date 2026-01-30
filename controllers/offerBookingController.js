@@ -394,7 +394,10 @@ class OfferBookingController {
       const date = bookingDateTime.format('YYYY-MM-DD');
       const time = bookingDateTime.format('h:mm A');
 
-      const availabilityCheck = await slotService.isSlotAvailable(offerId, 'offer', date, time);
+      // Use transaction-aware slot check with row locking to prevent race conditions
+      const availabilityCheck = transaction
+        ? await slotService.isSlotAvailableWithLock(offerId, 'offer', date, time, transaction, staffId)
+        : await slotService.isSlotAvailable(offerId, 'offer', date, time);
 
       if (!availabilityCheck.available) {
         if (transaction && !transactionCommitted) await transaction.rollback();

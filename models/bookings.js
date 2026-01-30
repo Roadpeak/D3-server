@@ -419,6 +419,11 @@ module.exports = (sequelize) => {
         type: DataTypes.DATE,
         allowNull: true,
         comment: 'Calculated end time based on start time + duration'
+      },
+      checked_in_at: {
+        type: DataTypes.DATE,
+        allowNull: true,
+        comment: 'Timestamp when customer checked in for the booking'
       }
     },
     {

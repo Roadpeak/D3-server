@@ -283,26 +283,26 @@ router.post('/mpesa', authenticateUser, validateStkPush, async (req, res) => {
 // 4. Comprehensive audit logging
 
 router.post('/mpesa/callback', mpesaCallbackAuth, validateCallbackStructure, async (req, res) => {
+  // Import sequelize for transactions
+  const { Payment, Booking, sequelize } = require('../models');
+  let transaction = null;
+
   try {
-    console.log('📨 M-Pesa callback received');
-    // SECURITY: Not logging request body to prevent sensitive payment data exposure
+    console.log('M-Pesa callback received');
 
     const { Body } = req.body;
-    
+
     if (!Body || !Body.stkCallback) {
-      console.log('⚠️ Invalid callback structure');
+      console.log('Invalid callback structure');
       return res.status(200).json({ ResultCode: 0, ResultDesc: "Accepted" });
     }
 
     const { stkCallback } = Body;
-    const { Payment, Booking } = require('../models');
-
     const checkoutRequestID = stkCallback.CheckoutRequestID;
     const resultCode = stkCallback.ResultCode;
     const resultDesc = stkCallback.ResultDesc;
 
-    console.log('🔍 Processing callback for CheckoutRequestID:', checkoutRequestID);
-    console.log('📊 Result Code:', resultCode, '| Result Desc:', resultDesc);
+    console.log('Processing callback - CheckoutRequestID:', checkoutRequestID, 'ResultCode:', resultCode);
 
     // Find payment by checkout request ID
     const payment = await Payment.findOne({
@@ -310,187 +310,177 @@ router.post('/mpesa/callback', mpesaCallbackAuth, validateCallbackStructure, asy
     });
 
     if (!payment) {
-      console.error('❌ Payment not found for CheckoutRequestID:', checkoutRequestID);
-      return res.status(200).json({ 
-        ResultCode: 0, 
-        ResultDesc: "Payment not found but callback acknowledged" 
+      console.error('Payment not found for CheckoutRequestID:', checkoutRequestID);
+      return res.status(200).json({
+        ResultCode: 0,
+        ResultDesc: "Payment not found but callback acknowledged"
       });
     }
 
-    console.log('✅ Payment found:', payment.id);
-    console.log('📦 Payment metadata:', payment.metadata);
+    // Start transaction for atomic updates
+    transaction = await sequelize.transaction();
 
-    if (resultCode === 0) {
-      // Payment successful
-      const callbackMetadata = stkCallback.CallbackMetadata?.Item || [];
-      let mpesaReceiptNumber = '';
-      let transactionDate = '';
-      let amount = 0;
-      let phoneNumber = '';
+    try {
+      if (resultCode === 0) {
+        // Payment successful
+        const callbackMetadata = stkCallback.CallbackMetadata?.Item || [];
+        let mpesaReceiptNumber = '';
+        let transactionDate = '';
+        let amount = 0;
+        let phoneNumber = '';
 
-      callbackMetadata.forEach(item => {
-        switch (item.Name) {
-          case 'MpesaReceiptNumber':
-            mpesaReceiptNumber = item.Value;
-            break;
-          case 'TransactionDate':
-            transactionDate = String(item.Value);
-            break;
-          case 'Amount':
-            amount = item.Value;
-            break;
-          case 'PhoneNumber':
-            phoneNumber = item.Value;
-            break;
+        callbackMetadata.forEach(item => {
+          switch (item.Name) {
+            case 'MpesaReceiptNumber':
+              mpesaReceiptNumber = item.Value;
+              break;
+            case 'TransactionDate':
+              transactionDate = String(item.Value);
+              break;
+            case 'Amount':
+              amount = item.Value;
+              break;
+            case 'PhoneNumber':
+              phoneNumber = item.Value;
+              break;
+          }
+        });
+
+        // Parse transaction date safely
+        let parsedDate = new Date();
+        if (transactionDate && transactionDate.length >= 14) {
+          try {
+            parsedDate = new Date(
+              transactionDate.slice(0, 4) + '-' +
+              transactionDate.slice(4, 6) + '-' +
+              transactionDate.slice(6, 8) + 'T' +
+              transactionDate.slice(8, 10) + ':' +
+              transactionDate.slice(10, 12) + ':' +
+              transactionDate.slice(12, 14)
+            );
+            if (isNaN(parsedDate.getTime())) {
+              parsedDate = new Date();
+            }
+          } catch (e) {
+            console.warn('Could not parse transaction date:', transactionDate);
+          }
         }
-      });
 
-      console.log('💰 M-Pesa Receipt:', mpesaReceiptNumber);
-      console.log('📅 Transaction Date:', transactionDate);
-      console.log('💵 Amount:', amount);
+        // Update payment status within transaction
+        const existingMetadata = payment.metadata || {};
+        await payment.update({
+          status: 'completed',
+          mpesa_receipt_number: mpesaReceiptNumber,
+          transaction_date: parsedDate,
+          processed_at: new Date(),
+          metadata: {
+            ...existingMetadata,
+            mpesaReceiptNumber,
+            transactionDate,
+            callbackAmount: amount,
+            phoneNumber
+          }
+        }, { transaction });
 
-      // Parse transaction date
-      let parsedDate = new Date();
-      if (transactionDate) {
-        try {
-          parsedDate = new Date(
-            transactionDate.slice(0, 4) + '-' +
-            transactionDate.slice(4, 6) + '-' +
-            transactionDate.slice(6, 8) + 'T' +
-            transactionDate.slice(8, 10) + ':' +
-            transactionDate.slice(10, 12) + ':' +
-            transactionDate.slice(12, 14)
-          );
-        } catch (e) {
-          console.warn('⚠️ Could not parse transaction date:', transactionDate);
-        }
-      }
+        // Update booking if bookingId exists in metadata
+        const bookingId = existingMetadata?.bookingId || payment.metadata?.bookingId;
+        if (bookingId) {
+          const booking = await Booking.findByPk(bookingId, { transaction });
 
-      // Update payment status
-      await payment.update({
-        status: 'completed',
-        mpesa_receipt_number: mpesaReceiptNumber,
-        transaction_date: parsedDate,
-        processed_at: new Date(),
-        metadata: {
-          ...payment.metadata,
-          mpesaReceiptNumber,
-          transactionDate,
-          callbackAmount: amount,
-          phoneNumber
-        }
-      });
-
-      console.log('✅ Payment marked as completed');
-
-      // CRITICAL FIX: Find and update booking using bookingId from metadata
-      if (payment.metadata?.bookingId) {
-        const bookingId = payment.metadata.bookingId;
-        console.log('🔍 Looking for booking with ID:', bookingId);
-
-        try {
-          const booking = await Booking.findByPk(bookingId);
-          
           if (booking) {
-            console.log('📋 Booking found:', booking.id, '| Current status:', booking.status);
-            console.log('📋 Current payment_status:', booking.payment_status);
-            
-            // ✅ FIXED: Update booking to confirmed with correct field names
-            await booking.update({ 
+            await booking.update({
               status: 'confirmed',
               payment_status: 'paid',
               paymentId: payment.id,
               paymentUniqueCode: payment.unique_code,
               mpesa_receipt_number: mpesaReceiptNumber,
-              confirmedAt: new Date()  // ✅ FIXED: camelCase
-            });
-            
-            console.log('✅ BOOKING CONFIRMED! Booking ID:', booking.id);
-            console.log('📊 New booking status:', booking.status);
-            console.log('💳 New payment_status:', booking.payment_status);
-            console.log('📝 M-Pesa Receipt:', mpesaReceiptNumber);
+              confirmedAt: new Date()
+            }, { transaction });
+
+            console.log('Booking confirmed:', booking.id, 'Receipt:', mpesaReceiptNumber);
           } else {
-            console.error('❌ Booking not found with ID:', bookingId);
-            console.log('📦 Available payment metadata:', payment.metadata);
+            console.error('Booking not found for ID:', bookingId);
           }
-        } catch (bookingError) {
-          console.error('❌ Error updating booking:', bookingError.message);
-          console.error('Stack:', bookingError.stack);
         }
+
+        console.log('Payment completed successfully:', payment.id);
+
       } else {
-        console.warn('⚠️ No bookingId found in payment metadata');
-        console.log('📦 Payment metadata:', JSON.stringify(payment.metadata, null, 2));
-      }
+        // Payment failed
+        let failureReason = 'Payment failed';
 
-      console.log('✅ Payment processing completed successfully');
+        // Decode common M-Pesa result codes
+        const resultCodeMap = {
+          1: 'Insufficient balance',
+          1001: 'Unable to lock subscriber account',
+          1032: 'Transaction cancelled by user',
+          1037: 'Timeout - User did not enter PIN',
+          1025: 'Invalid phone number',
+          2001: 'Wrong PIN entered'
+        };
+        failureReason = resultCodeMap[resultCode] || resultDesc || 'Payment failed';
 
-    } else {
-      // Payment failed
-      console.log('❌ Payment failed with code:', resultCode);
+        const existingMetadata = payment.metadata || {};
+        await payment.update({
+          status: 'failed',
+          failed_at: new Date(),
+          metadata: {
+            ...existingMetadata,
+            resultCode,
+            resultDesc,
+            failureReason
+          }
+        }, { transaction });
 
-      let failureReason = 'Payment failed';
-      
-      // Decode result codes
-      switch (resultCode) {
-        case 1:
-          failureReason = 'Insufficient balance';
-          break;
-        case 1001:
-          failureReason = 'Unable to lock subscriber account';
-          break;
-        case 1032:
-          failureReason = 'Transaction cancelled by user';
-          break;
-        case 1037:
-          failureReason = 'Timeout - User did not enter PIN';
-          break;
-        default:
-          failureReason = resultDesc || 'Payment failed';
-      }
-
-      await payment.update({
-        status: 'failed',
-        failed_at: new Date(),
-        metadata: {
-          ...payment.metadata,
-          resultCode,
-          resultDesc,
-          failureReason
-        }
-      });
-
-      console.log('❌ Payment marked as failed:', failureReason);
-
-      // OPTIONAL: Update booking to failed payment status
-      if (payment.metadata?.bookingId) {
-        try {
-          const booking = await Booking.findByPk(payment.metadata.bookingId);
+        // Update booking payment status to failed
+        const bookingId = existingMetadata?.bookingId;
+        if (bookingId) {
+          const booking = await Booking.findByPk(bookingId, { transaction });
           if (booking) {
             await booking.update({
               payment_status: 'failed'
-            });
-            console.log('📋 Booking payment_status updated to failed');
+            }, { transaction });
           }
-        } catch (bookingError) {
-          console.warn('⚠️ Could not update booking payment status:', bookingError.message);
         }
+
+        console.log('Payment failed:', payment.id, 'Reason:', failureReason);
       }
+
+      // Commit transaction
+      await transaction.commit();
+      transaction = null;
+
+    } catch (updateError) {
+      // Rollback on any update error
+      if (transaction) {
+        await transaction.rollback();
+        transaction = null;
+      }
+      throw updateError;
     }
 
     // Always return success to M-Pesa
-    return res.status(200).json({ 
-      ResultCode: 0, 
-      ResultDesc: "Callback processed successfully" 
+    return res.status(200).json({
+      ResultCode: 0,
+      ResultDesc: "Callback processed successfully"
     });
 
   } catch (error) {
-    console.error('❌ Callback processing error:', error);
-    console.error('Stack:', error.stack);
-    
+    // Ensure transaction is rolled back
+    if (transaction) {
+      try {
+        await transaction.rollback();
+      } catch (rollbackError) {
+        console.error('Rollback error:', rollbackError.message);
+      }
+    }
+
+    console.error('Callback processing error:', error.message);
+
     // Still return success to avoid M-Pesa retries
-    return res.status(200).json({ 
-      ResultCode: 0, 
-      ResultDesc: "Callback received with errors" 
+    return res.status(200).json({
+      ResultCode: 0,
+      ResultDesc: "Callback received with errors"
     });
   }
 });

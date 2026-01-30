@@ -11,6 +11,7 @@ class NoShowHandlerService {
     this.Store = models.Store;
     this.User = models.User;
     this.isRunning = false;
+    this.isProcessing = false; // Prevent overlapping executions
     this.cronJob = null;
   }
 
@@ -56,6 +57,13 @@ class NoShowHandlerService {
    * Main method to process no-show bookings
    */
   async processNoShowBookings() {
+    // Prevent overlapping executions
+    if (this.isProcessing) {
+      console.log('No-show processing already in progress, skipping...');
+      return { skipped: true, reason: 'Already processing' };
+    }
+
+    this.isProcessing = true;
     try {
       console.log('Processing no-show bookings...');
 
@@ -88,6 +96,8 @@ class NoShowHandlerService {
         failed: 0,
         skipped: 0
       };
+    } finally {
+      this.isProcessing = false;
     }
   }
 

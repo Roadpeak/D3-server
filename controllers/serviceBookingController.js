@@ -319,7 +319,10 @@ class ServiceBookingController {
       const date = bookingDateTimeLocal.format('YYYY-MM-DD');
       const time = bookingDateTimeLocal.format('h:mm A');
 
-      const availabilityCheck = await slotService.isSlotAvailable(serviceId, 'service', date, time);
+      // Use transaction-aware slot check with row locking to prevent race conditions
+      const availabilityCheck = transaction
+        ? await slotService.isSlotAvailableWithLock(serviceId, 'service', date, time, transaction, staffId)
+        : await slotService.isSlotAvailable(serviceId, 'service', date, time);
 
       if (!availabilityCheck.available) {
         if (transaction && !transactionCommitted) await transaction.rollback();

@@ -12,6 +12,7 @@ class AutoCompletionService {
     this.User = models.User;
     this.Staff = models.Staff;
     this.isRunning = false;
+    this.isProcessing = false; // Prevent overlapping executions
     this.cronJob = null;
   }
 
@@ -57,6 +58,13 @@ class AutoCompletionService {
    * Main method to process auto-completions
    */
   async processAutoCompletions() {
+    // Prevent overlapping executions
+    if (this.isProcessing) {
+      console.log('Auto-completion already in progress, skipping...');
+      return { skipped: true, reason: 'Already processing' };
+    }
+
+    this.isProcessing = true;
     try {
       console.log('Processing auto-completions...');
 
@@ -89,6 +97,8 @@ class AutoCompletionService {
         failed: 0,
         skipped: 0
       };
+    } finally {
+      this.isProcessing = false;
     }
   }
 
