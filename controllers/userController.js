@@ -268,6 +268,7 @@ exports.login = async (req, res) => {
 
     return res.status(200).json({
       message: 'Login successful',
+      access_token: token, // Include token in response for clients that can't receive HttpOnly cookies
       user: {
         id: user.id,
         firstName: user.firstName,
