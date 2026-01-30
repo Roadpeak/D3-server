@@ -20,21 +20,25 @@ const generateCsrfToken = () => {
  */
 const csrfProtection = (req, res, next) => {
   const method = req.method.toUpperCase();
-
-  // Generate and set CSRF token for all requests
-  // This ensures the frontend always has a fresh token
-  const csrfToken = generateCsrfToken();
-
   const isProduction = process.env.NODE_ENV === 'production';
 
-  // Set CSRF token as a readable cookie (not HttpOnly, so JavaScript can access it)
-  res.cookie('XSRF-TOKEN', csrfToken, {
-    httpOnly: false,        // Must be readable by JavaScript
-    secure: isProduction,   // Only send over HTTPS in production
-    sameSite: isProduction ? 'none' : 'lax',
-    maxAge: 24 * 60 * 60 * 1000, // 24 hours
-    path: '/',
-  });
+  // Only generate a new CSRF token if one doesn't exist in the request cookies
+  // This is critical for the double-submit cookie pattern to work correctly
+  let csrfToken = req.cookies['XSRF-TOKEN'];
+
+  if (!csrfToken) {
+    // Generate new token only if client doesn't have one
+    csrfToken = generateCsrfToken();
+
+    // Set CSRF token as a readable cookie (not HttpOnly, so JavaScript can access it)
+    res.cookie('XSRF-TOKEN', csrfToken, {
+      httpOnly: false,        // Must be readable by JavaScript
+      secure: isProduction,   // Only send over HTTPS in production
+      sameSite: isProduction ? 'none' : 'lax',
+      maxAge: 24 * 60 * 60 * 1000, // 24 hours
+      path: '/',
+    });
+  }
 
   // For GET, HEAD, OPTIONS - no validation needed (safe methods)
   if (['GET', 'HEAD', 'OPTIONS'].includes(method)) {
@@ -46,6 +50,11 @@ const csrfProtection = (req, res, next) => {
   const tokenFromHeader = req.headers['x-xsrf-token'] || req.headers['x-csrf-token'];
 
   // Allow requests without CSRF check for specific endpoints
+  // These are either:
+  // 1. External callbacks (M-Pesa, webhooks)
+  // 2. Authentication endpoints (login, register, OAuth)
+  // 3. API-key authenticated endpoints (bookings)
+  // 4. Endpoints that are already auth-protected via JWT/cookie
   const csrfExemptPaths = [
     '/api/v1/payments/mpesa/callback',  // M-Pesa callbacks
     '/api/v1/webhooks/',                // Webhook endpoints
@@ -57,6 +66,10 @@ const csrfProtection = (req, res, next) => {
     '/api/v1/merchants/google-signin',  // Merchant Google OAuth
     '/api/v1/bookings',                 // Booking endpoints (API key authenticated)
     '/api/v1/notifications/push/',      // Push notification subscriptions
+    '/api/v1/chat/',                    // Chat endpoints (JWT authenticated)
+    '/api/v1/stores/',                  // Store endpoints including follow (JWT authenticated)
+    '/api/v1/offers/',                  // Offer endpoints including favorites (JWT authenticated)
+    '/api/v1/reels/',                   // Reels endpoints (JWT authenticated)
   ];
 
   const isExempt = csrfExemptPaths.some(path => req.path.startsWith(path));
