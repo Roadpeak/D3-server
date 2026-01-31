@@ -63,20 +63,32 @@ const csrfProtection = (req, res, next) => {
     '/api/v1/users/google-signin',      // Google OAuth
     '/api/v1/users/request-password-reset',  // User password reset request (rate-limited)
     '/api/v1/users/reset-password',     // User password reset (token-validated)
+    '/api/v1/users/',                   // User profile updates (JWT authenticated)
     '/api/v1/merchants/login',          // Merchant login
     '/api/v1/merchants/register',       // Merchant registration
     '/api/v1/merchants/google-signin',  // Merchant Google OAuth
     '/api/v1/merchants/request-password-reset',  // Merchant password reset request (rate-limited)
     '/api/v1/merchants/reset-password', // Merchant password reset (token-validated)
+    '/api/v1/merchants/',               // Merchant profile updates (JWT authenticated)
     '/api/v1/bookings',                 // Booking endpoints (API key authenticated)
-    '/api/v1/notifications/push/',      // Push notification subscriptions
+    '/api/v1/notifications/',           // Push notification subscriptions
     '/api/v1/chat/',                    // Chat endpoints (JWT authenticated)
-    '/api/v1/stores/',                  // Store endpoints including follow (JWT authenticated)
-    '/api/v1/offers/',                  // Offer endpoints including favorites (JWT authenticated)
-    '/api/v1/reels/',                   // Reels endpoints (JWT authenticated)
+    '/api/v1/stores',                   // Store endpoints including follow (JWT authenticated)
+    '/api/v1/offers',                   // Offer endpoints including favorites (JWT authenticated)
+    '/api/v1/reels',                    // Reels endpoints (JWT authenticated)
+    '/api/v1/upload/',                  // File upload endpoints (JWT authenticated)
+    '/api/v1/services',                 // Service endpoints (JWT authenticated)
   ];
 
-  const isExempt = csrfExemptPaths.some(path => req.path.startsWith(path));
+  // Check if path matches any exempt path (exact match or starts with)
+  const isExempt = csrfExemptPaths.some(exemptPath => {
+    // Exact match
+    if (req.path === exemptPath) return true;
+    // Starts with (for paths with trailing slash or subpaths)
+    if (req.path.startsWith(exemptPath + '/')) return true;
+    if (exemptPath.endsWith('/') && req.path.startsWith(exemptPath)) return true;
+    return false;
+  });
 
   if (isExempt) {
     console.log(`⚠️  CSRF check skipped for exempt path: ${req.path}`);
