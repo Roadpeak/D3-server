@@ -20,6 +20,9 @@ router.get('/categories', storesController.getCategories);
 router.get('/locations', storesController.getLocations);
 router.get('/random', storesController.getRandomStores);
 
+// Public route to get store branches (for users viewing store page)
+router.get('/:id/branches', storesController.getPublicStoreBranches);
+
 // ==========================================
 // USER-SPECIFIC ROUTES - require user authentication
 // ==========================================

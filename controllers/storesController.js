@@ -425,7 +425,8 @@ exports.getStoreById = async (req, res) => {
     // Get authentication info
     let userId = null;
     let userType = null;
-    const token = req.headers['authorization']?.split(' ')[1];
+    // Check both Authorization header and cookies for token
+    const token = req.headers['authorization']?.split(' ')[1] || req.cookies?.access_token;
 
     if (token) {
       try {
@@ -1965,6 +1966,107 @@ exports.updateMerchantProfile = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: 'Error updating profile',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+// Public endpoint to get store branches (no auth required)
+exports.getPublicStoreBranches = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    console.log('🏪 Getting public branches for store:', id);
+
+    // Verify store exists
+    const store = await Store.findByPk(id);
+
+    if (!store) {
+      return res.status(404).json({
+        success: false,
+        message: 'Store not found'
+      });
+    }
+
+    // Import Branch model
+    const { Branch } = require('../models');
+
+    // Helper function for working days
+    const convertWorkingDaysToFrontendFormat = (workingDays) => {
+      if (!workingDays) return ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+      let days = workingDays;
+      if (typeof workingDays === 'string') {
+        try {
+          days = JSON.parse(workingDays);
+        } catch (e) {
+          return ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+        }
+      }
+
+      if (!Array.isArray(days)) return ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+      return days.map(day => {
+        if (!day) return '';
+        const dayStr = day.toString().toLowerCase().trim();
+        return dayStr.charAt(0).toUpperCase() + dayStr.slice(1);
+      }).filter(Boolean);
+    };
+
+    // Get additional branches
+    const additionalBranches = Branch ? await Branch.findAll({
+      where: {
+        storeId: id,
+        status: 'Active'
+      },
+      order: [['createdAt', 'ASC']]
+    }) : [];
+
+    // Create main branch from store info
+    const storeWorkingDays = convertWorkingDaysToFrontendFormat(store.working_days);
+
+    const mainBranch = {
+      id: `store-${store.id}`,
+      name: `${store.name} - Main Branch`,
+      address: store.location,
+      phone: store.phone_number,
+      email: store.primary_email,
+      status: store.status || 'Active',
+      openingTime: store.opening_time,
+      closingTime: store.closing_time,
+      workingDays: storeWorkingDays,
+      isMainBranch: true,
+      storeId: store.id,
+      isStoreMainBranch: true
+    };
+
+    // Format additional branches
+    const formattedAdditionalBranches = additionalBranches.map(branch => {
+      const branchData = branch.toJSON();
+      branchData.workingDays = convertWorkingDaysToFrontendFormat(branchData.workingDays);
+      return branchData;
+    });
+
+    // Combine all branches
+    const allBranches = [mainBranch, ...formattedAdditionalBranches];
+
+    console.log('✅ Found', allBranches.length, 'branches for store:', store.name);
+
+    return res.status(200).json({
+      success: true,
+      branches: allBranches,
+      count: allBranches.length,
+      store: {
+        id: store.id,
+        name: store.name
+      }
+    });
+
+  } catch (error) {
+    console.error('Get public store branches error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Error fetching store branches',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
