@@ -122,6 +122,7 @@ exports.register = async (req, res) => {
     return res.status(201).json({
       success: true,
       message: 'Merchant registered successfully',
+      access_token: token, // Include token in response for clients that can't receive HttpOnly cookies
       merchant,
     });
   } catch (err) {
@@ -413,9 +414,18 @@ exports.getMerchantProfile = async (req, res) => {
       } : null,
     };
 
-    return res.status(200).json({ 
+    // Generate a fresh token for clients that can't receive HttpOnly cookies
+    const token = jwt.sign(
+      { id: merchant.id, email: merchant.email, type: 'merchant' },
+      JWT_SECRET,
+      { expiresIn: '24h' }
+    );
+    setTokenCookie(res, token);
+
+    return res.status(200).json({
       success: true,
-      merchantProfile 
+      access_token: token, // Include token for clients that can't receive HttpOnly cookies
+      merchantProfile
     });
   } catch (err) {
     console.error('Get merchant profile error:', err);

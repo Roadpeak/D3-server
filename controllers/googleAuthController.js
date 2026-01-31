@@ -175,6 +175,7 @@ exports.googleSignInUser = async (req, res) => {
 
     return res.status(200).json({
       message: isNewUser ? 'Account created with Google successfully' : 'Google sign-in successful',
+      access_token: token, // Include token in response for clients that can't receive HttpOnly cookies
       user: {
         id: user.id,
         firstName: user.firstName,

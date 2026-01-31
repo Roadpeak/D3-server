@@ -137,6 +137,7 @@ exports.register = async (req, res) => {
 
     return res.status(201).json({
       message: 'Registration successful',
+      access_token: token, // Include token in response for clients that can't receive HttpOnly cookies
       user: {
         id: newUser.id,
         firstName: newUser.firstName,
@@ -440,7 +441,7 @@ exports.resendOtp = async (req, res) => {
 exports.getProfile = async (req, res) => {
   try {
     const userId = req.user.userId;
-    
+
     const user = await userService.findUserById(userId);
     if (!user) {
       return res.status(404).json({
@@ -449,7 +450,22 @@ exports.getProfile = async (req, res) => {
       });
     }
 
+    // Generate a fresh token for clients that can't receive HttpOnly cookies
+    const token = jwt.sign(
+      {
+        userId: user.id,
+        email: user.email,
+        type: 'user'
+      },
+      JWT_SECRET,
+      { expiresIn: '30d' }
+    );
+
+    // Also refresh the HttpOnly cookie
+    setTokenCookie(res, token);
+
     return res.status(200).json({
+      access_token: token, // Include token for clients that can't receive HttpOnly cookies
       user: {
         id: user.id,
         firstName: user.firstName,
