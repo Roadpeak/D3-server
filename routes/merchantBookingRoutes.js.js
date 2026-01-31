@@ -432,7 +432,7 @@ router.put('/services/:bookingId/status', authenticateMerchant, async (req, res)
 router.get('/offers', authenticateMerchant, async (req, res) => {
   try {
     const merchantId = req.user?.id;
-    
+
     if (!merchantId) {
       return res.status(401).json({
         success: false,
@@ -440,22 +440,44 @@ router.get('/offers', authenticateMerchant, async (req, res) => {
       });
     }
 
-    const { 
-      status, 
-      limit = 50, 
-      offset = 0, 
-      startDate, 
+    const {
+      status,
+      limit = 50,
+      offset = 0,
+      startDate,
       endDate,
       storeId,
-      staffId 
+      staffId
     } = req.query;
 
     console.log('Fetching offer bookings for merchant:', merchantId);
 
-    // Build where conditions
-    const whereConditions = { 
+    // CRITICAL FIX: First get merchant's stores to filter bookings properly
+    const merchantStores = await Store.findAll({
+      where: { merchant_id: merchantId },
+      attributes: ['id'],
+      raw: true
+    });
+
+    if (!merchantStores || merchantStores.length === 0) {
+      console.log('No stores found for merchant:', merchantId);
+      return res.json({
+        success: true,
+        bookings: [],
+        pagination: { total: 0, limit: parseInt(limit), offset: parseInt(offset) },
+        summary: { total: 0, pending: 0, confirmed: 0, completed: 0, cancelled: 0 },
+        message: 'No stores found for this merchant'
+      });
+    }
+
+    const merchantStoreIds = merchantStores.map(s => s.id);
+    console.log('Merchant store IDs:', merchantStoreIds);
+
+    // Build where conditions - filter by merchant's store IDs
+    const whereConditions = {
       offerId: { [Op.ne]: null },
-      bookingType: 'offer'
+      bookingType: 'offer',
+      storeId: { [Op.in]: merchantStoreIds }  // CRITICAL: Filter by merchant's stores
     };
     
     if (status) {
@@ -494,20 +516,18 @@ router.get('/offers', authenticateMerchant, async (req, res) => {
         {
           model: Offer,
           as: 'offer',
-          required: true,
-          attributes: ['id', 'title', 'description', 'discount', 'fee', 'offer_type'], // ✅ FIXED: Using actual column names
+          required: false,
+          attributes: ['id', 'title', 'description', 'discount', 'fee', 'offer_type'],
           include: [{
             model: Service,
             as: 'service',
             attributes: ['id', 'name', 'price', 'duration'],
+            required: false,
             include: [{
               model: Store,
               as: 'store',
-              where: {
-                merchant_id: merchantId
-              },
               attributes: ['id', 'name', 'location'],
-              required: true
+              required: false
             }]
           }]
         },
