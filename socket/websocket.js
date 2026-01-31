@@ -29,10 +29,30 @@ class SocketManager {
     this.io.use(async (socket, next) => {
       try {
         console.log('🔐 Socket authentication attempt...');
-        
-        const token = socket.handshake.auth.token || 
+
+        // Helper to extract token from cookies
+        const getTokenFromCookies = (cookieHeader) => {
+          if (!cookieHeader) return null;
+          const cookies = cookieHeader.split(';').reduce((acc, cookie) => {
+            const [key, value] = cookie.trim().split('=');
+            acc[key] = value;
+            return acc;
+          }, {});
+          return cookies.access_token || cookies.authToken || cookies.token || null;
+        };
+
+        // Try multiple token sources including cookies
+        const token = socket.handshake.auth.token ||
                      socket.handshake.headers.authorization?.replace('Bearer ', '') ||
-                     socket.handshake.query.token;
+                     socket.handshake.query.token ||
+                     getTokenFromCookies(socket.handshake.headers.cookie);
+
+        console.log('🔐 Token sources:', {
+          auth: !!socket.handshake.auth.token,
+          header: !!socket.handshake.headers.authorization,
+          query: !!socket.handshake.query.token,
+          cookie: !!getTokenFromCookies(socket.handshake.headers.cookie)
+        });
 
         if (!token) {
           return next(new Error('Authentication error: No token provided'));
