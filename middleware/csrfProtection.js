@@ -61,9 +61,13 @@ const csrfProtection = (req, res, next) => {
     '/api/v1/users/login',              // User login
     '/api/v1/users/register',           // User registration
     '/api/v1/users/google-signin',      // Google OAuth
+    '/api/v1/users/request-password-reset',  // User password reset request (rate-limited)
+    '/api/v1/users/reset-password',     // User password reset (token-validated)
     '/api/v1/merchants/login',          // Merchant login
     '/api/v1/merchants/register',       // Merchant registration
     '/api/v1/merchants/google-signin',  // Merchant Google OAuth
+    '/api/v1/merchants/request-password-reset',  // Merchant password reset request (rate-limited)
+    '/api/v1/merchants/reset-password', // Merchant password reset (token-validated)
     '/api/v1/bookings',                 // Booking endpoints (API key authenticated)
     '/api/v1/notifications/push/',      // Push notification subscriptions
     '/api/v1/chat/',                    // Chat endpoints (JWT authenticated)
