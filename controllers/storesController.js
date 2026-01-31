@@ -426,7 +426,13 @@ exports.getStoreById = async (req, res) => {
     let userId = null;
     let userType = null;
     // Check both Authorization header and cookies for token
-    const token = req.headers['authorization']?.split(' ')[1] || req.cookies?.access_token;
+    const authHeader = req.headers['authorization']?.split(' ')[1];
+    const cookieToken = req.cookies?.access_token;
+    const token = authHeader || cookieToken;
+
+    console.log('🔐 Auth Debug - Header token:', authHeader ? 'Present' : 'None');
+    console.log('🔐 Auth Debug - Cookie token:', cookieToken ? 'Present' : 'None');
+    console.log('🔐 Auth Debug - Cookies object:', req.cookies ? Object.keys(req.cookies) : 'No cookies');
 
     if (token) {
       try {
@@ -1301,7 +1307,13 @@ exports.getStoreById = async (req, res) => {
 
     let userId = null;
     let userType = null;
-    const token = req.headers['authorization']?.split(' ')[1];
+    // Check both Authorization header and cookies for token
+    const headerToken = req.headers['authorization']?.split(' ')[1];
+    const cookieToken = req.cookies?.access_token;
+    const token = headerToken || cookieToken;
+
+    console.log('🔐 getStoreById Auth - Header token:', headerToken ? 'Present' : 'None');
+    console.log('🔐 getStoreById Auth - Cookie token:', cookieToken ? 'Present' : 'None');
 
     if (token) {
       try {
