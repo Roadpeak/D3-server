@@ -197,6 +197,148 @@ router.post('/create', authenticateUser, (req, res, next) => {
 });
 
 // ==========================================
+// MERCHANT BOOKING MANAGEMENT (MUST be before /:bookingId to avoid route conflicts)
+// ==========================================
+
+/**
+ * Get merchant offer bookings specifically
+ */
+router.get('/merchant/offers', authenticateMerchant, safeControllerMethod(offerBookingController, 'getAllMerchantBookings'));
+
+/**
+ * Get merchant service bookings specifically
+ */
+router.get('/merchant/services', authenticateMerchant, safeControllerMethod(serviceBookingController, 'getAllMerchantBookings'));
+
+/**
+ * Get all bookings for merchant (both offer and service)
+ */
+router.get('/merchant/all', authenticateMerchant, async (req, res) => {
+  try {
+    // Get both offer and service bookings
+    const offerBookingsPromise = offerBookingController.getAllMerchantBookings ?
+      new Promise((resolve) => {
+        offerBookingController.getAllMerchantBookings(req, {
+          json: (data) => resolve(data),
+          status: () => ({ json: (data) => resolve(data) })
+        });
+      }) : Promise.resolve({ bookings: [] });
+
+    const serviceBookingsPromise = serviceBookingController.getAllMerchantBookings ?
+      new Promise((resolve) => {
+        serviceBookingController.getAllMerchantBookings(req, {
+          json: (data) => resolve(data),
+          status: () => ({ json: (data) => resolve(data) })
+        });
+      }) : Promise.resolve({ bookings: [] });
+
+    const [offerResult, serviceResult] = await Promise.all([
+      offerBookingsPromise,
+      serviceBookingsPromise
+    ]);
+
+    const allBookings = [
+      ...(offerResult.bookings || []),
+      ...(serviceResult.bookings || [])
+    ].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+    const summary = {
+      total: allBookings.length,
+      offers: offerResult.bookings?.length || 0,
+      services: serviceResult.bookings?.length || 0,
+      pending: allBookings.filter(b => b.status === 'pending').length,
+      confirmed: allBookings.filter(b => b.status === 'confirmed').length,
+      completed: allBookings.filter(b => b.status === 'completed').length,
+      cancelled: allBookings.filter(b => b.status === 'cancelled').length,
+      in_progress: allBookings.filter(b => b.status === 'in_progress').length
+    };
+
+    return res.status(200).json({
+      success: true,
+      bookings: allBookings,
+      summary,
+      pagination: {
+        total: allBookings.length,
+        limit: parseInt(req.query.limit) || 100,
+        offset: parseInt(req.query.offset) || 0
+      }
+    });
+  } catch (error) {
+    console.error('Error getting all merchant bookings:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to fetch merchant bookings',
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+    });
+  }
+});
+
+/**
+ * Get bookings for specific merchant store
+ */
+router.get('/merchant/store/:storeId', authenticateMerchant, safeControllerMethod(serviceBookingController, 'getMerchantStoreBookings'));
+
+/**
+ * Get specific booking by ID (merchant view)
+ */
+router.get('/merchant/:bookingId/view', authenticateMerchant, async (req, res, next) => {
+  try {
+    const { Booking } = require('../models');
+    const booking = await Booking.findByPk(req.params.bookingId, {
+      attributes: ['id', 'bookingType', 'offerId', 'serviceId']
+    });
+
+    if (!booking) {
+      return res.status(404).json({
+        success: false,
+        message: 'Booking not found'
+      });
+    }
+
+    // Route to appropriate controller
+    if (booking.bookingType === 'offer' || booking.offerId) {
+      return safeControllerMethod(offerBookingController, 'getBookingById')(req, res, next);
+    } else {
+      return safeControllerMethod(serviceBookingController, 'getMerchantBookingById')(req, res, next);
+    }
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: 'Error fetching booking'
+    });
+  }
+});
+
+/**
+ * Update booking status (merchant action)
+ */
+router.put('/merchant/:bookingId/status', authenticateMerchant, async (req, res, next) => {
+  try {
+    const { Booking } = require('../models');
+    const booking = await Booking.findByPk(req.params.bookingId);
+
+    if (!booking) {
+      return res.status(404).json({
+        success: false,
+        message: 'Booking not found'
+      });
+    }
+
+    // Route to appropriate controller
+    if (booking.bookingType === 'offer' || booking.offerId) {
+      return safeControllerMethod(offerBookingController, 'merchantUpdateBookingStatus')(req, res, next);
+    } else {
+      return safeControllerMethod(serviceBookingController, 'merchantUpdateBookingStatus')(req, res, next);
+    }
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: 'Error updating booking status'
+    });
+  }
+});
+
+// ==========================================
 // USER BOOKING MANAGEMENT ROUTES
 // ==========================================
 
@@ -206,14 +348,14 @@ router.post('/create', authenticateUser, (req, res, next) => {
 router.get('/user', authenticateUser, async (req, res, next) => {
   try {
     const { bookingType } = req.query;
-    
+
     // If specific type requested, route accordingly
     if (bookingType === 'offer') {
       return safeControllerMethod(offerBookingController, 'getUserBookings')(req, res, next);
     } else if (bookingType === 'service') {
       return safeControllerMethod(serviceBookingController, 'getUserBookings')(req, res, next);
     }
-    
+
     // Otherwise, get both types (you'll need to implement this or use enhanced controller)
     return safeControllerMethod(offerBookingController, 'getUserBookings')(req, res, next);
   } catch (error) {
@@ -338,148 +480,6 @@ router.put('/:bookingId/reschedule', authenticateUser, async (req, res, next) =>
     return res.status(500).json({
       success: false,
       message: 'Error processing reschedule'
-    });
-  }
-});
-
-// ==========================================
-// MERCHANT BOOKING MANAGEMENT
-// ==========================================
-
-/**
- * ✅ FIXED: Get merchant offer bookings specifically
- */
-router.get('/merchant/offers', authenticateMerchant, safeControllerMethod(offerBookingController, 'getAllMerchantBookings'));
-
-/**
- * ✅ Get merchant service bookings specifically
- */
-router.get('/merchant/services', authenticateMerchant, safeControllerMethod(serviceBookingController, 'getAllMerchantBookings'));
-
-/**
- * Get all bookings for merchant (both offer and service)
- */
-router.get('/merchant/all', authenticateMerchant, async (req, res) => {
-  try {
-    // Get both offer and service bookings
-    const offerBookingsPromise = offerBookingController.getAllMerchantBookings ? 
-      new Promise((resolve) => {
-        offerBookingController.getAllMerchantBookings(req, {
-          json: (data) => resolve(data),
-          status: () => ({ json: (data) => resolve(data) })
-        });
-      }) : Promise.resolve({ bookings: [] });
-
-    const serviceBookingsPromise = serviceBookingController.getAllMerchantBookings ?
-      new Promise((resolve) => {
-        serviceBookingController.getAllMerchantBookings(req, {
-          json: (data) => resolve(data),
-          status: () => ({ json: (data) => resolve(data) })
-        });
-      }) : Promise.resolve({ bookings: [] });
-
-    const [offerResult, serviceResult] = await Promise.all([
-      offerBookingsPromise,
-      serviceBookingsPromise
-    ]);
-
-    const allBookings = [
-      ...(offerResult.bookings || []),
-      ...(serviceResult.bookings || [])
-    ].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-
-    const summary = {
-      total: allBookings.length,
-      offers: offerResult.bookings?.length || 0,
-      services: serviceResult.bookings?.length || 0,
-      pending: allBookings.filter(b => b.status === 'pending').length,
-      confirmed: allBookings.filter(b => b.status === 'confirmed').length,
-      completed: allBookings.filter(b => b.status === 'completed').length,
-      cancelled: allBookings.filter(b => b.status === 'cancelled').length,
-      in_progress: allBookings.filter(b => b.status === 'in_progress').length
-    };
-
-    return res.status(200).json({
-      success: true,
-      bookings: allBookings,
-      summary,
-      pagination: {
-        total: allBookings.length,
-        limit: parseInt(req.query.limit) || 100,
-        offset: parseInt(req.query.offset) || 0
-      }
-    });
-  } catch (error) {
-    console.error('Error getting all merchant bookings:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'Failed to fetch merchant bookings',
-      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
-    });
-  }
-});
-
-/**
- * Get bookings for specific merchant store
- */
-router.get('/merchant/store/:storeId', authenticateMerchant, safeControllerMethod(serviceBookingController, 'getMerchantStoreBookings'));
-
-/**
- * Get specific booking by ID (merchant view)
- */
-router.get('/merchant/:bookingId/view', authenticateMerchant, async (req, res, next) => {
-  try {
-    const { Booking } = require('../models');
-    const booking = await Booking.findByPk(req.params.bookingId, {
-      attributes: ['id', 'bookingType', 'offerId', 'serviceId']
-    });
-    
-    if (!booking) {
-      return res.status(404).json({
-        success: false,
-        message: 'Booking not found'
-      });
-    }
-
-    // Route to appropriate controller
-    if (booking.bookingType === 'offer' || booking.offerId) {
-      return safeControllerMethod(offerBookingController, 'getBookingById')(req, res, next);
-    } else {
-      return safeControllerMethod(serviceBookingController, 'getMerchantBookingById')(req, res, next);
-    }
-  } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: 'Error fetching booking'
-    });
-  }
-});
-
-/**
- * Update booking status (merchant action)
- */
-router.put('/merchant/:bookingId/status', authenticateMerchant, async (req, res, next) => {
-  try {
-    const { Booking } = require('../models');
-    const booking = await Booking.findByPk(req.params.bookingId);
-    
-    if (!booking) {
-      return res.status(404).json({
-        success: false,
-        message: 'Booking not found'
-      });
-    }
-
-    // Route to appropriate controller
-    if (booking.bookingType === 'offer' || booking.offerId) {
-      return safeControllerMethod(offerBookingController, 'merchantUpdateBookingStatus')(req, res, next);
-    } else {
-      return safeControllerMethod(serviceBookingController, 'merchantUpdateBookingStatus')(req, res, next);
-    }
-  } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: 'Error updating booking status'
     });
   }
 });

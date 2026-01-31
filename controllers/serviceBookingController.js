@@ -1604,6 +1604,123 @@ class ServiceBookingController {
     }
   }
 
+  /**
+   * Get all service bookings for the merchant's stores
+   */
+  async getAllMerchantBookings(req, res) {
+    try {
+      const merchantId = req.user?.id || req.merchant?.id;
+
+      if (!merchantId) {
+        return res.status(401).json({
+          success: false,
+          message: 'Merchant authentication required'
+        });
+      }
+
+      const { limit = 100, offset = 0, status } = req.query;
+
+      // Get all stores owned by this merchant
+      const merchantStores = await Store.findAll({
+        where: { merchant_id: merchantId },
+        attributes: ['id'],
+        raw: true
+      });
+
+      if (!merchantStores || merchantStores.length === 0) {
+        return res.status(200).json({
+          success: true,
+          bookings: [],
+          pagination: { total: 0, limit: parseInt(limit), offset: parseInt(offset) },
+          summary: {
+            total: 0,
+            pending: 0,
+            confirmed: 0,
+            completed: 0,
+            cancelled: 0,
+            in_progress: 0
+          },
+          message: 'No stores found for this merchant'
+        });
+      }
+
+      const storeIds = merchantStores.map(store => store.id);
+
+      // Build where clause for service bookings (bookingType='service' or has serviceId but no offerId)
+      const whereClause = {
+        [Op.or]: [
+          { bookingType: 'service' },
+          { serviceId: { [Op.ne]: null }, offerId: null }
+        ],
+        storeId: storeIds
+      };
+
+      if (status && status !== 'all' && status !== '') {
+        whereClause.status = status;
+      }
+
+      const bookings = await Booking.findAll({
+        where: whereClause,
+        limit: parseInt(limit),
+        offset: parseInt(offset),
+        order: [['createdAt', 'DESC']],
+        include: [
+          {
+            model: User,
+            as: 'bookingUser',
+            attributes: ['id', 'firstName', 'lastName', 'email', 'phoneNumber']
+          },
+          {
+            model: Service,
+            as: 'service',
+            required: false,
+            attributes: ['id', 'name', 'price', 'duration'],
+            include: [{
+              model: Store,
+              as: 'store',
+              attributes: ['id', 'name', 'location']
+            }]
+          },
+          {
+            model: Staff,
+            as: 'staff',
+            required: false,
+            attributes: ['id', 'name', 'email', 'phoneNumber', 'role', 'status']
+          }
+        ]
+      });
+
+      // Calculate summary
+      const summary = {
+        total: bookings.length,
+        pending: bookings.filter(b => b.status === 'pending').length,
+        confirmed: bookings.filter(b => b.status === 'confirmed').length,
+        completed: bookings.filter(b => b.status === 'completed').length,
+        cancelled: bookings.filter(b => b.status === 'cancelled').length,
+        in_progress: bookings.filter(b => b.status === 'in_progress').length
+      };
+
+      return res.status(200).json({
+        success: true,
+        bookings,
+        summary,
+        pagination: {
+          total: bookings.length,
+          limit: parseInt(limit),
+          offset: parseInt(offset)
+        }
+      });
+
+    } catch (error) {
+      console.error('Error getting merchant service bookings:', error);
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to fetch merchant service bookings',
+        error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+      });
+    }
+  }
+
   // ==========================================
   // STORE/STAFF/BRANCH METHODS
   // ==========================================
@@ -1992,6 +2109,7 @@ module.exports = {
   getBranch: serviceBookingController.getBranch.bind(serviceBookingController),
   getStores: serviceBookingController.getStores.bind(serviceBookingController),
   getMerchantStoreBookings: serviceBookingController.getMerchantStoreBookings.bind(serviceBookingController),
+  getAllMerchantBookings: serviceBookingController.getAllMerchantBookings.bind(serviceBookingController),
   checkInServiceBooking: serviceBookingController.checkInServiceBooking.bind(serviceBookingController),
   confirmServiceBooking: serviceBookingController.confirmServiceBooking.bind(serviceBookingController),
   completeServiceBooking: serviceBookingController.completeServiceBooking.bind(serviceBookingController),
